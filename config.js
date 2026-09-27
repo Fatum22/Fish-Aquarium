@@ -3,8 +3,8 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 3: v3 economy on the v2 slow game)
- *  with the rules/proofs in NUMBERS.md (v3) in the same folder. To retune: run
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 4)
+ *  with the rules/proofs in NUMBERS.md (v4) in the same folder. To retune: run
  *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
  *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
@@ -12,51 +12,51 @@
  *  every timer equally, including time while the game is closed).
  *  Gold, food and XP are integers.
  *
- *  How the game reads TUNING (NUMBERS.md v3):
- *   - growSec[i]       : growth time from level i+1 to i+2 (L1->L2, L2->L3, L3->L4)
- *   - hungerPoint      : fraction of the current level's growth at which the fish gets hungry (once per level)
- *   - deathSec         : death timer from the moment a fish gets hungry (same for every species/level)
- *   - adultHungerSec   : an adult (L4) gets hungry this long after reaching L4, then after each full feed
- *   - portion          : foodBase * level * rarityFoodMult[rarity] food; one Food tap gives foodPerTap food
- *                        to the nearest fish that still needs food, so it takes ceil(portion / foodPerTap) taps
- *   - feedGoldPerFish  : gold paid when a fish becomes fully fed (v3: 0 -> no gold float at all)
- *   - levelUpGold[i]   : gold on reaching L(i+2)
- *   - levelUpXp[i]     : tank XP on reaching L(i+2) (tank.xp.fishLevelUp = "species.levelUpXp")
- *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
+ *  How the game reads TUNING (NUMBERS.md v4):
+ *   - growSec[i]       : growth time from level i+1 to i+2 (L1->L2, L2->L3, L3->L4); v4 = v3 / 20
+ *   - hungerPoints     : [0, 0.5] = two meals per level: a start meal (at level start) and a mid meal at 50%.
+ *                        A new L1 fish WAITS for its start meal (never hungry, never dies); at L2-L4 the start
+ *                        meal is a real hunger with the death timer running.
+ *   - deathSec[L-1]    : death timer by the fish's level when it gets hungry (L1 6 h, L2 7 h, L3 9 h, L4 10 h; same
+ *                        for every species; just levelled up = the new level's timer)
+ *   - adultHungerSec   : after its L4 start meal an adult gets hungry this long after its last full meal
+ *   - mealFood[L-1]    : food per meal at level L (x rarity foodMult); one Food tap = foodPerTap food to the nearest
+ *                        hungry fish; a completed meal gives species feedXp and moves the dirt clock dirt.mealAddsSec
+ *   - feedGoldPerFish  : 0 (no feed gold)
+ *   - levelUpGold[i] / levelUpXp[i] : gold / tank XP on reaching L(i+2)
+ *   - sell[i] / sellXp[i] : gold / tank XP for selling at L(i+1); sell[0] = 0 -> "Release"
+ *   - foodPacks        : shop Food category (10 food / 5 gold, 50 / 25)
  *   - unlockTankLevel  : species can only be bought at this tank level or higher
- *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean
- *                        (runs regardless of living, dead or no fish: the empty tank gets dirty too)
- *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
- *   - dirt.cleanGold   : payout for a full clean by stage [st1..st5] (+ tank.xp.clean XP), indexed by the stage
- *                        when rubbing started (cleanGoldIndex = byStageAtCleanStart), paid when the last spot clears
- *   - dirt.rubPxPerSpot: grime of a spot that appears at stage n = px of sponge travel over it
- *   - tank.levelAtXp   : total XP needed for tank level 1..5
+ *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean (any fish or none)
+ *   - dirt.spots / cleanGold / rubPxPerSpot : spots at stage n, pay for a full clean by the stage when rubbing
+ *                        started (+ tank.xp.clean XP), grime px per spot
+ *   - newTank          : a new tank starts at dirtClockStartSec (12 h = stage 3), 0 gold / 0 food / 0 diamonds; the
+ *                        first full clean pays firstCleanReward (20 gold + 10 food) instead of the stage pay
+ *   - tank.levelAtXp   : total XP needed for tank level 1..5; level5Reward.tankCapacity = 8 fish at level 5
+ *   - decorations      : free leaf/stone, max 12, size 0.5-2.0x per axis in 0.1 steps, colour 0-100, move 8 px/tap
  *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
- *   - deadFish         : dead fish float belly-up until removed (0 gold) and take a tank slot (the dirt clock ignores fish entirely)
+ *   - deadFish         : dead fish float belly-up until removed (0 gold) and take a tank slot
  *   - debugSpeeds / debugDefaultSpeed : on-screen speed control (x1..x20), page opens at x1; ?speed=N (hidden) allows any N
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json (Designer v3 economy on the v2 slow game, 2026-09-27)',
+  source: 'tuning.json v4 (Designer, 2026-09-27 19:30)',
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": 3,
-    "startGold": 20,
-    "startFood": 10,
+    "version": 4,
+    "startGold": 0,
+    "startFood": 0,
     "tankCapacity": 6,
     "maxLevel": 4,
-    "foodPack": {
-      "food": 10,
-      "gold": 10
-    },
     "foodPerTap": 1,
     "feedGoldPerFish": 0,
-    "hungerPoint": 0.5,
-    "deathSec": 57600,
-    "rarityFoodMult": {
-      "common": 1
-    },
+    "deathSec": [
+      21600,
+      25200,
+      32400,
+      36000
+    ],
     "offlineProgress": true,
     "debugSpeeds": [
       1,
@@ -73,11 +73,10 @@ window.AQUARIUM_CONFIG = {
         "rarity": "common",
         "unlockTankLevel": 1,
         "price": 20,
-        "foodBase": 1,
         "growSec": [
-          3600,
-          7200,
-          14400
+          180,
+          360,
+          720
         ],
         "levelUpGold": [
           1,
@@ -90,11 +89,24 @@ window.AQUARIUM_CONFIG = {
           18,
           40
         ],
-        "adultHungerSec": 14400,
+        "adultHungerSec": 720,
         "levelUpXp": [
           10,
           20,
           40
+        ],
+        "mealFood": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "feedXp": 1,
+        "sellXp": [
+          0,
+          10,
+          25,
+          80
         ]
       },
       {
@@ -104,11 +116,10 @@ window.AQUARIUM_CONFIG = {
         "rarity": "common",
         "unlockTankLevel": 2,
         "price": 50,
-        "foodBase": 1,
         "growSec": [
-          4500,
-          9000,
-          18000
+          225,
+          450,
+          900
         ],
         "levelUpGold": [
           3,
@@ -121,11 +132,24 @@ window.AQUARIUM_CONFIG = {
           45,
           100
         ],
-        "adultHungerSec": 18000,
+        "adultHungerSec": 900,
         "levelUpXp": [
           20,
           40,
           80
+        ],
+        "mealFood": [
+          1,
+          2,
+          2,
+          3
+        ],
+        "feedXp": 2,
+        "sellXp": [
+          0,
+          20,
+          50,
+          160
         ]
       },
       {
@@ -135,11 +159,10 @@ window.AQUARIUM_CONFIG = {
         "rarity": "common",
         "unlockTankLevel": 3,
         "price": 90,
-        "foodBase": 2,
         "growSec": [
-          6300,
-          12600,
-          25200
+          315,
+          630,
+          1260
         ],
         "levelUpGold": [
           5,
@@ -152,11 +175,24 @@ window.AQUARIUM_CONFIG = {
           81,
           180
         ],
-        "adultHungerSec": 25200,
+        "adultHungerSec": 1260,
         "levelUpXp": [
           30,
           60,
           120
+        ],
+        "mealFood": [
+          2,
+          3,
+          3,
+          4
+        ],
+        "feedXp": 3,
+        "sellXp": [
+          0,
+          30,
+          75,
+          240
         ]
       },
       {
@@ -166,11 +202,10 @@ window.AQUARIUM_CONFIG = {
         "rarity": "common",
         "unlockTankLevel": 4,
         "price": 150,
-        "foodBase": 2,
         "growSec": [
-          9000,
-          18000,
-          36000
+          450,
+          900,
+          1800
         ],
         "levelUpGold": [
           8,
@@ -183,11 +218,24 @@ window.AQUARIUM_CONFIG = {
           135,
           300
         ],
-        "adultHungerSec": 36000,
+        "adultHungerSec": 1800,
         "levelUpXp": [
           50,
           100,
           200
+        ],
+        "mealFood": [
+          3,
+          5,
+          6,
+          7
+        ],
+        "feedXp": 5,
+        "sellXp": [
+          0,
+          50,
+          125,
+          400
         ]
       }
     ],
@@ -202,11 +250,11 @@ window.AQUARIUM_CONFIG = {
         172800
       ],
       "spots": [
-        2,
         3,
         4,
         5,
-        6
+        6,
+        7
       ],
       "cleanGold": [
         2,
@@ -224,7 +272,10 @@ window.AQUARIUM_CONFIG = {
       ],
       "stage5Film": true,
       "runsWithEmptyTank": true,
-      "cleanGoldIndex": "byStageAtCleanStart"
+      "cleanGoldIndex": "byStageAtCleanStart",
+      "mealAddsSec": 300,
+      "mealAddsWhen": "fishFullyFedForOneMeal",
+      "showTimerToNextStage": true
     },
     "tank": {
       "levelAtXp": [
@@ -238,10 +289,12 @@ window.AQUARIUM_CONFIG = {
       "xp": {
         "fishLevelUp": "species.levelUpXp",
         "clean": 5,
-        "sell": 0,
-        "feed": 0
+        "feed": "species.feedXp per full meal",
+        "sell": "species.sellXp by level sold"
       },
-      "level5Reward": "decorationsLater"
+      "level5Reward": {
+        "tankCapacity": 8
+      }
     },
     "starterGrant": {
       "oneTime": true,
@@ -253,7 +306,101 @@ window.AQUARIUM_CONFIG = {
       "staysUntilRemoved": true,
       "removeGold": 0,
       "takesTankSlot": true
-    }
+    },
+    "startDiamonds": 0,
+    "newTank": {
+      "dirtStartStage": 3,
+      "dirtClockStartSec": 43200,
+      "firstCleanReward": {
+        "gold": 20,
+        "food": 10,
+        "replacesStagePay": true
+      },
+      "defaultDecorations": [
+        {
+          "type": "stone",
+          "count": 1
+        },
+        {
+          "type": "leaf",
+          "count": 3
+        }
+      ]
+    },
+    "foodPacks": [
+      {
+        "food": 10,
+        "gold": 5
+      },
+      {
+        "food": 50,
+        "gold": 25
+      }
+    ],
+    "mealsPerLevel": 2,
+    "hungerPoints": [
+      0.0,
+      0.5
+    ],
+    "levelStartHunger": {
+      "L1": "waitingNoDeathTimer",
+      "L2toL4": "hungryWithDeathTimer"
+    },
+    "timerScale": "v3 divided by 20, dirt unchanged",
+    "rarity": {
+      "common": {
+        "growMult": 1,
+        "foodMult": 1
+      },
+      "rare": {
+        "growMult": 2,
+        "foodMult": 3,
+        "later": true
+      },
+      "epic": {
+        "growMult": 4,
+        "foodMult": 6,
+        "later": true
+      }
+    },
+    "decorations": {
+      "price": 0,
+      "sellRefund": "pricePaid",
+      "maxInTank": 12,
+      "types": {
+        "leaf": {
+          "colorRange": "lightGreenToDarkGreen",
+          "colorSlider": [
+            0,
+            100
+          ],
+          "defaultColor": 50
+        },
+        "stone": {
+          "colorRange": "lightGreyToDarkGrey",
+          "colorSlider": [
+            0,
+            100
+          ],
+          "defaultColor": 50
+        }
+      },
+      "scale": {
+        "heightMin": 0.5,
+        "heightMax": 2.0,
+        "widthMin": 0.5,
+        "widthMax": 2.0,
+        "stepPerTap": 0.1,
+        "default": 1.0
+      },
+      "move": {
+        "stepPxPerTap": 8,
+        "holdRepeatMs": 100,
+        "clampInsideWater": true
+      },
+      "positionStoredAs": "fractionOfTankWaterArea"
+    },
+    "deathSecBy": "fishLevel (index 0 = L1), same for every species in v1"
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 
@@ -319,7 +466,7 @@ window.AQUARIUM_CONFIG = {
       // Multipliers on the platy's own fin alpha 0.85: 0.65/0.85 and 0.85/0.85.
       finAlphaBySpecies: { platy: [0, 0.65 / 0.85, 1.00, 1.00] },
     },
-    saveKey: 'aquarium.save.v2', // v2 rules: v1 saves are not loaded
+    saveKey: 'aquarium.save.v4', // v4 rules: older saves are not loaded (fresh start)
     saveEveryMs: 2000,
   },
 };

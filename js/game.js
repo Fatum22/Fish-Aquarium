@@ -1,4 +1,5 @@
-/* Aquarium game logic (Designer v3 economy on the v2 slow game): state, simulation, actions, offline catch-up, save/load.
+/* Aquarium game logic (Designer v4: v3 gold economy, fish timers /20, two meals per level, new-tank start, decorations):
+ * state, simulation, actions, offline catch-up, save/load.
  * No DOM here. All balance numbers come from window.AQUARIUM_CONFIG.TUNING (config.js = tuning.json).
  */
 (function (root) {
@@ -9,11 +10,9 @@
   T.species.forEach((s) => { SPECIES[s.id] = s; });
 
   // ---------------------------------------------------------------- helpers
-  function rarityFoodMult(r) {
-    if (T.rarityFoodMult && T.rarityFoodMult[r] != null) return T.rarityFoodMult[r];
-    return (CFG.RARITY_LATER[r] || { foodMult: 1 }).foodMult;
-  }
-  function rarityGrowthMult(r) { return r === 'common' ? 1 : (CFG.RARITY_LATER[r] || { growthMult: 1 }).growthMult; }
+  // v4: rarity food/growth multipliers live in TUNING.rarity (rare/epic are "later"; only common is used now)
+  function rarityFoodMult(r) { return (T.rarity && T.rarity[r] && T.rarity[r].foodMult) || (CFG.RARITY_LATER[r] || { foodMult: 1 }).foodMult; }
+  function rarityGrowthMult(r) { return (T.rarity && T.rarity[r] && T.rarity[r].growMult) || (CFG.RARITY_LATER[r] || { growthMult: 1 }).growthMult; }
   function rarityGoldMult(r) { return r === 'common' ? 1 : (CFG.RARITY_LATER[r] || { goldMult: 1 }).goldMult; }
 
   /** growth seconds needed to go from `level` to level+1 (null at max) */
@@ -23,9 +22,17 @@
   }
   /** adult: hungry this long after reaching L4, then after each full feed (adultHungerFrom = reachL4ThenLastFeed) */
   function adultHungerSec(sp) { return sp.adultHungerSec * rarityGrowthMult(sp.rarity); }
-  /** v2: one death timer for every species and level (NUMBERS.md 1a DEATH_SEC) */
-  function deathSecFor() { return T.deathSec; }
-  function portion(sp, level) { return Math.ceil(sp.foodBase * level * rarityFoodMult(sp.rarity)); }
+  /** NUMBERS.md v4 3a: death timer by the fish's level at the moment it gets hungry (deathSec[level-1]; L1 6 h ... L4 10 h),
+   *  the same for every species. A fish hungry for its start meal right after a level-up uses its NEW level's value.
+   *  (A plain number in tuning would still work: one timer for every level.) */
+  function deathSecFor(sp, level) {
+    const d = T.deathSec;
+    return Array.isArray(d) ? d[Math.max(1, Math.min(d.length, level || 1)) - 1] : d;
+  }
+  /** v4: food per meal by species and level (mealFood[level-1]) x rarity food multiplier, rounded up */
+  function portion(sp, level) { return Math.ceil(sp.mealFood[Math.min(level, sp.mealFood.length) - 1] * rarityFoodMult(sp.rarity)); }
+  /** v4: the mid-level meal comes at hungerPoints[1] (0.5) of the level; the start meal (hungerPoints[0] = 0) is at level start */
+  const MID_HUNGER = T.hungerPoints ? T.hungerPoints[T.hungerPoints.length - 1] : 0.5;
   function tapsFor(food) { return Math.ceil(food / T.foodPerTap); }
   function sellPrice(sp, level) { return Math.round(sp.sell[level - 1] * rarityGoldMult(sp.rarity)); }
   function levelUpGold(sp, newLevel) { return Math.round(sp.levelUpGold[newLevel - 2] * rarityGoldMult(sp.rarity)); }
@@ -42,7 +49,10 @@
   function xpFor(kind, ctx) {
     const v = T.tank.xp[kind];
     if (typeof v === 'number') return v;
-    if (v === 'species.levelUpXp' && ctx && ctx.sp) return ctx.sp.levelUpXp[ctx.level - 2] || 0;
+    if (!ctx || !ctx.sp) return 0;
+    if (v === 'species.levelUpXp') return ctx.sp.levelUpXp[ctx.level - 2] || 0;
+    if (/^species\.feedXp/.test(v)) return ctx.sp.feedXp || 0;               // per completed meal
+    if (/^species\.sellXp/.test(v)) return ctx.sp.sellXp[ctx.level - 1] || 0; // by level sold
     return 0;
   }
   /** v3: clean pay by the stage the tank was at when rubbing started (dirt.cleanGoldIndex = byStageAtCleanStart) */
@@ -68,31 +78,45 @@
     emit('xp', { xp: n, why });
     for (let lv = before + 1; lv <= after; lv++) {
       const unlocks = T.species.filter((sp) => sp.unlockTankLevel === lv).map((sp) => sp.id);
-      emit('tanklevel', { level: lv, unlocks, decorations: lv >= T.tank.maxLevel });
+      const cap = lv >= T.tank.maxLevel && T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : null;
+      emit('tanklevel', { level: lv, unlocks, capacity: cap, extraSlots: cap ? cap - T.tankCapacity : 0 });
     }
+  }
+  /** v4 proposal 8: tank level 5 raises capacity from tankCapacity (6) to level5Reward.tankCapacity (8) */
+  function capacity() {
+    const r = T.tank.level5Reward;
+    return r && tankLevelFor(S.tank.xp) >= T.tank.maxLevel ? r.tankCapacity : T.tankCapacity;
   }
   function isUnlocked(sp) { return tankLevelFor(S.tank.xp) >= (sp.unlockTankLevel || 1); }
 
   // ---------------------------------------------------------------- state
+  const SAVE_V = 4;
+  /** v4 new tank (NUMBERS.md 1, 6.2, 11.2): 0 gold / 0 food / 0 diamonds, dirt clock at 12 h (stage 3, spots already
+   *  there), first-clean reward armed, default decorations (placed by main.js from VISUAL.defaultDecorations). */
   function newState() {
+    const nt = T.newTank || {};
     return {
-      v: 2,
+      v: SAVE_V,
       gameTime: 0,
       lastSeen: Date.now(),  // wall clock (ms) of the last save; offline catch-up starts here
       gold: T.startGold,
       food: T.startFood,
+      diamonds: T.startDiamonds || 0,
       speed: T.debugDefaultSpeed || 1,
       nextId: 1,
       fish: [],
-      dirt: { t: 0, spots: [], spawned: 0, grime5: 0, rubStage: 0 }, // t = game s since new tank / last full clean; rubStage = stage when rubbing started (0 = not started)
+      dirt: { t: nt.dirtClockStartSec || 0, spots: [], spawned: 0, grime5: 0, rubStage: 0 }, // t = game s since new tank start / last full clean; rubStage = stage when rubbing started (0 = not started)
       tank: { xp: 0 },
+      firstCleanPending: !!nt.firstCleanReward, // the first full clean pays firstCleanReward instead of the stage pay
+      decor: null,        // decorations [{ id, type, x, y, sx, sy, color, paid }]; null = defaults not placed yet (main.js)
       starterGrantUsed: false,
-      stats: { cleans: 0, feeds: 0, taps: 0, levelUps: 0, deaths: 0, sold: 0, removed: 0 },
+      stats: { cleans: 0, feeds: 0, taps: 0, meals: 0, levelUps: 0, deaths: 0, sold: 0, removed: 0 },
     };
   }
 
   let S = newState();
   const listeners = [];
+  // (the initial S gets its stage 3 spots below, once the helpers exist)
   function emit(type, data) { listeners.slice().forEach((fn) => fn(type, data || {})); }
 
   const isDead = (f) => f.state === 'DEAD';
@@ -110,7 +134,7 @@
       f.sinceFed += dt;
       if (f.state === 'GROWING') {
         const need = growSec(sp, f.level);
-        const hungerAt = need * T.hungerPoint;
+        const hungerAt = need * MID_HUNGER; // mid-level meal
         if (!f.hungerDone && f.progress + dt >= hungerAt) {
           dt -= Math.max(0, hungerAt - f.progress);
           f.sinceFed -= dt; // re-added by the next loop iteration
@@ -150,19 +174,24 @@
     }
   }
 
+  /** v4 (NUMBERS.md 3.4): at 100% the fish goes up a level, pays level-up gold + XP, and is immediately hungry for that
+   *  level's start meal with the death timer running (L2, L3 and L4; at L4 it's the first adult meal). */
   function levelUp(f) {
     const sp = SPECIES[f.sp];
     f.level++;
     f.progress = 0;
-    f.hungerDone = false;
+    f.hungerDone = false; // the mid meal of the new level is still ahead
     const g = levelUpGold(sp, f.level);
     S.gold += g;
     S.stats.levelUps++;
-    f.state = f.level >= T.maxLevel ? 'ADULT' : 'GROWING';
-    if (f.state === 'ADULT') f.sinceFed = 0; // first adult hunger counts from reaching L4
+    f.state = f.level >= T.maxLevel ? 'ADULT_HUNGRY' : 'HUNGRY';
+    f.fed = 0;
+    f.deathLeft = deathSecFor(sp, f.level);
+    f.sinceFed = 0;
     const xp = xpFor('fishLevelUp', { sp, level: f.level });
     emit('levelup', { fish: f, gold: g, xp });
     addXp(xp, 'levelup');
+    emit('hungry', { fish: f, start: true });
   }
 
   /** v2: a dead fish stays in the tank (belly-up) until removed; part-eaten food is lost */
@@ -175,17 +204,21 @@
     emit('death', { fish: f });
   }
 
-  /** v2 dirt: purely time since new tank / last full clean, whatever is in the tank (NUMBERS.md 1e) */
+  /** dirt: time since new tank / last full clean, whatever is in the tank, plus mealAddsSec per completed meal (v4 4.5).
+   *  Spots are spawned stage by stage, so a jump over a stage line (new tank at 12 h, a meal's +5 min) still gives
+   *  each stage's own spots. */
   function tickDirt(dt) {
     const before = dirtStage(S.dirt.t);
     S.dirt.t += dt;
     const st = dirtStage(S.dirt.t);
-    if (st > 0) {
-      const target = T.dirt.spots[st - 1];
-      while (S.dirt.spawned < target) spawnSpot(st);
-      if (st >= 5 && !S.dirt.grime5) S.dirt.grime5 = totalGrime(); // film fades against this
-    }
+    for (let k = 1; k <= st; k++) { const target = T.dirt.spots[k - 1]; while (S.dirt.spawned < target) spawnSpot(k); }
+    if (st >= 5 && !S.dirt.grime5) S.dirt.grime5 = totalGrime(); // film fades against this
     if (st !== before) emit('dirtstage', { stage: st });
+  }
+  /** seconds of game time until the next dirt stage (null at the last stage) */
+  function dirtNextIn() {
+    const at = T.dirt.stageAtSec, st = dirtStage(S.dirt.t);
+    return st >= at.length ? null : at[st] - S.dirt.t;
   }
   function totalGrime() { return S.dirt.spots.reduce((a, s) => a + Math.max(0, s.grime), 0); }
   /** stage 5 film strength 0..1: grime left / grime when stage 5 started (0 below stage 5 and once clean) */
@@ -228,7 +261,8 @@
 
   function checkStarterGrant() {
     // NUMBERS.md 9.4: one-time top-up to 20 gold when no LIVING fish and gold < cheapest baby. Food ignored.
-    if (!S.starterGrantUsed && living() === 0 && S.gold < cheapestBaby()) { S.gold = T.starterGrant.topUpGoldTo; S.starterGrantUsed = T.starterGrant.oneTime; emit('grant', { gold: S.gold }); }
+    // v4 11.3: the first-clean reward is separate and comes first, so no grant while it's still pending.
+    if (!S.starterGrantUsed && !S.firstCleanPending && living() === 0 && S.gold < cheapestBaby()) { S.gold = T.starterGrant.topUpGoldTo; S.starterGrantUsed = T.starterGrant.oneTime; emit('grant', { gold: S.gold }); }
   }
 
   /** advance the game by dtGame seconds (already multiplied by speed). Order per step: growth, hunger, death, then dirt. */
@@ -258,7 +292,7 @@
     const lines = [];
     ev.level.forEach((f) => lines.push(`${SPECIES[f.sp].name} reached L${f.level}${f.level >= T.maxLevel ? ' (adult)' : ''}`));
     ev.died.forEach((f) => lines.push(`${SPECIES[f.sp].name} died`));
-    ev.tank.forEach((t) => lines.push(`tank level ${t.level}` + (t.unlocks.length ? `: ${t.unlocks.map((id) => SPECIES[id].name).join(', ')} unlocked` : t.decorations ? ': decorations coming soon' : '')));
+    ev.tank.forEach((t) => lines.push(`tank level ${t.level}` + (t.unlocks.length ? `: ${t.unlocks.map((id) => SPECIES[id].name).join(', ')} unlocked` : t.extraSlots ? `: room for ${t.extraSlots} more fish` : '')));
     const hungry = S.fish.filter((f) => f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY');
     if (hungry.length) lines.push(`${hungry.map((f) => SPECIES[f.sp].name).join(', ')} ${hungry.length > 1 ? 'are' : 'is'} hungry`);
     const st = dirtStage(S.dirt.t);
@@ -286,7 +320,7 @@
     const sp = SPECIES[id];
     if (!sp) return { ok: false, reason: 'Unknown species' };
     if (!isUnlocked(sp)) return { ok: false, reason: `Tank level ${sp.unlockTankLevel}`, locked: true };
-    if (S.fish.length >= T.tankCapacity) return { ok: false, reason: 'Tank full' }; // dead fish take a slot until removed
+    if (S.fish.length >= capacity()) return { ok: false, reason: 'Tank full' }; // dead fish take a slot until removed
     if (S.gold < sp.price) return { ok: false, reason: 'Not enough gold' };
     return { ok: true };
   }
@@ -306,8 +340,10 @@
     return f;
   }
 
-  function buyFood() {
-    const p = T.foodPack;
+  /** v4: food packs are bought in the shop's Food category (foodPacks[i]: 10 for 5 gold, 50 for 25 gold) */
+  function buyFood(i) {
+    const p = T.foodPacks[i || 0];
+    if (!p) return false;
     if (S.gold < p.gold) { emit('msg', { text: 'Not enough gold for food' }); return false; }
     S.gold -= p.gold; S.food += p.food;
     emit('foodbought', { food: p.food, gold: p.gold });
@@ -344,11 +380,18 @@
       f.deathLeft = null; f.sinceFed = 0; f.fed = 0;
       gold = T.feedGoldPerFish; S.gold += gold;
       S.stats.feeds++;
-      addXp(xpFor('feed'), 'feed');
     }
-    const r = { ok: true, fish: f, spent: give, full, gold, fed: full ? need : f.fed, need };
+    const r = { ok: true, fish: f, spent: give, full, gold, fed: full ? need : f.fed, need, xp: 0, dirtAdded: 0 };
     emit('tapfed', r);
-    if (full) emit('fed', { fish: f, gold });
+    if (full) {
+      // v4 4.5 / 4.6: a completed meal gives the species' feed XP and moves the dirt clock forward (partial food doesn't).
+      // The meal counts fully even if that pushes the dirt to a new stage; only the next tap is blocked.
+      r.xp = xpFor('feed', { sp }); S.stats.meals++;
+      r.dirtAdded = T.dirt.mealAddsSec || 0;
+      if (r.dirtAdded) tickDirt(r.dirtAdded);
+      emit('fed', { fish: f, gold, xp: r.xp, dirtAdded: r.dirtAdded });
+      addXp(r.xp, 'feed');
+    }
     checkStarterGrant();
     return r;
   }
@@ -375,14 +418,19 @@
     S.dirt.spots = S.dirt.spots.filter((s) => s.grime > 0);
     if (touched && S.dirt.spots.length === 0 && stage >= 1 && S.dirt.spawned >= T.dirt.spots[stage - 1]) {
       const payStage = S.dirt.rubStage || stage;
-      const gold = cleanGoldFor(payStage); // v3: 2/3/4/5/6 by the stage at rub start, paid when the last spot clears
-      S.gold += gold;
+      // v3: 2/3/4/5/6 by the stage at rub start, paid when the last spot clears.
+      // v4: the first full clean of a new tank pays firstCleanReward (20 gold + 10 food) INSTEAD of the stage pay.
+      const fc = S.firstCleanPending && T.newTank && T.newTank.firstCleanReward;
+      const gold = fc ? fc.gold : cleanGoldFor(payStage), food = fc ? fc.food : 0;
+      S.gold += gold; S.food += food;
+      S.firstCleanPending = false;
       S.dirt.t = 0; S.dirt.spawned = 0; S.dirt.spots = []; S.dirt.grime5 = 0; S.dirt.rubStage = 0;
       S.stats.cleans++;
       const xp = xpFor('clean');
-      emit('cleaned', { stage: payStage, stageNow: stage, gold, xp });
+      emit('cleaned', { stage: payStage, stageNow: stage, gold, food, first: !!fc, xp });
       addXp(xp, 'clean');
-      return { cleaned: true, gold, xp, stage: payStage, stageNow: stage };
+      checkStarterGrant();
+      return { cleaned: true, gold, food, first: !!fc, xp, stage: payStage, stageNow: stage };
     }
     return { cleaned: false, touched };
   }
@@ -391,11 +439,12 @@
     const f = S.fish.find((x) => x.id === fishId);
     if (!f || isDead(f)) return null; // dead fish can't be sold, only removed
     const price = sellPrice(SPECIES[f.sp], f.level);
+    const xp = xpFor('sell', { sp: SPECIES[f.sp], level: f.level }); // v4 5: sell XP by species and level (0 at L1)
     S.fish = S.fish.filter((x) => x !== f);
     S.gold += price;
     S.stats.sold++;
-    emit('sold', { fish: f, gold: price });
-    addXp(xpFor('sell'), 'sell');
+    emit('sold', { fish: f, gold: price, xp });
+    addXp(xp, 'sell');
     checkStarterGrant();
     return price;
   }
@@ -422,9 +471,11 @@
       growNeed: need, growLeft: need != null ? need - f.progress : null,
       progressFrac: need ? f.progress / need : 1,
       deathLeft: f.deathLeft, deathTotal: deathSecFor(sp, f.level),
-      sell: sellPrice(sp, f.level), portion: food,
+      sell: sellPrice(sp, f.level), sellXp: xpFor('sell', { sp, level: f.level }), portion: food,
       taps: tapsFor(food), tapsFed: tapsFor(f.fed || 0), fed: f.fed || 0,
+      needLeft: needsFood(f) ? Math.max(0, food - (f.fed || 0)) : 0, // food still needed for the current meal
       needsFood: needsFood(f),
+      midHungerIn: f.state === 'GROWING' && !f.hungerDone ? need * MID_HUNGER - f.progress : null,
       adultHungerIn: f.state === 'ADULT' ? adultHungerSec(sp) - f.sinceFed : null,
     };
   }
@@ -441,7 +492,7 @@
       const raw = (storage || root.localStorage).getItem(CFG.VISUAL.saveKey);
       if (!raw) return false;
       const d = JSON.parse(raw);
-      if (!d || d.v !== 2) return false;
+      if (!d || d.v !== SAVE_V) return false; // v4 rules: older saves are not loaded
       const base = newState();
       S = Object.assign(base, d);
       S.dirt = Object.assign(newState().dirt, d.dirt || {});
@@ -454,6 +505,7 @@
   function reset(storage) {
     try { (storage || root.localStorage).removeItem(CFG.VISUAL.saveKey); } catch (e) { /* ignore */ }
     S = newState();
+    tickDirt(0); // a new tank starts at dirt stage 3 with its spots
     emit('reset');
   }
 
@@ -461,19 +513,19 @@
   /** Designer's required checks:
    *  (a) cleaning at stage 1 earns the most gold per day (cleanGold[n] * 24 h / stage n time), falling with every stage;
    *  (b) per species, selling at L1..L3 is never a profit and selling at L4 always is.
-   *      profit(L) = sell[L] + level-up gold up to L - price - food eaten up to L (food at foodPack gold/food, NUMBERS.md 5);
+   *      profit(L) = sell[L] + level-up gold up to L - price - food eaten up to L (food at foodPacks[0] gold/food = 0.5, NUMBERS.md v4 10);
    *      noFood = the same without food, reported for reference. */
   function balanceChecks() {
-    const L = T.maxLevel, foodVal = T.foodPack.gold / T.foodPack.food;
+    const L = T.maxLevel, foodVal = T.foodPacks[0].gold / T.foodPacks[0].food;
     const sell = T.species.map((sp) => {
       const rows = [];
-      let lvlGold = 0, food = portion(sp, 1), feeds = 1, time = 0; // first feed at L1
+      // v4 10: food eaten before selling at level L = the two meals (start + mid) of every finished level (6 meals to L4)
+      let lvlGold = 0, food = 0, feeds = 0, time = 0;
       for (let lv = 1; lv <= L; lv++) {
-        if (lv > 1) { lvlGold += levelUpGold(sp, lv); time += growSec(sp, lv - 1); }
+        if (lv > 1) { lvlGold += levelUpGold(sp, lv); time += growSec(sp, lv - 1); food += (T.mealsPerLevel || 2) * portion(sp, lv - 1); feeds += T.mealsPerLevel || 2; }
         const noFood = sellPrice(sp, lv) + lvlGold - sp.price;
         const profit = noFood + feeds * T.feedGoldPerFish - food * foodVal;
         rows.push({ level: lv, profit: +profit.toFixed(2), noFood, food, hours: time / 3600 });
-        if (lv < L) { food += portion(sp, lv); feeds++; } // the hunger feed inside level lv
       }
       const early = rows.slice(0, L - 1), adult = rows[L - 1];
       return { species: sp.name, rows, l4perHour: +(adult.profit / adult.hours).toFixed(1),
@@ -484,14 +536,16 @@
     return { sell, sellOk: sell.every((o) => o.ok), cleanPerDay, cleanOk, cleanRatio: +(cleanPerDay[0] / cleanPerDay[cleanPerDay.length - 1]).toFixed(2) };
   }
 
+  tickDirt(0); // the initial new tank starts at dirt stage 3 with its spots (a loaded save replaces S)
+
   root.Game = {
     CFG, T, SPECIES,
     get state() { return S; },
     on(fn) { listeners.push(fn); },
     tick, catchUp, resume, buyFish, buyFood, feedTap, rub, sell, removeDead, canBuy, isUnlocked,
-    dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm,
-    fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood,
-    tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold,
+    dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
+    fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER,
+    tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,
     /** debug +50 XP button (NUMBERS.md 9.13): the normal XP path (addXp), so tank level-ups/unlock toasts/saves behave as in play; no gold */
     debugAddXp(n) { addXp(n, 'debug'); return tankInfo(); },
     save, load, reset, newState, balanceChecks, living, tankOver,

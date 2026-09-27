@@ -499,7 +499,7 @@
     floatLog.push(text); if (floatLog.length > 50) floatLog.shift();
   }
   // every float in the game goes through one of these
-  function floatClean(gold, x, y) { floatText(`Sparkling! +${gold} gold`, x, y - 20, '#9fffd0', true); }
+  function floatClean(gold, x, y, food) { floatText(`Sparkling! +${gold} gold${food ? ` +${food} food` : ''}`, x, y - 20, '#9fffd0', true); }
   function floatLevelUp(gold, xp, fx, fy) {
     const grp = `g${++floatGrp}`;
     const both = gold && xp;
@@ -521,10 +521,10 @@
     [...bar.children].forEach((el, i) => el.classList.toggle('on', i < st));
     $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtSec.length}`;
     const ti = G.tankInfo();
-    $('tank-label').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP · Decorations coming soon` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
+    $('tank-label').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
     $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
-    $('buyfood-label').textContent = `+${T.foodPack.food} food · ${T.foodPack.gold}g`;
-    $('btn-buyfood').disabled = s.gold < T.foodPack.gold;
+    $('buyfood-label').textContent = `+${T.foodPacks[0].food} food · ${T.foodPacks[0].gold}g`;
+    $('btn-buyfood').disabled = s.gold < T.foodPacks[0].gold;
     $('tankover').hidden = !G.tankOver();
     // hint line
     let hint = '';
@@ -622,7 +622,7 @@
   }
   document.querySelectorAll('.tool[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $('btn-shop').addEventListener('click', () => ($('shop').hidden ? openShop() : closeShop()));
-  $('btn-buyfood').addEventListener('click', () => { G.buyFood(); });
+  $('btn-buyfood').addEventListener('click', () => { G.buyFood(0); });
 
   // ------------------------------------------------------------ fish panel
   let selectedId = null;
@@ -654,7 +654,7 @@
       if (f.state === 'WAITING') { gEl.textContent = 'Not started'; gEl.classList.add('warn'); hEl.textContent = `Waiting for first feed · ${fedTxt}`; hEl.classList.add('warn'); }
       else if (f.state === 'GROWING') {
         gEl.textContent = `L${f.level} · next level in ${fmt(i.growLeft)}${realNote(i.growLeft)}`;
-        const hungerIn = f.hungerDone ? null : i.growNeed * T.hungerPoint - f.progress;
+        const hungerIn = i.midHungerIn;
         hEl.textContent = hungerIn != null ? `Fed · hungry in ${fmt(hungerIn)}` : 'Fed'; hEl.classList.add('ok');
       } else if (f.state === 'HUNGRY') {
         gEl.textContent = `L${f.level} · Growth paused`; gEl.classList.add('danger');
@@ -714,7 +714,7 @@
         });
       });
     }
-    const full = G.state.fish.length >= T.tankCapacity; // dead fish take a slot until removed
+    const full = G.state.fish.length >= G.capacity(); // dead fish take a slot until removed
     list.querySelectorAll('button[data-buy]').forEach((b) => {
       const sp = G.SPECIES[b.dataset.buy];
       const locked = !G.isUnlocked(sp);
@@ -728,7 +728,7 @@
     const ti = G.tankInfo(), dead = G.state.fish.length - G.living();
     $('shop-tank').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
     $('shop-tankbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
-    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${T.tankCapacity} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: Decorations coming soon. Numbers: Designer v${T.version || 2} (config.js ← tuning.json).`;
+    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: room for ${T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : T.tankCapacity} fish. Numbers: Designer v${T.version || 2} (config.js ← tuning.json).`;
   }
 
   // ------------------------------------------------------------ input on tank
@@ -782,7 +782,7 @@
   function rubTo(x, y) {
     const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, W * V.spongeRadiusFrac);
     pointer.lx = x; pointer.ly = y;
-    if (r.cleaned) floatClean(r.gold, x, y);
+    if (r.cleaned) floatClean(r.gold, x, y, r.food);
   }
 
   // ------------------------------------------------------------ game events
@@ -796,17 +796,19 @@
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
       case 'tanklevel':
-        toast(d.unlocks.length ? `Tank level ${d.level}! ${d.unlocks.map((id) => G.SPECIES[id].name).join(', ')} unlocked` : `Tank level ${d.level}! Decorations coming soon`, 'good');
+        toast(d.unlocks.length ? `Tank level ${d.level}! ${d.unlocks.map((id) => G.SPECIES[id].name).join(', ')} unlocked`
+          : d.extraSlots ? `Tank level ${d.level}: room for ${d.extraSlots} more fish` : `Tank level ${d.level}!`, 'good');
         break;
-      case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
+      case 'hungry': toast(`${name} is hungry!`, 'bad'); break; // mid-level meal, and the start meal right after a level-up
       case 'death': toast(`${name} died`, 'bad'); break; // stays in the tank belly-up until removed
       case 'removed': anim.delete(d.fish.id); toast(`Removed ${name} (${d.gold} gold)`); break;
       case 'feedblocked': dirtyCallout(); break; // Maksims: ONLY the message by the dirt bar, no centre toast
       case 'feedfail': toast(d.reason === 'nofood' ? 'Out of food' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : ''); break;
-      case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
+      case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.food ? ` · +${d.food} food` : ''}${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
       case 'sold':
         anim.delete(d.fish.id);
         toast(d.gold ? `Sold ${name} for ${d.gold} gold` : `Released ${name} (0 gold)`, d.gold ? 'good' : '');
+        if (d.xp) floatText(`+${d.xp} XP`, fx, fy, '#9fdcff', true); // v4 5: sell XP float next to the sell toast
         break;
       case 'foodbought': toast(`+${d.food} food (−${d.gold} gold)`); break;
       case 'grant': toast(`Starter grant: gold topped up to ${d.gold}`, 'good'); break;
@@ -828,8 +830,10 @@
   (() => {
     const locked = T.species.filter((sp) => (sp.unlockTankLevel || 1) > 1).map((sp) => sp.name);
     const list = locked.length > 1 ? `${locked.slice(0, -1).join(', ')} and ${locked[locked.length - 1]}` : locked.join('');
-    $('newtank-reset').textContent = `Everything resets: gold back to ${T.startGold}, food back to ${T.startFood}, no fish, tank level 1 (0 XP)` +
-      (locked.length ? `, and ${list} lock again.` : '.');
+    const fc = T.newTank && T.newTank.firstCleanReward;
+    $('newtank-reset').textContent = `Everything resets: ${T.startGold} gold, ${T.startFood} food, ${T.startDiamonds || 0} diamonds, no fish, tank level 1 (0 XP)` +
+      (locked.length ? `, ${list} lock again` : '') + `, only the default decorations, and the tank starts dirty (stage ${T.newTank ? T.newTank.dirtStartStage : 3})` +
+      (fc ? `. The first clean pays ${fc.gold} gold and ${fc.food} food again.` : '.');
   })();
   $('btn-newtank').addEventListener('click', () => {
     const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save();
