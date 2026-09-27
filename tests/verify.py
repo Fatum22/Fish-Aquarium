@@ -579,7 +579,7 @@ def main(VW, VH):
         page.wait_for_timeout(300); clear_toasts()
         ev("G.state.fish.forEach((f) => { f.progress = G.growSec(G.SPECIES.guppy, f.level) - 0.5; f.hungerDone = true; }); G.tick(1);")
         m2, snaps = [], []
-        for wait in (80, 250, 700, 1100):
+        for wait in (80, 250, 450, 600):   # (shorter total so the merged toast is surely still up for the 5th below)
             page.wait_for_timeout(wait)
             bxs = page.evaluate("AQ.floatBoxes()"); snaps.append(len(bxs))
             if wait == 250: page.screenshot(path=shot("multi_levelup"))
@@ -632,8 +632,12 @@ def main(VW, VH):
         # ================================================================ L. landscape layout v4 (Art Director LANDSCAPE_LAYOUT_V4.md)
         boot("?speed=1"); ev("fresh(); G.state.food = 0; G.state.speed = 1;"); tool("hand"); page.wait_for_timeout(300)
         lay = page.evaluate("AQ.layout()")
-        spec = {False: {"column": (8, 8, 68, 374), "hud": (84, 8, 752, 36), "tank": (84, 50, 752, 302), "debug": (84, 358, 752, 24)},
-                True: {"column": (12, 12, 96, 796), "hud": (120, 12, 1048, 48), "tank": (120, 68, 1048, 700), "debug": (120, 776, 1048, 32)}}[LARGE]
+        # fluid frame (Maksims 20:10): padding 8 / 12 on top, left and right, bottom only max(4, safe-area) = 4 here; the tank
+        # fills everything right of the column and between the top bar and the debug row (AD boxes with the 4px bottom)
+        pd, cw, tb_, gp, dh = (12, 96, 48, 8, 32) if LARGE else (8, 68, 36, 6, 24)
+        tx_ = pd + cw + pd if LARGE else pd + cw + 8
+        spec = {"column": (pd, pd, cw, VH - pd - 4), "hud": (tx_, pd, VW - tx_ - pd, tb_), "tank": (tx_, pd + tb_ + gp, VW - tx_ - pd, VH - 4 - dh - gp - (pd + tb_ + gp)),
+                "debug": (tx_, VH - 4 - dh, VW - tx_ - pd, dh)}
         off = {k: max(abs(lay[k]["x"] - v[0]), abs(lay[k]["y"] - v[1]), abs(lay[k]["w"] - v[2]), abs(lay[k]["h"] - v[3])) for k, v in spec.items()}
         check("AD v4 1: tool column, top bar, tank and debug row match the spec boxes within 4px; nothing scrolls",
               max(off.values()) <= 4 and lay["scrollW"] <= VW and lay["scrollH"] <= VH, json.dumps({"off": off, "got": {k: lay[k] for k in spec}}))
@@ -700,16 +704,22 @@ def main(VW, VH):
         line_px, beside = P(xr, yl), P(xr - 9, yl)
         surf_px = max((P(gm["W"] * 0.66, gm["surf"] + d) for d in (-1, 0, 1)), key=sum)
         check("AD v4 4: air gap = top 7% (min 16px: 21 / 49px) filled darker than the water; sand top at 86%; glass lines inset 3.5% of W",
-              abs(gm["surf"] - exp_surf) < 0.01 and round(gm["surf"]) == (49 if LARGE else 21) and abs(gm["sand"] - min(0.86 * gm["H"], gm["H"] - 36)) < 0.01 and abs(gm["inset"] - 0.035 * gm["W"]) < 0.01
+              abs(gm["surf"] - exp_surf) < 0.01 and abs(gm["surf"] - max(16, 0.07 * gm["H"])) < 0.01 and abs(gm["sand"] - min(0.86 * gm["H"], gm["H"] - 36)) < 0.01 and abs(gm["inset"] - 0.035 * gm["W"]) < 0.01
               and sum(air) < sum(water) - 150 and air[2] < 110, json.dumps({"geom": gm, "air": air, "water": water}))
         check("AD v4 4: water surface line is visible (lighter than the water under it)", sum(surf_px) > sum(water) + 40, json.dumps({"surface": surf_px, "water": water}))
         # square tank corners (Maksims 19:57, AD v4 4 updated 19:58): radius 0 on frame, canvas, water and sand
         rad = page.evaluate("['tank-wrap', 'tank'].map((id) => { const c = getComputedStyle(document.getElementById(id)); return [c.borderTopLeftRadius, c.borderTopRightRadius, c.borderBottomRightRadius, c.borderBottomLeftRadius]; })")
         dif = lambda p, q: sum(abs(u - v) for u, v in zip(p, q))
         Wt, Ht = gm["W"], gm["H"]
-        corners = {"tl": dif(P(0.3, 0.3), P(4, 4)), "tr": dif(P(Wt - 0.7, 0.3), P(Wt - 4, 4)), "bl": dif(P(0.3, Ht - 0.7), P(3, Ht - 3)), "br": dif(P(Wt - 0.7, Ht - 0.7), P(Wt - 3, Ht - 3))}
-        check("Maksims / AD v4 4: tank corners are SQUARE: border-radius 0 on the tank frame and canvas, and the very corner pixels are tank (air / sand), not frame",
-              all(r == "0px" for rr in rad for r in rr) and all(v < 30 for v in corners.values()), json.dumps({"radius": rad, "cornerDiff": corners}))
+        # corner pixel vs its nearest tank neighbours (min diff: sand pebbles vary); a rounded corner would show frame
+        # there. The bottom (sand) corners must also be far from the frame colours (#1d4b6b / #0b2233).
+        def near(cx, cy, sx, sy): return min(dif(P(cx, cy), P(cx + sx * a, cy + sy * b)) for a, b in ((2.5, 2.5), (5, 0), (0, 5), (1.5, 0), (0, 1.5)))
+        corners = {"tl": near(0.3, 0.3, 1, 1), "tr": near(Wt - 0.7, 0.3, -1, 1), "bl": near(0.3, Ht - 0.7, 1, -1), "br": near(Wt - 0.7, Ht - 0.7, -1, -1)}
+        frame_d = {k: min(dif(P(*xy), (0x1d, 0x4b, 0x6b)), dif(P(*xy), (0x0b, 0x22, 0x33))) for k, xy in (("bl", (0.3, Ht - 0.7)), ("br", (Wt - 0.7, Ht - 0.7)))}
+        clips = page.evaluate("['tank-wrap', 'tank'].map((id) => getComputedStyle(document.getElementById(id)).clipPath)")
+        check("Maksims / AD v4 4: tank corners are SQUARE: border-radius 0 and no clip-path on the tank frame and canvas; the very corner pixels are tank (air / sand), not frame",
+              all(r == "0px" for rr in rad for r in rr) and all(c == "none" for c in clips) and all(v < 30 for v in corners.values()) and all(v > 120 for v in frame_d.values()),
+              json.dumps({"radius": rad, "clip": clips, "cornerDiff": corners, "sandCornerVsFrame": frame_d}))
         def glass_probe():
             gl = page.evaluate("AQ.glassLine()"); x = gl["x"]; xo = gm["inset"] if gl["side"] == "right" else Wt - gm["inset"]; inward = -1 if gl["side"] == "right" else 1
             top, top_b = P(x, 0.6), P(x + 9 * inward, 0.6)
@@ -824,6 +834,34 @@ def main(VW, VH):
         x_c = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
         steps_held = round((x_b - x_c) / 8)
         check("AD v4 7: a Move tap moves 8px; holding repeats every 80ms after 300ms (0.7 s hold = about 6 steps)", abs(x_b - x_a - 8) < 0.01 and 4 <= steps_held <= 7, f"tap {x_b - x_a:.2f}px, held {steps_held} steps")
+        # Maksims 20:12: move-DOWN runs the decoration's BASE all the way to the sand's front edge (the tank bottom / front
+        # glass) at every size; it stays fully visible (full height above the base, top inside the water, not clipped)
+        front, fshots = [], []
+        for dq in (did_, "d4"):   # the new leaf and the default stone
+            for sc in (0.5, 1.0, 2.0):
+                ev(f"const d = G.state.decor.find((x) => x.id === '{dq}'); d.sh = {sc}; d.sw = {sc}; d.y = 0; AQ.selectDecor(d.id);"); page.wait_for_timeout(60)
+                prev, presses = None, 0
+                for _k in range(60):
+                    page.click('#deco-menu [data-move="down"]'); presses += 1
+                    cur = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == dq)["by"]
+                    if prev is not None and abs(cur - prev) < 1e-6: break
+                    prev = cur
+                gq = page.evaluate("AQ.geom()"); z = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == dq)
+                full_h = (z["h"] if z["type"] == "leaf" else z["h"] * (1 - 0.15))
+                exp_h = min(0.30 * gq["waterH"] * sc, z["by"] - gq["surf"] - 0.04 * gq["waterH"]) if z["type"] == "leaf" else 0.11 * gq["waterH"] * sc * 0.85
+                tbx = box(); sx, sy = z["bx"], z["by"] - (z["by"] - z["y0"]) * 0.3
+                pngA = page.screenshot(clip={"x": tbx["x"], "y": tbx["y"], "width": tbx["width"], "height": tbx["height"]}); _wA, _hA, pxA = png_rgb(pngA); kA = _wA / tbx["width"]
+                if sc == 2.0: page.screenshot(path=shot(f"decor_front_{z['type']}_2x"))
+                ev(f"const d = G.state.decor.find((x) => x.id === '{dq}'); d._x = d.x; d.x = -5;"); page.wait_for_timeout(60)
+                pngB = page.screenshot(clip={"x": tbx["x"], "y": tbx["y"], "width": tbx["width"], "height": tbx["height"]}); _wB, _hB, pxB = png_rgb(pngB)
+                ev(f"const d = G.state.decor.find((x) => x.id === '{dq}'); d.x = d._x; delete d._x;"); page.wait_for_timeout(40)
+                vis_d = sum(abs(a - b) for a, b in zip(pxA(int(sx * kA), int(sy * kA)), pxB(int(sx * kA), int(sy * kA))))
+                front.append({"id": dq, "type": z["type"], "size": sc, "presses": presses, "gap": round(gq["H"] - z["by"], 3), "visH": round(z["by"] - z["y0"], 1), "expH": round(exp_h, 1),
+                              "top": round(z["y0"], 1), "surf": round(gq["surf"], 1), "x0": round(z["x0"], 1), "x1": round(z["x1"], 1), "W": gq["W"], "pxDiff": vis_d})
+        ev("G.state.decor.forEach((d) => { d.sh = 1; d.sw = 1; });"); ev(f"AQ.selectDecor('{did_}');"); page.wait_for_timeout(60)
+        check("Maksims 20:12: move-down takes a decoration's BASE to the sand's front edge (gap <= 1px) at 0.5x / 1.0x / 2.0x, leaf and stone; still fully visible (full height, top in the water, inside the glass, drawn)",
+              all(0 <= q["gap"] <= 1 and abs(q["visH"] - q["expH"]) < 0.6 and q["top"] > q["surf"] and q["x0"] >= 0 and q["x1"] <= q["W"] and q["pxDiff"] > 40 for q in front) and len(front) == 6,
+              json.dumps(front))
         for _ in range(10): page.click('#deco-menu [data-size="taller"]')
         for _ in range(5): page.click('#deco-menu [data-size="narrower"]')
         page.wait_for_timeout(80)
@@ -1086,10 +1124,12 @@ def portrait():
             o.allHitsRotate = hits.every(Boolean); return o; }""", list(ids))
         path = os.path.join(SHOTS, "portrait_rotate_over_open_ui_390x844.png"); page.screenshot(path=path)
         w_, h_, px = png_rgb(open(path, "rb").read())
+        blk = page.evaluate("""(() => { const a = document.getElementById('rotate-icon').getBoundingClientRect(), b = document.getElementById('rotate-text').getBoundingClientRect();
+            return [Math.min(a.left, b.left) - 4, Math.min(a.top, b.top) - 4, Math.max(a.right, b.right) + 4, Math.max(a.bottom, b.bottom) + 4]; })()""")
         bad, n = [], 0
         for y in range(0, h_, 6):
             for x in range(0, w_, 6):
-                if abs(x - w_ / 2) < 145 and -75 < y - h_ / 2 < 95: continue  # centred icon + text block (text is ~230 px wide)
+                if blk[0] <= x <= blk[2] and blk[1] <= y <= blk[3]: continue  # the icon + text block itself (measured)
                 n += 1; c = px(x, y)
                 if max(abs(c[0] - 7), abs(c[1] - 25), abs(c[2] - 42)) > 1: bad.append((x, y, c))
         check("390x844 upright over an open shop + confirm dialog + toast: none of them (nor tank, tool column, top bar, debug row) is visible; every tap point hits the rotate screen",
@@ -1109,6 +1149,33 @@ def portrait():
         browser.close()
     check("portrait pass: no page errors", not errors, "; ".join(errors[:3]))
 
+def fluid_layout():
+    """Maksims 20:10: the layout is fluid. On any landscape viewport the debug row sits on the viewport bottom (bottom offset
+    max(4px, safe-area) only) and the tank fills everything between the top bar and the debug row, and to the right padding."""
+    VIEW[0] = "fluid"
+    sizes = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (w, h) in ((844, 390), (1180, 820), (932, 430), (667, 375)):
+            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=2, has_touch=True)
+            page = ctx.new_page()
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            m = page.evaluate("""(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const t = r('tank-wrap'), d = r('debug'), hud = r('hud'), c = r('tools'), dw = r('dirt-win');
+                const tools = [...document.querySelectorAll('#tools .tool')].map((b) => b.getBoundingClientRect());
+                return { vw: innerWidth, vh: innerHeight, tank: [t.left, t.top, t.width, t.height], debugBottom: d.bottom, debugTop: d.top, tankBottom: t.bottom, tankRight: t.right,
+                         hudRight: hud.right, dirtRight: dw.right, hudLines: new Set([...document.querySelectorAll('#hud > *')].map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2))).size,
+                         toolsBottom: Math.max(...tools.map((q) => q.bottom)), colBottom: c.bottom, toolsLeftOfTank: tools.every((q) => q.right <= t.left - 4),
+                         scroll: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] }; })()""")
+            page.screenshot(path=os.path.join(SHOTS, f"fluid_{w}x{h}.png"))
+            pad = 12 if h >= 600 else 8
+            sizes[f"{w}x{h}"] = f"{m['tank'][2]:.0f}x{m['tank'][3]:.0f} at ({m['tank'][0]:.0f},{m['tank'][1]:.0f})"
+            check(f"fluid layout {w}x{h}: debug row bottom within 6px of the viewport bottom, tank-to-debug gap <= 8px, tank fills to the right padding, top bar one row, tools fit the column, nothing scrolls",
+                  0 <= h - m["debugBottom"] <= 6 and 0 <= m["debugTop"] - m["tankBottom"] <= 8 and abs(w - pad - m["tankRight"]) < 1 and m["dirtRight"] <= m["hudRight"] + 0.5 and m["hudLines"] == 1
+                  and m["toolsBottom"] <= m["colBottom"] + 0.5 and m["toolsLeftOfTank"] and m["scroll"][0] <= w and m["scroll"][1] <= h, json.dumps(m))
+            ctx.close()
+        browser.close()
+    print("   tank sizes:", json.dumps(sizes))
+
 def cache_bust():
     """Producer: every local script/CSS tag carries the same ?v=<build> so phones never run stale files after an update."""
     import re
@@ -1125,13 +1192,16 @@ def cache_bust():
           len(tags) == 5 and v is not None and len(loaded) >= 5 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
 
 if __name__ == "__main__":
-    views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",")]
+    views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",") if x.strip()]
     for vw, vh in views:
         print(f"\n======== {vw}x{vh}", flush=True)
         main(vw, vh)
     if os.environ.get("AQ_PORTRAIT", "1") == "1":
         print("\n======== portrait", flush=True)
         portrait()
+    if os.environ.get("AQ_FLUID", "1") == "1":
+        print("\n======== fluid layout", flush=True)
+        fluid_layout()
     cache_bust()
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")

@@ -1,75 +1,82 @@
-# Aquarium — one-tank web prototype (Designer v3 economy on the v2 "slow game")
+# Aquarium: one-tank mobile web prototype (Designer v4 numbers, Art Director landscape layout v4)
 
 ## HOW TO RUN
 
+Dev server (no-cache, the one Maksims watches through the tunnel):
+
 ```bash
-cd /workspace/aquarium && python3 -m http.server 8766 --bind 127.0.0.1
+nohup python3 /workspace/tools/nocache_server.py 8767 /workspace/aquarium > /tmp/aq-dev.log 2>&1 &
 ```
 
-Open **http://127.0.0.1:8766/**. The page always opens at **×1** (real time). The debug bar has **×1 / ×5 / ×10 / ×15 / ×20**, **+100g** (a cheat for testing), **+50 XP** and **Reset save**, all on one row (the game clock sits on its own line below). **+50 XP** (NUMBERS.md §9 edge case 13) adds 50 tank XP through the same XP path real play uses, so tank level-ups, unlock toasts and saving work exactly as in play. It gives no gold. Two taps reach tank level 2, 8 reach level 3 and 24 reach level 4.
-Hidden for testing: **`?speed=N`** sets any speed (for example `?speed=3600` = 1 game hour per real second). `?debug=0` hides the debug bar.
+Open **http://127.0.0.1:8767/**. (Port 8766 is the separate *stable* server for the reviewed build in the `/workspace/aquarium-stable` worktree; don't point it at this tree.) Any static server works too, for example `python3 -m http.server 8767 --bind 127.0.0.1`.
 
-Plain HTML/CSS/JS. There's no build step, no framework and no npm.
+The game is **landscape only**. Held upright it shows only a rotate screen. The page always opens at **×1** (real time). The debug row at the bottom has **×1 / ×5 / ×10 / ×15 / ×20**, **+100g** (cheat), **+50 XP** (through the real XP path, no gold) and **Reset save**, with the game clock right-aligned. Hidden for testing: **`?speed=N`** sets any speed (`?speed=3600` = 1 game hour per real second), and `?debug=0` hides the debug row.
 
-Tests (server must be running):
-- `/workspace/tools/venv-aq/bin/python tests/verify.py`: 92 end-to-end checks (Playwright + Chromium). Hours-long timers are checked by stepping the game inside the page; UI checks use real mouse and touch input.
-- `/workspace/tools/venv-aq/bin/python tests/art_shots.py`: review screenshots in `screenshots/`.
+Plain HTML/CSS/JS, with no build step, framework or npm. **Cache busting**: every script and CSS tag in `index.html` carries `?v=<build>`, so phones always load fresh files after an update. Run `python3 tools/bump_build.py` (the build id defaults to the UTC time) before handing over a build. `verify.py` checks that all tags carry the same id.
+
+Tests (the dev server must be running):
+- `AQ_URL=http://127.0.0.1:8767/ /workspace/tools/venv-aq/bin/python tests/verify.py`: end-to-end checks (Playwright + Chromium) at 844x390 (phone sideways) and 1180x820 (tablet sideways), plus the upright rotate screen (390x844, 820x1180), the fluid layout at 844x390 / 1180x820 / 932x430 / 667x375, and cache busting. Screenshots go to `screenshots/v4/`. Options: `AQ_VIEWS=844x390` (views to run), `AQ_PORTRAIT=0`, `AQ_FLUID=0`.
+- `tests/art_shots.py`: the older portrait review screenshots (pre-landscape; kept for reference).
 - Both reset the save at the end.
 
 ## Numbers
 
-Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy of Designer's `/workspace/studio/briefs/aquarium/design/tuning.json`** (version 3). The rules follow `NUMBERS.md` (v3) in the same folder. To retune, run `python3 tools/sync_tuning.py`. `verify.py` fails if the two differ.
-Outside `TUNING`: `OFFLINE_CAP_SEC` (7 days), the drafted rare/epic multipliers (not used in v1), and presentation-only values in `VISUAL`: fish size and growth look, dirt look per stage and the stage 5 film, sponge, and save key `aquarium.save.v2`.
+Every balance number is in **`config.js`**. `TUNING` there is a verbatim copy of Designer's **v4** `tuning.json`, pinned to `/workspace/studio/briefs/aquarium/design/v4_archive/tuning.json`. Designer has moved the live `tuning.json` to v5.1 (tank levels 6-10 and 5 new fish), which lands in the next step. `python3 tools/sync_tuning.py` copies the v4 archive by default. Pass a path to take another file. `verify.py` fails if `TUNING` and the v4 file differ.
+Presentation-only values are in `VISUAL` (tank geometry, glass line side, fish size, dirt look, decorations look, sponge).
 
-## Economy (v3, approved by Maksims 2026-09-27; NUMBERS.md §1b, §4, §5)
+| Species | Price | Unlock (tank Lv) | Grow L1→2 / 2→3 / 3→4 | Food per meal L1-L4 | Level-up gold | Sell L1-L4 | Sell XP L1-L4 |
+|---|---|---|---|---|---|---|---|
+| Guppy | 20 | 1 | 3 / 6 / 12 min | 1 / 1 / 1 / 2 | 1 / 2 / 4 | 0 / 8 / 18 / 40 | 0 / 10 / 25 / 80 |
+| Zebra Danio | 50 | 2 | 3.75 / 7.5 / 15 min | 1 / 2 / 2 / 3 | 3 / 5 / 10 | 0 / 20 / 45 / 100 | 0 / 20 / 50 / 160 |
+| Neon Tetra | 90 | 3 | 5.25 / 10.5 / 21 min | 2 / 3 / 3 / 4 | 5 / 9 / 18 | 0 / 36 / 81 / 180 | 0 / 30 / 75 / 240 |
+| Platy | 150 | 4 | 7.5 / 15 / 30 min | 3 / 5 / 6 / 7 | 8 / 15 / 30 | 0 / 60 / 135 / 300 | 0 / 50 / 125 / 400 |
 
-| Species | Price | Level-up gold L2 / L3 / L4 | Tank XP L2 / L3 / L4 | Sell L1 / L2 / L3 / L4 |
-|---|---|---|---|---|
-| Guppy | 20 | 1 / 2 / 4 | 10 / 20 / 40 | 0 / 8 / 18 / 40 |
-| Zebra Danio | 50 | 3 / 5 / 10 | 20 / 40 / 80 | 0 / 20 / 45 / 100 |
-| Neon Tetra | 90 | 5 / 9 / 18 | 30 / 60 / 120 | 0 / 36 / 81 / 180 |
-| Platy | 150 | 8 / 15 / 30 | 50 / 100 / 200 | 0 / 60 / 135 / 300 |
+- **New game / Start new tank**: an empty tank at dirt stage 3, 0 gold, 0 food, 0 diamonds, 1 stone and 3 leaves. The **first clean pays 20 gold + 10 food** (instead of the stage pay).
+- **Meals**: two per level (at the start and halfway). A meal needs the species' food for that level. Each food tap gives 1 food to the nearest fish that needs it. A finished meal gives the species' feed XP and **brings the dirt 5 minutes closer**.
+- **Death** after getting hungry: 6 / 7 / 9 / 10 h by fish level (a new L1 baby waits and never dies before its first meal).
+- **Dirt** is time only: stages at 3 / 6 / 12 / 24 / 48 h, 3 / 4 / 5 / 6 / 7 spots. A full clean pays 2 / 3 / 4 / 5 / 6 gold by the stage when rubbing started, + 5 XP.
+- **Tank level**: 60 / 400 / 1,200 / 3,000 XP for levels 2-5. XP comes from fish level-ups, meals, cleans and selling (selling gives the most). Level 5 raises capacity from 6 to 8 fish.
+- **Food packs** (Shop → Food): 10 food for 5 gold, 50 food for 25 gold.
 
-- **Feeding pays 0** (`feedGoldPerFish` 0), so no gold float is shown on a feed. Food costs 10 gold per 10.
-- **Clean pay by stage: 2 / 3 / 4 / 5 / 6 gold** (+5 XP). The pay uses the stage the tank was at when rubbing **started** (the first sponge contact since the last full clean), and it's paid when the last spot clears. If the tank reaches stage 4 while you're rubbing a stage 3 tank, you still get 4. Partial rubbing pays nothing. Gold per day if you always clean at stage n: 16 / 12 / 8 / 5 / 3, so cleaning often wins.
-- **Tank XP from level-ups comes from each species' `levelUpXp`** (`tank.xp.fishLevelUp = "species.levelUpXp"`), not from the level-up gold. A level-up shows "+2 gold" and "+20 XP" floats. The v2 `XP_SOURCE` switch is retired, because XP sources are settled (NUMBERS.md §11).
-- Profit per fish, with food at 1 gold: selling at L1–L3 never makes a profit, and selling at L4 always does. Selling at L3 gives Guppy −3, Danio −1, Neon −3, Platy 0. Selling at L4 gives +20, +61, +108, +189. `verify.py` checks this, plus the stage 1 cleaning rule.
-- First Guppy (tested): buying it leaves 0 gold and 10 food. Reaching adult takes 7 food. With Designer's day-1 check-ins (08/12/16/19/23), the adult has 15 gold and 3 food at 23:00, and a 10-gold food pack covers its 4-food adult feed. Selling it gives 55 gold.
+## Screen (Art Director LANDSCAPE_LAYOUT_V4.md)
 
-## Rules as implemented (NUMBERS.md v3; everything but gold unchanged from v2)
+- **Fluid frame**: a tool column on the left (full height), the top bar right of it, the tank under the top bar, and the one-line debug row **anchored to the viewport bottom** (bottom offset `max(4px, safe-area-inset-bottom)`). The tank takes all the remaining width and height on any landscape viewport. `#app` is sized to the visible viewport (`100dvh`, a `100vh` fallback, then `visualViewport` / `innerHeight` on resize, orientationchange and visualViewport resize). Compact (height < 600): 8px padding, 68px column, 36px top bar. At 844x390 the tank is **752x306 at (84,50)**. Large (height >= 600): 12px padding, 96px column, 48px top bar. At 1180x820 the tank is **1048x708 at (120,68)**.
+- **Tool column**, top to bottom: **Look** (hand), **Food** (bottle), **Clean** (sponge), **Net**, **Decorate** (paintbrush), **Shop**. Buttons are 68x54 with 36px icons (compact) or 96x88 with 52px icons (large). There are no tool buttons at the bottom.
+- **Food bottle**: a count badge (999+ above that, red at 0). The orange fill drains in steps (20+ full, 10-19 three quarters, 5-9 half, 1-4 quarter), and at 0 it's drawn empty.
+- **Top bar**: gold, diamonds, "Tank Lv N" with the XP bar and "xp / next", and the dirt window: "Dirt: stage N of 5" (or "Dirt: clean") and **"Stage N in Xh Ym"** ("42m", "<1m", "Max dirt" at stage 5) over a 5-segment bar. The food count is not in the top bar.
+- **Rotate screen**: held upright (height > width), only the rotate screen shows: an opaque `#07192a` background, a 120px (large: 160px) phone outline with a curved arrow turning -90°, and "Turn your device sideways". The tank, column, top bar, debug row, open panels, confirmation dialogs and toasts are all hidden (not just covered). The game clock keeps running, but drawing and input pause. Turning back resumes with nothing lost.
 
-- **Dirt is time only.** Stages come at 3 / 6 / 12 / 24 / 48 h after a new tank or the last full clean, with 2–6 spots. The clock runs **whatever is in the tank: living fish, dead fish or none, so an empty tank gets dirty too.** Stage 5 adds a green film over the whole tank. The bar shows 5 segments and never a clock.
-- **Cleaning:** rub the spots with the Sponge (mouse or finger). Each spot needs about 150 px of rubbing at stages 1–2 and about 220 px at stages 3–5. A full clean pays **2 / 3 / 4 / 5 / 6 gold by stage** (the stage when rubbing started) **+ 5 XP**. Partial rubbing pays nothing. Any dirt blocks feeding, and the only message is **"Clean the tank first"**, a callout inside the top-right corner of the tank, below the XP bar. A narrow red arrow (12 px base on the box's top edge) rises from it to 4 px under the dirt bar, centred on the dirt bar. It crosses the right end of the XP bar and is drawn above the HUD. It is shown again on every blocked Food tap and stays up for 2.5 s after the last one. There is no toast, no bottom hint and no other dirt message, and with Food selected in a dirty tank the hint line stays empty.
-- **Feeding:** each Food tap gives **1 food** to the nearest fish that still needs food. It shows a shower of small flakes (the v1 look, 16 flakes) falling through the water from the tap point and drifting toward that fish, which eats them. A blocked tap (dirty, nobody hungry, out of food) shows no flakes. A fed meter above the fish fills up (portion = `foodBase × level`, so Guppy takes 1–4 taps and Platy 2–8). Feeding pays nothing (v3). A tap with nobody to feed says "Nobody's hungry". With no food left it says "Out of food".
-- **Growth / hunger / death:** growth is 15× slower than v1 (Guppy is adult after 7 h with prompt feeding, Platy after 17.5 h). A fish gets hungry at 50% of each level and growth pauses. It **dies 16 h after getting hungry** if it isn't fed. An adult gets hungry `adultHungerSec` after reaching L4 and after each full feed. A bought fish waits (it never gets hungry) until its first feed.
-- **Toasts** start 12% of the tank height + 8 px from the top, below the band where dead fish float, so they never cover a dead fish. Identical toasts still on screen merge into one line with a count ("Guppy reached level 2! +1 gold ×4"). **Start new tank** and **Reset save** clear every toast first, so only "New tank started" / "Save reset" shows.
-- **Floating texts** (clean payout, level-up gold/XP pair, feed gold) are measured every frame and clamped so the whole text stays at least 8 px inside every tank edge. The level-up pair moves as one unit and never overlaps. When several fish level up at once, float groups that would overlap are stacked above or below each other (still 8 px inside). Selling shows a toast, not a float.
-- **Dead fish** stay in the tank, belly-up and pale, and float up to just under the waterline (top 6–10%). They take a tank slot, aren't fed and don't block feeding. Tap one to open its panel: **"Dead"** and **"Remove (0 gold)"** (no confirm, can't be sold). The starter grant and "Start new tank" count living fish only.
-- **Tank level:** 60 / 400 / 1,200 / 3,000 XP for levels 2–5. XP: a fish level-up gives its species' `levelUpXp`, each clean gives 5 XP, and selling and feeding give 0. Locked species show greyed out in the shop with **"🔒 Tank level N"**. Level 5 shows "Decorations coming soon".
-- **Offline progress:** on load, the time since the last save is replayed in order, capped at 7 days. A clock set backwards counts as 0. A **"While you were away"** box lists level-ups, deaths, hungry fish, tank levels, the dirt stage and gold earned. A background tab that is away for more than 5 s is handled the same way.
-- Sell: L1 = **Release (0 gold)** with a confirm dialog. L2+ = **Sell for X gold**. Tank capacity is 6, dead fish included.
-- **Starter grant:** a one-time top-up to 20 gold when there are no living fish and gold is below 20. After it's used, a second wipe-out shows "Your tank is empty" and **Start new tank**. The modal lists what resets: "Everything resets: gold back to 20, food back to 10, no fish, tank level 1 (0 XP), and Zebra Danio, Neon Tetra and Platy lock again." (It is a full new save, so the starter grant becomes available again too.)
-- Diamonds: a disabled "Diamonds: coming later" stub in the shop only.
+## Tank look
 
-## Look (Art Director `DIRT_AND_FISH_GROWTH.md`, v2 dirt section + dead-fish pose)
+- **Square corners** everywhere on the tank (frame, water, sand, canvas: radius 0, no clip). Panels and buttons stay rounded.
+- The **top 7%** of the tank (min 16px) is air, darker than the water, and the water surface is a waving line under it.
+- The sand top sits at 86%, with back corners inset 3.5% of the width.
+- **One glass back line**: from the sand's back corner straight up to the inner top edge of the frame, with a faint side-glass strip between it and the frame on that side only. Nothing is drawn on the other side. The side is one setting: `VISUAL.glassLineSide = 'right'` (set `'left'` to flip it).
+- Fish size = `min(W, waterH*0.8) * 0.30 * species * level`, and every fish has a tap target of at least 44x44.
+- The grey circle meter above fish is gone. The hunger icon sits 12px above the head.
+- **Dirt**: spot radii and the sponge (0.16 of the water height, 40-72px) scale with the water height. Stage 1 = 3 smudges at 0.22 alpha, each with a darker rim and 3-5 speckles, plus a faint tank-wide wash. Stages 2-5 keep the v2 looks. At stage 5 a film covers the tank.
 
-- Dirt spots per stage: 1 faint smudge, 2 algae dots, 3 drip streak, 4 hair-algae patch (brown crust tint on half the spots), 5 big crust. Each stage is bigger and darker (alpha 0.14 / 0.22 / 0.32 / 0.40 / 0.46).
-- Tank layer: a light green wash at stages 2–4. At stage 5, a green film (0.28 in the centre up to 0.42 at the edges) with slowly drifting cloudy blotches and a scum band along the waterline. The film is drawn in front of the fish and behind the spots. It fades as the spots are rubbed away and is gone when the last spot clears. In the middle 60% of the tank, film plus one spot is capped at 0.6 so a fish there stays readable.
-- Fish L1–L4: fry with clear fins, then fin colour, a longer tail and markings, then full adult colours. Neon L2 (AD ruling): a blue line in the adult stripe colours at 85%, at least 2 px thick at tank size and at least 12% of body depth, with no glow.
-- Dead fish: belly-up, desaturated, fins at 60%, cloudy eye. It drifts slowly at the top, bobbing and tilting a little.
+## Play
+
+- **Look**: tap a fish to open its info panel (docked right). It shows growth, hunger, **"Meal N of 2 · needs X food"** with a segment bar, and **"Worth N gold"**. There's no sell button and no tap counts.
+- **Food**: tap near a hungry fish. A pinch of flakes falls slowly, and the nearest hungry fish rushes over and eats **all** of them. If the tank is dirty, the tap is blocked. "Clean the tank first" shows at the top middle, the dirt spots pulse more solid and back (1 s), and the dirt window flashes red twice. There's no callout and no arrow. With nobody hungry it says "Nobody's hungry", and with no food it says "Out of food".
+- **Clean**: rub the spots with the sponge (mouse or finger).
+- **Net**: tap a fish to sell it (L2+) or release it (L1), always with a confirmation dialog showing its portrait. Dead fish are removed with the net too.
+- **Shop**: a centred panel with **Fish / Food / Decorations** tabs and a permanent **Close** pill at the bottom middle. It doesn't show the tank level or XP. Locked species show "🔒 Tank level N".
+- **Decorations**: the shop sells a **Leaf** and a **Stone** for free, up to 12 per tank. Buying one places it at the floor centre and opens edit mode with it selected. In **edit mode** (paintbrush), fish turn see-through and can't be tapped, and every decoration gets a dashed outline. Tapping one opens a side menu docked on the side away from it, which never covers it (with a 2.0x leaf in the middle, the menu shrinks slightly to fit). The menu has 4 round **move** arrows (8px per tap; hold to repeat every 80ms after 300ms), 4 round **size** buttons (taller, shorter, wider, narrower; 0.5x-2.0x in 0.1 steps, with separate height and width and the capped button dimmed), a **colour** slider (0-100, light to dark green for leaves, light to dark grey for stones) and **Sell · refund N gold**, with a confirmation. The base can move from the sand's back edge down to its **front edge** (the bottom of the tank) at every size. Leaving edit mode: **Done** or any other tool. Positions are saved as fractions of the tank (x of the width, y of the sand band), so they stay put across reloads and screen sizes.
+- **While you were away**: lists only real events (level-ups, deaths, hungry fish, tank levels, gold) and the dirt stage when the tank is dirty. It never says the tank is clean, and it doesn't appear when there's nothing to report.
 
 ## Save
 
-Progress is saved to `localStorage` (`aquarium.save.v2`) every 2 s and when the page hides, with the wall-clock time for offline catch-up. v1 saves are ignored (fresh start).
+Progress is saved to `localStorage` (`aquarium.save.v4`) every 2 s and when the page hides, with the wall-clock time for offline catch-up (capped at 7 days). Older saves are ignored (fresh start).
 
 ## Files
 
-- `index.html`, `style.css`: layout (HUD / tank / tools / debug bar), portrait-first
-- `config.js`: all balance numbers (`TUNING` = tuning.json verbatim) + presentation values (`VISUAL`) + `OFFLINE_CAP_SEC`
-- `js/game.js`: game state, simulation, feeding, rubbing, selling, dead fish, tank XP, offline catch-up, save/load, balance self-checks
+- `index.html`, `style.css`: landscape frame (tool column / top bar / tank / debug row), rotate screen, panels, shop, edit menu
+- `config.js`: `TUNING` (v4 tuning.json verbatim), presentation values in `VISUAL`, `OFFLINE_CAP_SEC`
+- `js/game.js`: game state, simulation, meals, rubbing, selling, decorations, tank XP, offline catch-up, save/load, balance self-checks
 - `js/fishart.js`: procedural canvas fish art for 4 species (L1-L4 growth look, dead-fish look)
-- `js/main.js`: rendering, swimming AI, pointer input, panels, shop, debug bar
-- `tests/verify.py`: headless end-to-end test
-- `tests/art_shots.py`: review screenshots (dirt stages 1-5 + mid-rub, dead fish, locked shop, fed meter, dirty feed, away summary, fish L1-L4 sheets)
-- `tools/sync_tuning.py`: copies Designer's tuning.json into `config.js` `TUNING` verbatim
-- `screenshots/`: output from the test run
+- `js/main.js`: rendering, swimming AI, input, tools, panels, shop, edit mode, rotate screen, fluid layout
+- `tests/verify.py`: headless end-to-end test; `tests/art_shots.py`: older review screenshots
+- `tools/sync_tuning.py`: copies the (v4) tuning.json into `config.js`; `tools/bump_build.py`: stamps `?v=<build>` on the script and CSS tags
+- `screenshots/v4/`: landscape screenshots from the test run

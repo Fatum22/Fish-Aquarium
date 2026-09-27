@@ -311,7 +311,8 @@
         ctx.save();
         if (d.id === selDecor) { ctx.strokeStyle = '#37c3ff'; ctx.lineWidth = 2; ctx.setLineDash([]); }
         else { ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); }
-        roundRect(g.x0 - 4, g.y0 - 4, g.x1 - g.x0 + 8, g.y1 - g.y0 + 6, 8); ctx.stroke();
+        const ob = Math.min(g.y1 + 2, H - 1.5); // keep the outline's bottom edge inside the tank when the base is at the front glass
+        roundRect(g.x0 - 4, g.y0 - 4, g.x1 - g.x0 + 8, ob - g.y0 + 4, 8); ctx.stroke();
         ctx.restore();
       }
     }
@@ -370,7 +371,8 @@
     const n = V.flakesPerTap || 12;
     y = Math.max(y, SURF + 4);
     for (let i = 0; i < n; i++) {
-      pellets.push({ x: x + (Math.random() - 0.5) * 22, y: y + (Math.random() - 0.5) * 10, x0: x, y0: y, t: 0, s: Math.random() * 3,
+      const py = y + (Math.random() - 0.5) * 10;
+      pellets.push({ x: x + (Math.random() - 0.5) * 22, y: py, x0: x, y0: py, t: 0, s: Math.random() * 3,
         fishId: r.fish.id, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
     }
     flakeStats.spawned += n; flakeStats.showers++;
@@ -950,10 +952,28 @@
   }
   function deselectDecor() { selDecor = null; stopRepeat(); $('deco-menu').hidden = true; $('deco-done').classList.remove('left'); }
   /** dock on the side away from the decoration (centre x > 50% -> left), 8px from the tank edges and top.
+   *  The menu never covers the decoration it edits: if the preferred side would overlap it, the other side is used;
+   *  if both would (a 2.0x leaf near the middle), the menu docks on the roomier side and shrinks (CSS scale, not
+   *  below 0.8) just enough to clear it. keepSide (moves): stay on the current side while it still clears, so the
+   *  menu doesn't jump under the finger while an arrow is held.
    *  While the menu is docked right, the Done button moves to the top-left corner so they don't overlap. */
-  function placeMenu() {
+  function placeMenu(keepSide) {
     const d = decorById(selDecor); if (!d) return;
-    const left = d.x * W > W / 2, m = $('deco-menu');
+    const m = $('deco-menu'), g = decorGeom(d), mw = m.offsetWidth, mh = m.offsetHeight, E = 8, GAP = 2;
+    const covers = (lft, s) => { const x0 = lft ? E : W - E - mw * s, x1 = x0 + mw * s; return g.x0 < x1 + GAP && g.x1 > x0 - GAP && g.y0 < E + mh * s + GAP && g.y1 > E; };
+    let left = g.bx > W / 2, s = 1;
+    if (keepSide && (m.classList.contains('dock-left') || m.classList.contains('dock-right'))) {
+      const cur = m.classList.contains('dock-left');
+      if (!covers(cur, 1)) left = cur;
+    }
+    if (covers(left, 1) && !covers(!left, 1)) left = !left;
+    if (covers(left, 1)) {
+      const roomL = g.x0 - E - GAP, roomR = W - E - GAP - g.x1, roomTop = g.y0 - E - GAP;
+      left = roomL > roomR;
+      s = Math.max(0.8, Math.min(1, Math.max(Math.max(roomL, roomR) / mw, roomTop / mh)));
+    }
+    m.style.transformOrigin = left ? 'top left' : 'top right';
+    m.style.transform = s < 1 ? `scale(${s.toFixed(4)})` : '';
     m.classList.toggle('dock-left', left); m.classList.toggle('dock-right', !left);
     $('deco-done').classList.toggle('left', !left);
   }
@@ -971,14 +991,17 @@
   function clampDecor(d) {
     const g = decorGeom(d), half = g.half, lo = (INSET + half) / W, hi = (W - INSET - half) / W;
     d.x = lo > hi ? 0.5 : Math.max(lo, Math.min(hi, d.x));
-    d.y = Math.max(0, Math.min(1, d.y));
+    // back / upper limit: the sand's back edge (y 0). Front / lower limit (Maksims 20:12): the BASE may reach the sand's
+    // front edge = the bottom of the water area / front glass (y = H), at every size; d.y is in units of the
+    // decorFloorBand part of the sand band, so the front edge is y = 1 / decorFloorBand.
+    d.y = Math.max(0, Math.min(1 / V.decorFloorBand, d.y));
   }
   function moveDecor(dir) {
     const d = decorById(selDecor); if (!d) return;
     const step = T.decorations.move.stepPxPerTap, band = (H - SAND) * V.decorFloorBand;
     if (dir === 'left') d.x -= step / W; else if (dir === 'right') d.x += step / W;
     else if (dir === 'up') d.y -= step / band; else if (dir === 'down') d.y += step / band;
-    clampDecor(d); placeMenu(); G.save();
+    clampDecor(d); placeMenu(true); G.save();
   }
   function sizeDecor(kind) {
     const d = decorById(selDecor); if (!d) return;
@@ -992,6 +1015,7 @@
   document.querySelectorAll('#deco-menu [data-move]').forEach((b) => {
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault(); stopRepeat(); b.classList.add('pressed');
+      try { b.setPointerCapture(e.pointerId); } catch (_) { /* synthetic events */ }
       moveDecor(b.dataset.move); // one step per tap; holding repeats every 80 ms after 300 ms
       repT = setTimeout(() => { repI = setInterval(() => moveDecor(b.dataset.move), V.decorMoveRepeatMs); }, V.decorMoveDelayMs);
     });
@@ -1177,7 +1201,16 @@
   setInterval(() => G.save(), V.saveEveryMs);
   document.addEventListener('visibilitychange', () => { if (document.hidden) G.save(); });
   window.addEventListener('pagehide', () => G.save());
-  window.addEventListener('resize', () => { checkOrientation(); resize(); });
+  /** fluid layout: pin #app to the visible viewport height (real phones: 844x390, 932x430, 667x375, 896x414 ...) */
+  function fitViewport() {
+    const vv = window.visualViewport, h = vv && vv.scale <= 1.01 ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-h', `${Math.round(h)}px`);
+  }
+  function onViewport() { fitViewport(); checkOrientation(); resize(); }
+  window.addEventListener('resize', onViewport);
+  window.addEventListener('orientationchange', () => { onViewport(); setTimeout(onViewport, 250); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewport);
+  fitViewport();
   if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap);
 
   // ------------------------------------------------------------ "while you were away" (NUMBERS v4 11.1): no window when nothing to report
