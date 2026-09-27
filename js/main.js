@@ -259,7 +259,7 @@
       const m = p.fishId != null ? anim.get(p.fishId) : null;
       if (m) { // flake glides/drops to its fish
         const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy), step = dt * 260;
-        if (d <= step + 4) { if (p.full) floatText(`+${p.gold} gold`, m.x, m.y - 30, '#ffe07a'); pellets.splice(i, 1); continue; }
+        if (d <= step + 4) { if (p.full && p.gold > 0) floatText(`+${p.gold} gold`, m.x, m.y - 30, '#ffe07a'); /* v3 feed pays 0: no float at all */ pellets.splice(i, 1); continue; }
         p.x += dx / d * step; p.y += dy / d * step;
       } else { p.y += dt * 40; if (p.t > 2) { pellets.splice(i, 1); continue; } }
       ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 3.2, 2.4, p.t * 3, 0, 7); ctx.fill();
@@ -426,7 +426,8 @@
       if (f.t > 1.8) floaters.splice(i, 1);
     }
   }
-  function floatText(text, x, y, color, big) { floaters.push({ text, x, y, color, big, t: 0 }); }
+  const floatLog = []; // every float text shown (last 50), for tests
+  function floatText(text, x, y, color, big) { floaters.push({ text, x, y, color, big, t: 0 }); floatLog.push(text); if (floatLog.length > 50) floatLog.shift(); }
 
   // ------------------------------------------------------------ HUD / UI
   const goldEl = $('gold'), foodEl = $('food');
@@ -602,7 +603,7 @@
     const ti = G.tankInfo(), dead = G.state.fish.length - G.living();
     $('shop-tank').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
     $('shop-tankbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
-    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${T.tankCapacity} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: Decorations coming soon. Numbers: Designer v2 (config.js ← tuning.json).`;
+    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${T.tankCapacity} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: Decorations coming soon. Numbers: Designer v${T.version || 2} (config.js ← tuning.json).`;
   }
 
   // ------------------------------------------------------------ input on tank
@@ -656,7 +657,7 @@
   function rubTo(x, y) {
     const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, W * V.spongeRadiusFrac);
     pointer.lx = x; pointer.ly = y;
-    if (r.cleaned) floatText(`Sparkling! +${r.gold}g`, x, y - 20, '#9fffd0', true);
+    if (r.cleaned) floatText(`Sparkling! +${r.gold} gold`, x, y - 20, '#9fffd0', true);
   }
 
   // ------------------------------------------------------------ game events
@@ -666,8 +667,8 @@
     const name = d.fish ? G.SPECIES[d.fish.sp].name : '';
     switch (type) {
       case 'levelup':
-        floatText(`+${d.gold}g`, fx - 26, fy - 10, '#ffd84a', true);
-        if (d.xp) floatText(`+${d.xp} XP`, fx + 30, fy - 10, '#9fdcff', true);
+        if (d.gold) floatText(`+${d.gold} gold`, fx - 30, fy - 10, '#ffd84a', true);
+        if (d.xp) floatText(`+${d.xp} XP`, fx + 34, fy - 10, '#9fdcff', true);
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
       case 'tanklevel':
@@ -794,6 +795,9 @@
     },
     spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
+    fishLen(sp, level) { return fishLen({ sp, level }); }, // tank render length (CSS px) of a fish
+    floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; }, // test hook: float texts shown since the last clear
+
     setTool,
   };
 })();
