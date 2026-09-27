@@ -478,7 +478,9 @@
     // hint line
     let hint = '';
     if (!s.fish.length) hint = 'Open the Shop and buy a baby fish';
-    else if (tool === 'food') hint = st >= 1 ? 'Dirty glass: pick the Sponge' : 'Tap near a hungry fish to feed it';
+    // Food in a dirty tank: no hint at all. The ONLY dirty-tank message is the dirt-bar callout "Clean the tank first",
+    // shown when a feed tap is blocked (NUMBERS.md 3 rule 1, Maksims 2026-09-27).
+    else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it';
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
     else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
     else hint = 'Tap a fish to see its details';
@@ -507,11 +509,19 @@
     setTimeout(() => el.classList.add('out'), 2200);
     setTimeout(() => el.remove(), 2700);
   }
-  let calloutTimer = 0;
+  // The one dirty-tank message (NUMBERS.md 3 rule 1): re-shown and restarted on EVERY blocked feed tap, visible for
+  // CALLOUT_MS after the last one (long enough to read and to screenshot).
+  const CALLOUT_MS = 2500;
+  let calloutTimer = 0, calloutCount = 0;
   function dirtyCallout() {
-    const c = $('dirt-callout'); c.hidden = false;
+    const c = $('dirt-callout');
+    clearTimeout(calloutTimer);
+    c.hidden = false;
+    c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); // restart the pop so each tap is visible
     const w = $('dirt-wrap'); w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake');
-    clearTimeout(calloutTimer); calloutTimer = setTimeout(() => { c.hidden = true; }, 2200);
+    calloutCount++; c.dataset.count = calloutCount;
+    $('hint').textContent = ''; // never a second message alongside it
+    calloutTimer = setTimeout(() => { c.hidden = true; }, CALLOUT_MS);
   }
 
   // tools

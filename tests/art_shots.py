@@ -2,7 +2,7 @@
 Run (server on 8766): /workspace/tools/venv-aq/bin/python tests/art_shots.py
 Writes screenshots/: dirt_stage1..5.png (adult neon mid-tank), dirt_stage5_midrub.png, dead_fish_panel.png,
 dead_fish_stage5.png, fish_{guppy,neon,danio,platy}_L1-L4.png, tank_neon_L2_closeup.png, fish_all_L1-L4.png, tank_{guppy,neon}_L1-L4.png,
-shop_locked.png, feeding_meter.png, dirty_feed.png, away_summary.png. Resets the save at the end.
+shop_locked.png, feeding_meter.png, away_summary.png (dirty_feed.png comes from verify.py). Resets the save at the end.
 """
 import os
 from playwright.sync_api import sync_playwright
@@ -92,11 +92,7 @@ def main():
           const n = G.buyFish('neon'); AQ.pinFish(g.id, 0.35, 0.4); AQ.pinFish(n.id, 0.65, 0.5); }""")
         page.click('.tool[data-tool="food"]'); page.wait_for_timeout(800)
         shot(page, "feeding_meter.png")
-        # ---- dirty-feed: exactly one message, by the dirt bar
-        page.evaluate("() => { const G = AQ.game; G.state.dirt.t = G.T.dirt.stageAtSec[0] - 0.5; G.tick(1); }")
-        page.wait_for_timeout(300)
-        page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5); page.wait_for_timeout(300)
-        shot(page, "dirty_feed.png")
+        # (dirty_feed.png: written by verify.py mid-callout after 3 blocked taps)
         page.click('.tool[data-tool="hand"]')
         # ---- fish sheets
         for sp in SPECIES:

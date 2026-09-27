@@ -322,12 +322,34 @@ def main():
 
         # ================================================================ E. UI: dirty feed, rub clean, sell/release, reload
         gid = ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.45); toStage(3); return f.id;")
-        page.wait_for_timeout(200); tool("food"); clear_toasts(); food_b = S()["food"]; page.evaluate("AQ.floats(true)")
-        tank_click(box()["width"] * 0.5, box()["height"] * 0.3); page.wait_for_timeout(200)
-        n_toasts = page.locator("#toasts > *").count(); hint_vis = page.locator("#hint").is_visible() and page.inner_text("#hint").strip() != ""
-        check("dirty tank: feeding blocked with ONE message by the dirt bar (no toast, no hint)",
-              S()["food"] == food_b and page.locator("#dirt-callout").is_visible() and "Clean the tank first" in page.inner_text("#dirt-callout") and n_toasts == 0 and not hint_vis,
-              f"toasts={n_toasts} hint={hint_vis}")
+        page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(250)  # let earlier toasts/floats/callouts expire
+        # visible text outside the dirt bar (#dirt-wrap) must carry no dirt message (NUMBERS.md 3 rule 1)
+        DIRT_TXT = """() => { const out = []; const walk = (el) => { if (el.id === 'dirt-wrap' || el.id === 'debug') return;
+            const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') return;
+            for (const n of el.childNodes) { if (n.nodeType === 3 && /dirt|dirty|clean the tank|pick the sponge|rub the/i.test(n.textContent)) out.push(n.textContent.trim()); else if (n.nodeType === 1) walk(n); } };
+          walk(document.getElementById('app')); return out; }"""
+        def ui_state():
+            return page.evaluate("""() => ({ callout: !document.getElementById('dirt-callout').hidden, calloutText: document.getElementById('dirt-callout').textContent,
+              count: +(document.getElementById('dirt-callout').dataset.count || 0), toasts: document.getElementById('toasts').children.length,
+              hint: document.getElementById('hint').textContent, floats: AQ.floats(true), flakes: AQ.flakes().spawned, food: AQ.game.state.food })""")
+        pre = ui_state(); pre_txt = page.evaluate(DIRT_TXT)
+        check("dirty tank + Food selected, before tapping: no dirt hint anywhere except the dirt bar (hint empty, no callout, no toast)",
+              stage() == 3 and pre["hint"] == "" and not pre["callout"] and pre["toasts"] == 0 and pre_txt == [], json.dumps({"state": pre, "dirtText": pre_txt}))
+        taps = []
+        for k, wait_before in enumerate([0, 2800, 1000]):   # tap 2 after the callout expired (re-show), tap 3 while still up (restart)
+            if wait_before: page.wait_for_timeout(wait_before)
+            before = ui_state()
+            tank_click(box()["width"] * (0.3 + 0.2 * k), box()["height"] * 0.35); page.wait_for_timeout(250)
+            after = ui_state(); txt = page.evaluate(DIRT_TXT)
+            taps.append({"hiddenBefore": not before["callout"], "shown": after["callout"], "text": after["calloutText"], "count": after["count"] - before["count"],
+                         "toasts": after["toasts"], "hint": after["hint"], "floats": after["floats"], "food": after["food"] - before["food"], "flakes": after["flakes"] - before["flakes"], "otherDirtText": txt})
+            if k == 2: page.screenshot(path=os.path.join(SHOTS, "dirty_feed.png"))
+        page.wait_for_timeout(2000); still = ui_state()["callout"]   # 2.25 s after tap 3 = 3.25 s after tap 2 -> only up if tap 3 restarted it
+        page.wait_for_timeout(700); gone = not ui_state()["callout"]
+        check("each of 3 blocked feed taps shows the dirt-bar callout 'Clean the tank first' (re-shown after expiring, restarted while up, ~2.5 s)",
+              all(t["shown"] and t["text"] == "Clean the tank first" and t["count"] == 1 for t in taps) and taps[1]["hiddenBefore"] and not taps[2]["hiddenBefore"] and still and gone, json.dumps(taps))
+        check("blocked taps: no toast, no bottom hint, no centre message, no other dirt text", all(t["toasts"] == 0 and t["hint"] == "" and t["floats"] == [] and t["otherDirtText"] == [] for t in taps))
+        check("blocked taps: no food spent, no flakes", all(t["food"] == 0 and t["flakes"] == 0 for t in taps))
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]
         ok = rub_clean(); s = S()
         fl = page.evaluate("AQ.floats(true)")

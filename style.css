@@ -25,6 +25,8 @@ button { font: inherit; color: inherit; }
 #dirt-wrap.shake { animation: shake .4s; }
 @keyframes shake { 20%,60% { transform: translateX(-5px); } 40%,80% { transform: translateX(5px); } }
 #dirt-callout { position: absolute; top: calc(100% + 6px); right: 0; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; padding: 6px 10px; border-radius: 10px; z-index: 20; white-space: nowrap; box-shadow: 0 4px 12px #0008; }
+#dirt-callout.pop { animation: calloutPop .25s ease-out; }
+@keyframes calloutPop { 0% { transform: scale(.85); opacity: .4; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
 #dirt-callout::before { content: ""; position: absolute; top: -6px; right: 30px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--danger); }
 
 /* Tank level bar (NUMBERS.md 1f: "Tank Lv 2 · 130 / 400 XP" near the gold) */
