@@ -432,5 +432,11 @@
     ctx.restore();
   }
 
-  window.FishArt = { drawFish, ART, growth, LOOK, DEAD };
+  /** the body outline only (no fins or tail), in the same local frame drawFish uses: for the net's target highlight */
+  function bodyOutline(ctx, id, L, opts) {
+    const base = ART[id] || ART.neon, hh = (base.depth * L) / 2;
+    if (opts && opts.dead) ctx.scale(1, -1); // belly-up, like drawDead
+    bodyPath(ctx, L, hh);
+  }
+  window.FishArt = { drawFish, bodyOutline, ART, growth, LOOK, DEAD };
 })();

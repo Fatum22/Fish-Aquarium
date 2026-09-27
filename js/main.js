@@ -337,6 +337,7 @@
       ctx.rotate(tilt);
       if (hungry && !editing) ctx.globalAlpha = 0.9;
       FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, dead, level: f.level });
+      if (tool === 'net' && !editing && net.target && net.target.id === f.id && (net.on || net.dip >= 0)) drawNetTargetGlow(f, L);
       ctx.restore();
       if (!editing) drawStatusIcon(f, L, m);
       ctx.restore();
@@ -748,7 +749,7 @@
     tool = t;
     document.querySelectorAll('.tool[data-tool]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
     wrap.dataset.tool = t;
-    net.on = false; net.target = null;
+    net.on = false; net.target = null; net.dip = -1; clearTimeout(netPending); netPending = 0;
     if (t !== 'hand') closePanel();
     closeShop();
     if (t === 'brush') enterEdit(); else exitEdit();
@@ -1041,36 +1042,77 @@
     return null;
   }
 
-  // ------------------------------------------------------------ net tool: the net follows the pointer, the fish under it glows
-  const net = { on: false, x: 0, y: 0, target: null };
-  function drawNetHighlight() { // soft glow + ring behind the targeted fish (drawn before the fish)
-    if (tool !== 'net' || !net.on || !net.target || editing) return;
-    const f = G.state.fish.find((q) => q.id === net.target.id), m = f && anim.get(f.id); if (!m) return;
-    const L = fishLen(f), rx = L * 0.62 + 8, ry = L * 0.3 + 10;
+  // ------------------------------------------------------------ net tool (AD "Net cursor and target highlight")
+  // Shown while the Net is selected and a finger is down or a mouse is over the tank. Touch: hoop centre 1.25 hoop radii
+  // above the fingertip (like the sponge); mouse: hoop centre on the cursor. Tilts with horizontal movement (max 12 deg,
+  // eases back in ~200 ms). The targeted fish gets a white body outline + soft glow and the rim turns --accent.
+  // Letting go over a fish: the hoop dips (1 -> 0.9 -> 1 over 150 ms), then the confirm opens (dead fish: removed).
+  const net = { on: false, x: 0, y: 0, target: null, vx: 0, tilt: 0, dip: -1, lastX: 0, lastT: 0, moved: 0 };
+  const netR = () => (LARGE() ? 30 : 22);
+  function netAt(px, py, touch) { return { x: px, y: py - (touch ? netR() * 1.25 : 0) }; }
+  /** same pick rule as taps: front-most fish whose body contains the point, otherwise the nearest centre within the hoop radius */
+  function netPick(x, y) {
+    const fish = G.state.fish;
+    for (let i = fish.length - 1; i >= 0; i--) {
+      const m = anim.get(fish[i].id); if (!m) continue;
+      const L = fishLen(fish[i]), dx = (x - m.x) / (L * 0.5), dy = (y - m.y) / Math.max(4, bodyHalfDepth(L));
+      if (dx * dx + dy * dy <= 1) return fish[i];
+    }
+    let best = null, bestD = netR();
+    for (const f of fish) { const m = anim.get(f.id); if (!m) continue; const d = Math.hypot(x - m.x, y - m.y); if (d < bestD) { bestD = d; best = f; } }
+    return best;
+  }
+  function netMove(px, py, touch) {
+    const q = netAt(px, py, touch), now = performance.now(), dt = Math.max(1, now - net.lastT) / 1000;
+    if (net.on) { net.vx = net.vx * 0.5 + ((q.x - net.x) / dt) * 0.5; net.moved += Math.hypot(q.x - net.x, q.y - net.y); }
+    net.x = q.x; net.y = q.y; net.lastT = now;
+  }
+  function stepNet(dt) {
+    net.vx *= Math.exp(-dt / 0.08);
+    const want = Math.max(-1, Math.min(1, net.vx / 500)) * (12 * Math.PI / 180);
+    net.tilt += (want - net.tilt) * (1 - Math.exp(-dt / 0.06));
+    if (net.dip >= 0) { net.dip += dt; if (net.dip > 0.15) net.dip = -1; }
+  }
+  function drawNetTargetGlow(f, L) { // called inside the fish's own transform: body outline only (fins and tail excluded)
     ctx.save();
-    const gr = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, rx);
-    gr.addColorStop(0, 'rgba(255,240,150,0.35)'); gr.addColorStop(1, 'rgba(255,240,150,0)');
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(m.x, m.y, rx, ry, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = f.state === 'DEAD' ? 'rgba(255,138,138,0.9)' : 'rgba(255,226,110,0.95)'; ctx.lineWidth = 2.5; ctx.setLineDash([6, 4]);
-    ctx.beginPath(); ctx.ellipse(m.x, m.y, rx, ry, 0, 0, 7); ctx.stroke();
+    ctx.lineJoin = 'round';
+    FishArt.bodyOutline(ctx, f.sp, L, { dead: f.state === 'DEAD' });
+    ctx.shadowColor = 'rgba(255,255,255,0.35)'; ctx.shadowBlur = 6 * DPR;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
     ctx.restore();
   }
-  function drawNetCursor() { // the i-net look: hoop 2.5px #d9e3ea, mesh #9fd8ff 70%, wooden handle to the bottom-left
-    if (tool !== 'net' || !net.on || editing) return;
-    const R = LARGE() ? 30 : 24, cx = net.x, cy = net.y;
+  function drawNetCursor(dt) {
+    stepNet(dt);
+    if (tool !== 'net' || editing || !(net.on || net.dip >= 0)) return;
+    const big = LARGE(), R = netR(), D = R * 2, rim = big ? 4 : 3, gap = big ? 8 : 6, hw = big ? 7 : 5;
+    const k = net.dip >= 0 ? 1 - 0.1 * Math.sin(Math.PI * Math.min(1, net.dip / 0.15)) : 1;
     ctx.save();
-    ctx.strokeStyle = '#c98a4b'; ctx.lineWidth = LARGE() ? 6 : 5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx - R * 0.72, cy + R * 0.72); ctx.lineTo(cx - R * 2.1, cy + R * 2.1); ctx.stroke();
-    ctx.fillStyle = 'rgba(159,216,255,0.12)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
-    ctx.strokeStyle = 'rgba(159,216,255,0.7)'; ctx.lineWidth = 1.2;
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath(); ctx.moveTo(cx - R, cy + i * R * 0.38 - R); ctx.lineTo(cx + R, cy + i * R * 0.38 + R); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx - R, cy + i * R * 0.38 + R); ctx.lineTo(cx + R, cy + i * R * 0.38 - R); ctx.stroke();
-    }
+    ctx.translate(net.x, net.y); ctx.rotate(net.tilt); ctx.scale(k, k);
+    // handle: leaves the hoop's lower-right at 45 deg, 0.9 x hoop diameter long, rounded end
+    const a = Math.PI / 4, x0 = Math.cos(a) * R, y0 = Math.sin(a) * R, x1 = Math.cos(a) * (R + 0.9 * D), y1 = Math.sin(a) * (R + 0.9 * D);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#6a4424'; ctx.lineWidth = hw + 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.strokeStyle = '#b07a44'; ctx.lineWidth = hw; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    // mesh: fill + 1px diagonal grid, clipped to the hoop
+    ctx.save();
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = 'rgba(200,230,255,0.10)'; ctx.fillRect(-R, -R, D, D);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let c = -2 * R; c <= 2 * R; c += gap) { ctx.moveTo(c - R, -R); ctx.lineTo(c + R, R); ctx.moveTo(c - R, R); ctx.lineTo(c + R, -R); }
+    ctx.stroke();
     ctx.restore();
-    ctx.strokeStyle = '#d9e3ea'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
+    // rim: 1px #5a6a78 outer edge, then 3px (Large 4px) #e8eef2, --accent while a fish is targeted
+    ctx.strokeStyle = '#5a6a78'; ctx.lineWidth = rim + 2; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = net.target ? '#37c3ff' : '#e8eef2'; ctx.lineWidth = rim; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
+  }
+  let netPending = 0;
+  function netRelease(f) { // dip once, then act: live fish -> confirm, dead fish -> removed (a second release during the dip is ignored)
+    if (netPending) return;
+    net.dip = 0;
+    netPending = setTimeout(() => { netPending = 0; net.target = null; if (pointer.touch) net.on = false; if (G.state.fish.includes(f)) netFish(f); }, 150);
   }
 
   // ------------------------------------------------------------ input on the tank
@@ -1101,7 +1143,7 @@
       const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the hungry fish nearest the tap
       if (r.ok) flakeShower(p.x, p.y, r);
     } else if (tool === 'sponge') rubTo(p.x, p.y - spongeLift());
-    else if (tool === 'net') { net.on = true; net.x = p.x; net.y = p.y; net.target = hitFish(p.x, p.y); }
+    else if (tool === 'net') { net.on = false; netMove(p.x, p.y, touch); net.on = true; net.vx = 0; net.moved = 0; net.target = netPick(net.x, net.y); }
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = local(e);
@@ -1112,8 +1154,9 @@
       (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y - spongeLift()); });
     }
     pointer.x = p.x; pointer.y = p.y;
-    if (tool === 'net' && !editing) { // the net follows the pointer (while pressed; mouse also on hover) and highlights the fish under it
-      net.x = p.x; net.y = p.y; net.on = pointer.down || !pointer.touch; net.target = net.on ? hitFish(p.x, p.y) : null;
+    if (tool === 'net' && !editing && net.dip < 0) { // the net follows the pointer (while pressed; mouse also on hover) and targets the fish under the hoop
+      const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+      if (pointer.down || !touch) { netMove(p.x, p.y, touch); net.on = true; net.target = netPick(net.x, net.y); }
     }
   });
   function endPointer(e) {
@@ -1121,9 +1164,14 @@
     const wasDown = pointer.down;
     pointer.down = false; pointer.id = null;
     if (tool === 'net' && wasDown && !editing) { // let go: live fish -> confirm, dead fish -> removed, empty water -> nothing
-      const p = local(e), f = e.type === 'pointerup' ? hitFish(p.x, p.y) : null;
-      net.target = null; if (pointer.touch) net.on = false;
-      if (f) netFish(f);
+      const p = local(e);
+      let f = null;
+      if (e.type === 'pointerup') {
+        // a touch TAP (no drag) picks the fish under the finger, like the other tools; a drag uses the lifted hoop
+        f = pointer.touch && net.moved < 8 ? hitFish(p.x, p.y) : (pointer.touch ? netPick(net.x, net.y) : netPick(p.x, p.y));
+      }
+      if (f) { net.target = f; netRelease(f); }
+      else { net.target = null; if (pointer.touch) net.on = false; }
     }
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -1229,14 +1277,13 @@
     drawDecor();        // behind the fish, sorted by base y
     drawBubbles(dtAnim);
     drawPellets(dtAnim);
-    drawNetHighlight();
     drawFishAll(dtAnim);
     drawGlass();
     drawDirtLayer(p);   // in front of the fish, behind the spots
     drawSpots(p);
     drawSponge();
     drawFloaters(dtAnim);
-    drawNetCursor();
+    drawNetCursor(dtAnim);
 
     updateHUD();
     if (selDecor && !$('deco-menu').hidden) renderMenu();
@@ -1319,7 +1366,7 @@
     },
     fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L) }; },
     decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
-    net() { return { on: net.on, x: net.x, y: net.y, target: net.target ? net.target.id : null }; },
+    net() { return { on: net.on, x: net.x, y: net.y, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR() }; },
     edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },

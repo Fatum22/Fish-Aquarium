@@ -497,24 +497,35 @@ def main(VW, VH):
         n_down = page.evaluate("AQ.net()")
         lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); n_on = page.evaluate("AQ.net()")
         page.screenshot(path=shot("net_drag_highlight"))
-        tb2 = box(); png = page.screenshot(clip={"x": tb2["x"], "y": tb2["y"], "width": tb2["width"], "height": tb2["height"]}); _w2, _h2, px2 = png_rgb(png); k2 = _w2 / tb2["width"]
-        L_ = page.evaluate(f"AQ.fishLen('guppy', 2)"); ring = [px2(int((lp["x"] + dx) * k2), int(lp["y"] * k2)) for dx in (L_ * 0.62 + 8, -(L_ * 0.62 + 8))]
-        mv(*empty, 12); n_off = page.evaluate("AQ.net()"); page.mouse.up(); page.wait_for_timeout(150)
+        # white body outline: the brightest pixel along the fish's top edge is near-white while targeted, not after
+        def top_edge_max():
+            tb2 = box(); png = page.screenshot(clip={"x": tb2["x"], "y": tb2["y"], "width": tb2["width"], "height": tb2["height"]}); _w2, _h2, px2 = png_rgb(png); k2 = _w2 / tb2["width"]
+            c_ = page.evaluate(f"AQ.fishScreen({nd['live']})"); fi = page.evaluate(f"AQ.fishIcon({nd['live']})"); hd = fi["halfDepth"]; best = 0
+            for yy in range(int(c_["y"] - hd * 1.4), int(c_["y"] - hd * 0.4)):
+                for dx in (-0.2, -0.1, 0.0, 0.1):
+                    q = px2(int((c_["x"] + dx * fi["L"]) * k2), int(yy * k2)); best = max(best, min(q))
+            return best
+        ring = [top_edge_max()]
+        rim_on = page.evaluate("AQ.net()")
+        mv(*empty, 12); n_off = page.evaluate("AQ.net()")
+        mv(*empty, 1); page.wait_for_timeout(250); ring.append(top_edge_max())
+        page.mouse.up(); page.wait_for_timeout(300)
         empty_ok = not page.locator("#confirm").is_visible() and len(S()["fish"]) == 2
-        page.mouse.down(); lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); page.mouse.up(); page.wait_for_timeout(150)
+        page.mouse.down(); lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); page.mouse.up(); page.wait_for_timeout(60)
+        dip_ = page.evaluate("AQ.net()"); early = page.locator("#confirm").is_visible(); page.wait_for_timeout(250)
         live_txt = page.inner_text("#confirm-text") if page.locator("#confirm").is_visible() else ""
         page.screenshot(path=shot("net_release_live_confirm")); page.click("#confirm-no"); page.wait_for_timeout(100)
         g0_, x0_ = S()["gold"], S()["tank"]["xp"]; clear_toasts()
         mv(*empty); page.mouse.down(); dp = page.evaluate(f"AQ.fishScreen({nd['dead']})"); mv(dp["x"], dp["y"], 12)
-        n_dead = page.evaluate("AQ.net()"); page.screenshot(path=shot("net_drag_dead")); page.mouse.up(); page.wait_for_timeout(150)
+        n_dead = page.evaluate("AQ.net()"); page.screenshot(path=shot("net_drag_dead")); page.mouse.up(); page.wait_for_timeout(300)
         dead_t = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
         dead_ok = fish(nd["dead"]) is None and not page.locator("#confirm").is_visible() and S()["gold"] == g0_ and S()["tank"]["xp"] == x0_ and "Fish removed" in dead_t
-        info_nd = {"hover": n_hover, "down": n_down, "on": n_on, "off": n_off, "ring": ring, "emptyOk": empty_ok, "liveTxt": live_txt, "dead": n_dead, "deadToasts": dead_t, "deadOk": dead_ok}
-        check("Net drag: the net follows the pointer (hover and pressed), the fish under it is the target and gets a yellow ring; letting go over empty water does nothing",
-              n_down["on"] and abs(n_down["x"] - empty[0]) < 1.5 and abs(n_down["y"] - empty[1]) < 1.5 and n_on["target"] == nd["live"] and abs(n_on["x"] - lp["x"]) < 1.5
-              and n_off["target"] is None and empty_ok and all(c_[0] > 150 and c_[1] > 130 and c_[0] > c_[2] for c_ in ring), json.dumps(info_nd))
-        check("Net drag: letting go over a live fish opens its confirm ('Sell Guppy (L2) for 8 gold and 10 XP?'); over a dead fish removes it at once (no confirm, 0 gold, 0 XP, 'Fish removed')",
-              live_txt == "Sell Guppy (L2) for 8 gold and 10 XP?" and n_dead["target"] == nd["dead"] and dead_ok, json.dumps(info_nd))
+        info_nd = {"hover": n_hover, "down": n_down, "on": n_on, "off": n_off, "outlineMaxMin": ring, "emptyOk": empty_ok, "dip": dip_, "confirmDuringDip": early, "liveTxt": live_txt, "dead": n_dead, "deadToasts": dead_t, "deadOk": dead_ok}
+        check("AD net cursor: hoop 44 / 60px centred on the mouse, follows it (hover and pressed), tilts while moving; the fish under the hoop is the target and gets a white body outline; letting go over empty water does nothing",
+              n_hover["on"] and n_down["on"] and n_down["r"] == (30 if LARGE else 22) and abs(n_down["x"] - empty[0]) < 1.5 and abs(n_down["y"] - empty[1]) < 1.5 and n_on["target"] == nd["live"] and abs(n_on["x"] - lp["x"]) < 1.5
+              and 0 < abs(n_on["tilt"]) <= 12 * 3.1416 / 180 + 1e-6 and n_off["target"] is None and empty_ok and ring[0] > 215 and ring[0] > ring[1] + 25, json.dumps(info_nd))
+        check("Net drag: letting go over a live fish dips the hoop first (no confirm yet at 60 ms), then opens its confirm ('Sell Guppy (L2) for 8 gold and 10 XP?'); over a dead fish it removes it (no confirm, 0 gold, 0 XP, 'Fish removed')",
+              dip_["dip"] >= 0 and not early and live_txt == "Sell Guppy (L2) for 8 gold and 10 XP?" and n_dead["target"] == nd["dead"] and dead_ok, json.dumps(info_nd))
         tool("hand")
         # full tank screenshot + reload keeps state
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; ['guppy','danio','neon','platy'].forEach((id) => { const f = G.buyFish(id); feedFull(f); });")
