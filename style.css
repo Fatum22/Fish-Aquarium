@@ -38,7 +38,8 @@ button { font: inherit; color: inherit; }
 .toast.good { background: #0f4a2bdd; border-color: #6fffb055; }
 .toast.out { opacity: 0; transition: opacity .4s; }
 @keyframes tin { from { transform: translateY(-8px); opacity: 0; } }
-#hint { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 13px; color: #d9f2ffcc; pointer-events: none; text-shadow: 0 1px 3px #000a; }
+#hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); max-width: 92%; width: max-content; padding: 5px 12px; border-radius: 999px; background: #06223acc; text-align: center; font-size: 13px; font-weight: 600; color: #ffffff; pointer-events: none; text-shadow: none; }
+#hint:empty { display: none; }
 
 /* Sheets */
 .sheet { position: absolute; left: 8px; right: 8px; bottom: 8px; background: linear-gradient(var(--panel2), var(--panel)); border: 1px solid #ffffff1f; border-radius: 16px; padding: 12px 14px 14px; z-index: 10; box-shadow: 0 10px 30px #000a; animation: sheetin .2s ease-out; max-height: calc(100% - 16px); overflow-y: auto; }

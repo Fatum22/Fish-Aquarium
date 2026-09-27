@@ -153,9 +153,13 @@
     S.dirt.spawned++;
   }
 
+  function cheapestBaby() { return Math.min(...Object.values(SPECIES).map((sp) => sp.price)); }
+  /** Producer ruling: after the one-time top-up is spent, a second wipe-out ends the run ("Start new tank"). */
+  function tankOver() { return S.starterGrantUsed && living() === 0 && S.gold < cheapestBaby(); }
+
   function checkStarterGrant() {
     // EDGE CASE 5 (pending Maksims' veto; Producer ruling 2026-09-27): one-time 20g top-up when no living fish and gold < cheapest baby. Food ignored.
-    if (!S.starterGrantUsed && living() === 0 && S.gold < Math.min(...Object.values(SPECIES).map((sp) => sp.price))) { S.gold = T.starterGrant.topUpGoldTo; S.starterGrantUsed = T.starterGrant.oneTime; emit('grant', { gold: S.gold }); }
+    if (!S.starterGrantUsed && living() === 0 && S.gold < cheapestBaby()) { S.gold = T.starterGrant.topUpGoldTo; S.starterGrantUsed = T.starterGrant.oneTime; emit('grant', { gold: S.gold }); }
   }
 
   /** advance the game by dtGame seconds (already multiplied by speed) */
@@ -257,7 +261,7 @@
       const t = Math.max(0, Math.min(1, ((cx - ax) * (bx - ax) + (cy - ay) * (by - ay)) / (len * len)));
       const px = ax + t * (bx - ax), py = ay + t * (by - ay);
       const d = Math.hypot(cx - px, cy - py);
-      if (d < R + spongeR * 0.5) { s.grime -= len; touched = true; }
+      if (d < R + spongeR) { s.grime -= len; touched = true; } // full drawn sponge radius counts (Playtester pass 1 note 1)
     }
     S.dirt.spots = S.dirt.spots.filter((s) => s.grime > 0);
     if (touched && S.dirt.spots.length === 0 && stage >= 1 && S.dirt.spawned >= T.dirt.spots[stage - 1]) {
@@ -358,6 +362,6 @@
     tick, buyFish, buyFood, feed, rub, sell, canBuy,
     dirtStage: () => dirtStage(S.dirt.elapsed),
     fishInfo, portion, sellPrice, growSec, deathSecFor, adultHungerSec,
-    save, load, reset, newState, balanceChecks, living,
+    save, load, reset, newState, balanceChecks, living, tankOver,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

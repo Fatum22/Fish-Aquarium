@@ -318,6 +318,7 @@
     $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtSec.length}`;
     $('buyfood-label').textContent = `+${T.foodPack.food} food · ${T.foodPack.gold}g`;
     $('btn-buyfood').disabled = s.gold < T.foodPack.gold;
+    $('tankover').hidden = !G.tankOver();
     // hint line
     let hint = '';
     if (!s.fish.length) hint = 'Open the Shop and buy a baby fish';
@@ -465,7 +466,10 @@
       const dx = (x - m.x) / (L * 0.7 + 10), dy = (y - m.y) / (L * 0.35 + 12);
       if (dx * dx + dy * dy <= 1) return fish[i];
     }
-    return null;
+    // forgiving tap: nearest fish centre within 44px (moving fish are hard to hit; Playtester pass 1 note 2)
+    let best = null, bestD = 44;
+    for (const f of fish) { const m = anim.get(f.id); if (!m) continue; const d = Math.hypot(x - m.x, y - m.y); if (d < bestD) { bestD = d; best = f; } }
+    return best;
   }
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -546,6 +550,10 @@
     const b = document.createElement('button'); b.className = 'dbg'; b.dataset.speed = s; b.textContent = `×${s}`;
     b.addEventListener('click', () => { G.state.speed = s; G.save(); });
     $('speed-btns').appendChild(b);
+  });
+  $('btn-newtank').addEventListener('click', () => {
+    const keep = G.state.speed; G.reset(); G.state.speed = urlSpeed > 0 ? urlSpeed : keep; G.save();
+    $('tankover').hidden = true; closePanel(); toast('New tank started', 'good');
   });
   $('dbg-gold').textContent = '+100g';
   $('dbg-gold').addEventListener('click', () => { G.state.gold += 100; toast('Debug: +100 gold'); });

@@ -246,6 +246,12 @@ def main():
         check("guppy reaches Adult (L4) and sells for 90", r["adult"] == "ADULT" and r["sold"] == 90, json.dumps(r))
         check("first adult hunger 16:00 after reaching L4 (Guppy)", r["sinceAt4"] <= 1 and abs(r["adultHungerAfter"] - 960) <= 1, json.dumps(r))
         check("edge case 5: one-time top-up to 20 gold, only once", r["g1"] == 20 and r["used"] and r["g2"] == 3, json.dumps(r))
+        # ---- second wipe-out after top-up used -> "Your tank is empty" + Start new tank (Producer ruling)
+        page.wait_for_timeout(300)
+        over_shown = page.locator("#tankover").is_visible()
+        page.click("#btn-newtank"); page.wait_for_timeout(300)
+        s2 = S()
+        check("2nd wipe-out shows 'Your tank is empty'; Start new tank gives fresh 20g/10 food save", over_shown and not page.locator("#tankover").is_visible() and s2["gold"] == 20 and s2["food"] == 10 and not s2["fish"] and not s2["starterGrantUsed"], json.dumps({"shown": over_shown, "gold": s2["gold"], "food": s2["food"], "fish": len(s2["fish"])}))
         # ---- 13. staged screenshot with mixed levels (levels set via console, visual only)
         page.evaluate("""() => { const G = AQ.game; G.reset(); G.state.gold = 500;
           ['guppy','danio','neon','platy','guppy','danio'].forEach((id, i) => { const f = G.buyFish(id); f.level = [4,3,2,4,1,2][i];
