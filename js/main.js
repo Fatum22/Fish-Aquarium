@@ -263,7 +263,7 @@
         ox: (Math.random() - 0.5) * 22, oy: (Math.random() - 0.5) * 10, fishId: r.fish.id, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
     }
     flakeStats.spawned += n; flakeStats.showers++;
-    if (r.full && r.gold > 0) { const m = anim.get(r.fish.id); if (m) floatText(`+${r.gold} gold`, m.x, m.y - 30, '#ffe07a'); } // v3 feed pays 0: no float
+    if (r.full && r.gold > 0) { const m = anim.get(r.fish.id); if (m) floatFeedGold(r.gold, m.x, m.y); } // v3 feed pays 0: no float
   }
   function drawPellets(dt) {
     for (let i = pellets.length - 1; i >= 0; i--) {
@@ -441,21 +441,57 @@
     ctx.restore();
   }
   function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  // Floating texts are clamped every frame so the whole rendered text box (measured glyph bounds + the 4 px outline)
+  // stays inside the tank with FLOAT_MARGIN px to spare (Playtester pass 6 N6). Floats spawned together (level-up
+  // "+gold" and "+XP") share a group and are shifted as one unit, so they never pile on top of each other.
+  const FLOAT_MARGIN = 8, FLOAT_STROKE = 4, FLOAT_GAP = 10;
   function drawFloaters(dt) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const groups = new Map();
     for (let i = floaters.length - 1; i >= 0; i--) {
       const f = floaters[i];
       f.t += dt; f.y -= dt * 28;
-      ctx.globalAlpha = Math.max(0, 1 - f.t / 1.8);
+      if (f.t > 1.8) { floaters.splice(i, 1); continue; }
       ctx.font = `900 ${f.big ? 22 : 16}px Nunito, sans-serif`;
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeText(f.text, f.x, f.y);
-      ctx.fillStyle = f.color || '#ffd84a'; ctx.fillText(f.text, f.x, f.y);
-      ctx.globalAlpha = 1;
-      if (f.t > 1.8) floaters.splice(i, 1);
+      const m = ctx.measureText(f.text), h = FLOAT_STROKE / 2;
+      f.rel = { l: -m.actualBoundingBoxLeft - h, r: m.actualBoundingBoxRight + h, t: -m.actualBoundingBoxAscent - h, b: m.actualBoundingBoxDescent + h };
+      // side-by-side pairs: 'L' ends FLOAT_GAP/2 left of the anchor, 'R' starts FLOAT_GAP/2 right of it (from measured widths)
+      const ox = f.side === 'L' ? -f.rel.r - FLOAT_GAP / 2 : f.side === 'R' ? -f.rel.l + FLOAT_GAP / 2 : 0;
+      f.rel.l += ox; f.rel.r += ox; f.ox = ox;
+      const g = groups.get(f.grp) || { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, list: [] };
+      g.x0 = Math.min(g.x0, f.x + f.rel.l); g.x1 = Math.max(g.x1, f.x + f.rel.r);
+      g.y0 = Math.min(g.y0, f.y + f.rel.t); g.y1 = Math.max(g.y1, f.y + f.rel.b);
+      g.list.push(f); groups.set(f.grp, g);
     }
+    groups.forEach((g) => {
+      const clampShift = (lo, hi, min, max) => (hi - lo > max - min ? (min + max) / 2 - (lo + hi) / 2 : lo < min ? min - lo : hi > max ? max - hi : 0);
+      const dx = clampShift(g.x0, g.x1, FLOAT_MARGIN, W - FLOAT_MARGIN), dy = clampShift(g.y0, g.y1, FLOAT_MARGIN, H - FLOAT_MARGIN);
+      for (const f of g.list) {
+        const x = f.x + dx, y = f.y + dy, tx = x + f.ox; // rel already includes the pair offset; tx = text anchor
+        f.box = { x0: x + f.rel.l, x1: x + f.rel.r, y0: y + f.rel.t, y1: y + f.rel.b }; // drawn bounds (tests)
+        ctx.globalAlpha = Math.max(0, 1 - f.t / 1.8);
+        ctx.font = `900 ${f.big ? 22 : 16}px Nunito, sans-serif`;
+        ctx.lineWidth = FLOAT_STROKE; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeText(f.text, tx, y);
+        ctx.fillStyle = f.color || '#ffd84a'; ctx.fillText(f.text, tx, y);
+      }
+    });
+    ctx.globalAlpha = 1;
   }
   const floatLog = []; // every float text shown (last 50), for tests
-  function floatText(text, x, y, color, big) { floaters.push({ text, x, y, color, big, t: 0 }); floatLog.push(text); if (floatLog.length > 50) floatLog.shift(); }
+  let floatGrp = 0;
+  function floatText(text, x, y, color, big, grp, side) {
+    floaters.push({ text, x, y, color, big, t: 0, grp: grp == null ? `s${++floatGrp}` : grp, side: side || null });
+    floatLog.push(text); if (floatLog.length > 50) floatLog.shift();
+  }
+  // every float in the game goes through one of these
+  function floatClean(gold, x, y) { floatText(`Sparkling! +${gold} gold`, x, y - 20, '#9fffd0', true); }
+  function floatLevelUp(gold, xp, fx, fy) {
+    const grp = `g${++floatGrp}`;
+    const both = gold && xp;
+    if (gold) floatText(`+${gold} gold`, fx, fy - 10, '#ffd84a', true, grp, both ? 'L' : null);
+    if (xp) floatText(`+${xp} XP`, fx, fy - 10, '#9fdcff', true, grp, both ? 'R' : null);
+  }
+  function floatFeedGold(gold, x, y) { floatText(`+${gold} gold`, x, y - 30, '#ffe07a'); }
 
   // ------------------------------------------------------------ HUD / UI
   const goldEl = $('gold'), foodEl = $('food');
@@ -483,7 +519,7 @@
     else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it';
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
     else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
-    else hint = 'Tap a fish to see its details';
+    else hint = G.living() ? 'Tap a fish to see its details' : ''; // only dead fish left: no hint (Playtester pass 6 N3)
     $('hint').textContent = $('dirt-callout').hidden ? hint : ''; // one message at a time: the dirt-bar callout wins
     $('dbg-clock').textContent = `game ${clock(s.gameTime)} · ×${s.speed}`;
     document.querySelectorAll('#speed-btns .dbg').forEach((b) => b.classList.toggle('on', +b.dataset.speed === s.speed));
@@ -695,7 +731,7 @@
   function rubTo(x, y) {
     const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, W * V.spongeRadiusFrac);
     pointer.lx = x; pointer.ly = y;
-    if (r.cleaned) floatText(`Sparkling! +${r.gold} gold`, x, y - 20, '#9fffd0', true);
+    if (r.cleaned) floatClean(r.gold, x, y);
   }
 
   // ------------------------------------------------------------ game events
@@ -705,8 +741,7 @@
     const name = d.fish ? G.SPECIES[d.fish.sp].name : '';
     switch (type) {
       case 'levelup':
-        if (d.gold) floatText(`+${d.gold} gold`, fx - 30, fy - 10, '#ffd84a', true);
-        if (d.xp) floatText(`+${d.xp} XP`, fx + 34, fy - 10, '#9fdcff', true);
+        floatLevelUp(d.gold, d.xp, fx, fy);
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
       case 'tanklevel':
@@ -737,6 +772,14 @@
     b.addEventListener('click', () => { G.state.speed = s; G.save(); });
     $('speed-btns').appendChild(b);
   });
+  // "Your tank is empty" modal: Start new tank = G.reset() (a brand-new save; only the debug speed is kept). Line built
+  // from the same numbers newState() uses, so it can't drift from what actually resets.
+  (() => {
+    const locked = T.species.filter((sp) => (sp.unlockTankLevel || 1) > 1).map((sp) => sp.name);
+    const list = locked.length > 1 ? `${locked.slice(0, -1).join(', ')} and ${locked[locked.length - 1]}` : locked.join('');
+    $('newtank-reset').textContent = `Everything resets: gold back to ${T.startGold}, food back to ${T.startFood}, no fish, tank level 1 (0 XP)` +
+      (locked.length ? `, and ${list} lock again.` : '.');
+  })();
   $('btn-newtank').addEventListener('click', () => {
     const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save();
     $('tankover').hidden = true; closePanel(); toast('New tank started', 'good');
@@ -835,6 +878,10 @@
     },
     spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
+    floatBoxes() { return floaters.filter((f) => f.box).map((f) => ({ text: f.text, grp: f.grp, ...f.box })); }, // drawn float bounds (tank px)
+    testFloat(kind, x, y) { // spawn a float through the real helper (tests)
+      if (kind === 'clean') floatClean(6, x, y); else if (kind === 'levelup') floatLevelUp(200, 200, x, y); else if (kind === 'feed') floatFeedGold(1, x, y);
+    },
     flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, t: p.t, fishId: p.fishId })) }; }, // test hook
     fishLen(sp, level) { return fishLen({ sp, level }); }, // tank render length (CSS px) of a fish
     floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; }, // test hook: float texts shown since the last clear

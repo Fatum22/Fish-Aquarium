@@ -28,7 +28,6 @@
         <div id="dirt-bar" aria-label="Dirt stage">
           <i></i><i></i><i></i><i></i><i></i>
         </div>
-        <div id="dirt-callout" hidden>Clean the tank first</div>
       </div>
     </header>
     <div id="tankbar" title="Tank level: level-ups and cleans earn XP; tank levels unlock species">
@@ -38,6 +37,7 @@
 
     <main id="tank-wrap">
       <canvas id="tank" aria-label="Aquarium tank"></canvas>
+      <div id="dirt-callout" hidden>Clean the tank first</div>
       <div id="toasts"></div>
       <div id="hint"></div>
 
@@ -72,6 +72,7 @@
         <div class="modal-box">
           <p><strong>Your tank is empty</strong></p>
           <p>No fish left and not enough gold for a baby. Start a fresh tank with 20 gold and 10 food.</p>
+          <p class="reset-line" id="newtank-reset"></p>
           <div class="modal-actions">
             <button class="btn primary" id="btn-newtank">Start new tank</button>
           </div>
