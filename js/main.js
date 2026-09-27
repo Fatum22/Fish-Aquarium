@@ -463,9 +463,24 @@
       g.y0 = Math.min(g.y0, f.y + f.rel.t); g.y1 = Math.max(g.y1, f.y + f.rel.b);
       g.list.push(f); groups.set(f.grp, g);
     }
-    groups.forEach((g) => {
-      const clampShift = (lo, hi, min, max) => (hi - lo > max - min ? (min + max) / 2 - (lo + hi) / 2 : lo < min ? min - lo : hi > max ? max - hi : 0);
-      const dx = clampShift(g.x0, g.x1, FLOAT_MARGIN, W - FLOAT_MARGIN), dy = clampShift(g.y0, g.y1, FLOAT_MARGIN, H - FLOAT_MARGIN);
+    // Clamp each group inside the tank, then stagger: groups are placed oldest first, and a group that would overlap an
+    // already placed one moves up/down in steps of its own height + gap until it is clear (and still inside the margin).
+    // The chosen offset is sticky while it stays valid, so floats don't jump between frames.
+    const clampShift = (lo, hi, min, max) => (hi - lo > max - min ? (min + max) / 2 - (lo + hi) / 2 : lo < min ? min - lo : hi > max ? max - hi : 0);
+    const placed = [];
+    const clear = (b) => b.y0 >= FLOAT_MARGIN - 0.01 && b.y1 <= H - FLOAT_MARGIN + 0.01 &&
+      placed.every((p) => b.x1 + FLOAT_GAP / 2 <= p.x0 || p.x1 + FLOAT_GAP / 2 <= b.x0 || b.y1 + FLOAT_GAP / 2 <= p.y0 || p.y1 + FLOAT_GAP / 2 <= b.y0);
+    [...groups.values()].sort((a, b) => a.list[0].seq - b.list[0].seq).forEach((g) => {
+      const dx = clampShift(g.x0, g.x1, FLOAT_MARGIN, W - FLOAT_MARGIN);
+      let dy = clampShift(g.y0, g.y1, FLOAT_MARGIN, H - FLOAT_MARGIN);
+      const at = (o) => ({ x0: g.x0 + dx, x1: g.x1 + dx, y0: g.y0 + dy + o, y1: g.y1 + dy + o });
+      let off = g.list[0].stag || 0;
+      if (!clear(at(off))) {
+        const step = g.y1 - g.y0 + FLOAT_GAP / 2;
+        for (let k = 0; k <= 40; k++) { const o = (k % 2 ? -1 : 1) * Math.ceil(k / 2) * step; if (clear(at(o))) { off = o; break; } }
+      }
+      g.list.forEach((f) => { f.stag = off; });
+      placed.push(at(off)); dy += off;
       for (const f of g.list) {
         const x = f.x + dx, y = f.y + dy, tx = x + f.ox; // rel already includes the pair offset; tx = text anchor
         f.box = { x0: x + f.rel.l, x1: x + f.rel.r, y0: y + f.rel.t, y1: y + f.rel.b }; // drawn bounds (tests)
@@ -478,9 +493,9 @@
     ctx.globalAlpha = 1;
   }
   const floatLog = []; // every float text shown (last 50), for tests
-  let floatGrp = 0;
+  let floatGrp = 0, floatSeq = 0;
   function floatText(text, x, y, color, big, grp, side) {
-    floaters.push({ text, x, y, color, big, t: 0, grp: grp == null ? `s${++floatGrp}` : grp, side: side || null });
+    floaters.push({ text, x, y, color, big, t: 0, grp: grp == null ? `s${++floatGrp}` : grp, side: side || null, seq: ++floatSeq });
     floatLog.push(text); if (floatLog.length > 50) floatLog.shift();
   }
   // every float in the game goes through one of these
@@ -536,14 +551,33 @@
   }
   function realNote(sec) { return G.state.speed > 1 ? ` (≈${fmt(sec / G.state.speed)} real at ×${G.state.speed})` : ''; }
 
+  // Toasts show immediately (there is no hidden queue; at most 3 on screen). An identical toast (same text + kind) that
+  // is still on screen, even fading, is merged into one line with a count ("Guppy reached level 2! +1 gold ×3") and
+  // its timer restarts.
+  function toastTimers(el) {
+    clearTimeout(el._tOut); clearTimeout(el._tDel); el.classList.remove('out');
+    el._tOut = setTimeout(() => el.classList.add('out'), 2200);
+    el._tDel = setTimeout(() => el.remove(), 2700);
+  }
   function toast(text, kind) {
+    const box = $('toasts'), k = kind || '';
+    const same = [...box.children].find((e) => e.dataset.base === text && e.dataset.kind === k);
+    if (same) {
+      const n = +same.dataset.n + 1; same.dataset.n = n; same.textContent = `${text} ×${n}`;
+      same.classList.remove('merge'); void same.offsetWidth; same.classList.add('merge');
+      toastTimers(same); return;
+    }
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
-    el.textContent = text;
-    const box = $('toasts'); box.appendChild(el);
+    el.textContent = text; el.dataset.base = text; el.dataset.kind = k; el.dataset.n = 1;
+    box.appendChild(el);
     while (box.children.length > 3) box.removeChild(box.firstChild);
-    setTimeout(() => el.classList.add('out'), 2200);
-    setTimeout(() => el.remove(), 2700);
+    toastTimers(el);
+  }
+  function clearToasts() { // drop every toast still showing or fading (N4: before "New tank started")
+    const box = $('toasts');
+    [...box.children].forEach((e) => { clearTimeout(e._tOut); clearTimeout(e._tDel); });
+    box.replaceChildren();
   }
   // The one dirty-tank message (NUMBERS.md 3 rule 1): re-shown and restarted on EVERY blocked feed tap, visible for
   // CALLOUT_MS after the last one (long enough to read and to screenshot).
@@ -554,11 +588,28 @@
     clearTimeout(calloutTimer);
     c.hidden = false;
     c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); // restart the pop so each tap is visible
-    const w = $('dirt-wrap'); w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake');
+    const w = $('dirt-wrap'); w.classList.remove('shake'); void w.offsetWidth;
+    placeDirtArrow(); // measured before the shake starts (the shake translates the dirt bar)
+    const a = $('dirt-arrow'); a.style.animation = 'none'; void a.offsetWidth; a.style.animation = '';
+    w.classList.add('shake');
     calloutCount++; c.dataset.count = calloutCount;
     $('hint').textContent = ''; // never a second message alongside it
-    calloutTimer = setTimeout(() => { c.hidden = true; }, CALLOUT_MS);
+    calloutTimer = setTimeout(() => { c.hidden = true; $('dirt-arrow').hidden = true; }, CALLOUT_MS);
   }
+  // Art Director spec: the callout box stays in the tank's top-right corner; a narrow triangle (12px base on the box's top
+  // edge) rises from it, tip 4px below the dirt bar's bottom edge and lined up with the dirt bar's centre.
+  const ARROW_BASE = 12, ARROW_TIP_GAP = 4;
+  function placeDirtArrow() {
+    const a = $('dirt-arrow'), c = $('dirt-callout');
+    if (c.hidden) { a.hidden = true; return; }
+    const bar = $('dirt-bar').getBoundingClientRect();
+    const boxTop = wrap.getBoundingClientRect().top + c.offsetTop; // layout box, unaffected by the pop scale
+    const tipX = (bar.left + bar.right) / 2, tipY = bar.bottom + ARROW_TIP_GAP;
+    a.style.left = `${tipX - ARROW_BASE / 2}px`; a.style.top = `${tipY}px`;
+    a.style.height = `${Math.max(0, boxTop - tipY) + 2}px`; // +2: strip overlapping the box (see CSS)
+    a.hidden = false;
+  }
+  window.addEventListener('resize', () => { if (!$('dirt-callout').hidden) placeDirtArrow(); });
 
   // tools
   let tool = 'hand';
@@ -782,7 +833,7 @@
   })();
   $('btn-newtank').addEventListener('click', () => {
     const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save();
-    $('tankover').hidden = true; closePanel(); toast('New tank started', 'good');
+    $('tankover').hidden = true; closePanel(); clearToasts(); toast('New tank started', 'good');
   });
   $('dbg-gold').textContent = '+100g';
   $('dbg-gold').addEventListener('click', () => { G.state.gold += 100; toast('Debug: +100 gold'); });
@@ -790,7 +841,7 @@
   $('dbg-xp').addEventListener('click', () => { G.debugAddXp(50); if (!$('shop').hidden) renderShop(); });
   $('dbg-reset').addEventListener('click', () => {
     confirmBox('Reset the save and start over?', 'Reset', () => {
-      const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save(); toast('Save reset');
+      const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save(); clearToasts(); toast('Save reset');
     });
   });
 

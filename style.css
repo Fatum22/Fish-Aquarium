@@ -28,7 +28,11 @@ button { font: inherit; color: inherit; }
 #dirt-callout { position: absolute; top: 10px; right: 10px; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; padding: 6px 10px; border-radius: 10px; z-index: 8; white-space: nowrap; box-shadow: 0 4px 12px #0008; pointer-events: none; }
 #dirt-callout.pop { animation: calloutPop .25s ease-out; }
 @keyframes calloutPop { 0% { transform: scale(.85); opacity: .4; } 60% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
-#dirt-callout::before { content: ""; position: absolute; top: -6px; right: 30px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--danger); }
+/* Art Director spec: narrow triangle, 12px base on the callout's top edge, tip 4px under the dirt bar's bottom, centred on
+   the dirt bar (not the box). The 2px strip under the base overlaps the box so there is no seam. */
+#dirt-arrow { position: fixed; width: 12px; background: var(--danger); z-index: 25; pointer-events: none;
+  clip-path: polygon(50% 0, 100% calc(100% - 2px), 100% 100%, 0 100%, 0 calc(100% - 2px)); animation: arrowIn .25s ease-out; }
+@keyframes arrowIn { from { opacity: .4; } to { opacity: 1; } }
 
 /* Tank level bar (NUMBERS.md 1f: "Tank Lv 2 · 130 / 400 XP" near the gold) */
 #tankbar { display: flex; align-items: center; gap: 8px; background: var(--panel); border-radius: 999px; padding: 3px 12px; margin-top: -3px; font-size: 12px; font-weight: 800; }
@@ -54,6 +58,8 @@ button { font: inherit; color: inherit; }
 .toast.bad { background: #5a1420dd; border-color: #ff8a8a55; }
 .toast.good { background: #0f4a2bdd; border-color: #6fffb055; }
 .toast.out { opacity: 0; transition: opacity .4s; }
+.toast.merge { animation: tmerge .25s ease-out; }
+@keyframes tmerge { 0% { transform: scale(1); } 45% { transform: scale(1.08); } 100% { transform: scale(1); } }
 @keyframes tin { from { transform: translateY(-8px); opacity: 0; } }
 #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); max-width: 92%; width: max-content; padding: 5px 12px; border-radius: 999px; background: #06223acc; text-align: center; font-size: 13px; font-weight: 600; color: #ffffff; pointer-events: none; text-shadow: none; }
 #hint:empty { display: none; }
@@ -115,10 +121,10 @@ button { font: inherit; color: inherit; }
 .tool:active { transform: translateY(1px); }
 
 /* Debug */
-#debug { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 11px; color: #8fb0c6; padding: 2px 2px 0; }
+#debug { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 11px; color: #8fb0c6; padding: 2px 2px 0; }
 .dbg-title { font-weight: 900; letter-spacing: .08em; color: #ff9f43; }
-.dbg { background: #0f2d44; border: 1px solid #ffffff22; border-radius: 6px; padding: 2px 7px; cursor: pointer; font-size: 11px; font-weight: 800; color: #cfe6f5; }
+.dbg { background: #0f2d44; border: 1px solid #ffffff22; border-radius: 6px; padding: 2px 4px; white-space: nowrap; cursor: pointer; font-size: 11px; font-weight: 800; color: #cfe6f5; }
 .dbg.on { background: #ff9f43; color: #2a1600; border-color: #ff9f43; }
 .dbg.warn { color: #ff9a9a; }
-#dbg-clock { margin-left: auto; font-variant-numeric: tabular-nums; }
+#dbg-clock { flex-basis: 100%; text-align: right; font-variant-numeric: tabular-nums; } /* own line, so the buttons incl. Reset save fit on one row */
 body.nodebug #debug { display: none; }
