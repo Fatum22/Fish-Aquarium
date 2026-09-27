@@ -328,15 +328,71 @@
       }
     },
   };
-  function drawDirt() {
-    const stage = G.dirtStage();
-    if (stage > 0) { ctx.fillStyle = `rgba(95,110,40,${V.dirtWashPerStage * stage})`; ctx.fillRect(0, 0, W, H); }
+  // ---- tank-wide dirt layer (Art Director v2): stages 2-4 flat wash, stage 5 green film (config VISUAL.dirtLayer)
+  const film = { cv: null, x: null, img: null, cols: 0, rows: 0, a: null, cap: null, mid: null, strength: 0 };
+  /** fill alpha of one spot as drawn (look alpha x rub fade; drip bottom edge +0.08) */
+  function spotFillAlpha(s) {
+    const look = V.dirtStages[Math.max(1, Math.min(5, s.stage || 1)) - 1];
+    const k = Math.max(0.12, s.grime / s.grime0);
+    return look.alpha * k + (look.look === 'drip' ? 0.08 : 0);
+  }
+  function drawFilm(strength) {
+    const F = V.dirtFilm, cell = F.cellPx;
+    const cols = Math.max(4, Math.ceil(W / cell)), rows = Math.max(4, Math.ceil(H / cell));
+    if (!film.cv || film.cols !== cols || film.rows !== rows) {
+      film.cv = document.createElement('canvas'); film.cv.width = cols; film.cv.height = rows;
+      film.x = film.cv.getContext('2d'); film.img = film.x.createImageData(cols, rows);
+      Object.assign(film, { cols, rows, a: new Float32Array(cols * rows), cap: new Float32Array(cols * rows), mid: new Uint8Array(cols * rows) });
+    }
+    const d = film.img.data, spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W * 1.25, a: spotFillAlpha(s) }));
+    const drift = realTime / F.cloudDriftSec; // tank widths
+    for (let j = 0; j < rows; j++) {
+      const py = (j + 0.5) * H / rows, ny = py / H;
+      for (let i = 0; i < cols; i++) {
+        const px = (i + 0.5) * W / cols, nx = px / W, idx = j * cols + i;
+        const dist = Math.max(Math.abs(nx - 0.5), Math.abs(ny - 0.5)) * 2; // 0 centre .. 1 edges and corners
+        const mid = dist <= F.guardZone;
+        const t = Math.max(0, Math.min(1, (dist - F.guardZone) / (1 - F.guardZone)));
+        let a = F.centre + (F.edge - F.centre) * t * t * (3 - 2 * t);
+        const u = (nx - drift) * 6.283, v = ny * 6.283 * H / W;
+        a += F.cloud * (Math.sin(u * 1.1 + v * 0.6 + 1.3) + Math.sin(-u * 0.7 + v * 1.3 + 4.1) + 0.6 * Math.sin(u * 1.9 - v * 1.7 + 2.2)) / 2.6;
+        let rgb = F.rgb;
+        const scum = ny < F.scumFrac ? 1 : ny < F.scumFrac * 1.4 ? 1 - (ny - F.scumFrac) / (F.scumFrac * 0.4) : 0; // soft bottom edge
+        if (scum > 0) { a = a + (F.scumAlpha - a) * scum; rgb = F.scumRgb; }
+        let cap = 1;
+        if (mid) { // readability guard: film + one spot <= guardMax in the middle of the tank
+          let sMax = 0;
+          for (const sp of spots) if (Math.hypot(px - sp.x, py - sp.y) < sp.r && sp.a > sMax) sMax = sp.a;
+          cap = sMax >= F.guardMax ? 0 : 1 - (1 - F.guardMax) / (1 - sMax);
+          a = Math.min(a, cap);
+        }
+        a = Math.max(0, a) * strength;
+        film.a[idx] = a; film.cap[idx] = cap; film.mid[idx] = mid ? 1 : 0;
+        d[idx * 4] = rgb[0]; d[idx * 4 + 1] = rgb[1]; d[idx * 4 + 2] = rgb[2]; d[idx * 4 + 3] = Math.round(a * 255);
+      }
+    }
+    film.x.putImageData(film.img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.drawImage(film.cv, 0, 0, W, H); ctx.restore();
+  }
+  function drawDirtLayer() {
+    const stage = G.dirtStage(), layer = stage > 0 ? V.dirtLayer[stage - 1] : null;
+    film.strength = layer && layer.film ? G.dirtFilm() : 0; // fades with rub progress, gone when the last spot clears
+    if (!layer) return;
+    if (layer.wash) { ctx.fillStyle = layer.wash; ctx.fillRect(0, 0, W, H); }
+    if (layer.film && film.strength > 0) drawFilm(film.strength);
+  }
+  function drawSpots() {
     // array order = spawn order, so older spots are drawn first and newer ones on top (source-over)
     G.state.dirt.spots.forEach((s) => {
       const look = V.dirtStages[Math.max(1, Math.min(5, s.stage || 1)) - 1];
       const k = Math.max(0.12, s.grime / s.grime0); // fades while rubbed
-      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, look.color, look.alpha * k, s, seeded(s.seed), look, k);
+      const color = look.tintHalf && Math.floor(s.seed) % 2 ? mixHex(look.color, look.tintHalf, look.tintMix) : look.color;
+      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, color, look.alpha * k, s, seeded(s.seed), look, k);
     });
+  }
+  function mixHex(a, b, t) {
+    const p = parseInt(a.slice(1), 16), q = parseInt(b.slice(1), 16), c = (sh) => Math.round(((p >> sh) & 255) * (1 - t) + ((q >> sh) & 255) * t);
+    return '#' + ((c(16) << 16) | (c(8) << 8) | c(0)).toString(16).padStart(6, '0');
   }
   function drawGlass() {
     const g = ctx.createLinearGradient(0, 0, W, H);
@@ -676,7 +732,8 @@
     drawPellets(dtAnim);
     drawFishAll(dtAnim);
     drawGlass();
-    drawDirt();
+    drawDirtLayer(); // in front of the fish (dead ones too), behind the spots
+    drawSpots();
     drawSponge();
     drawFloaters(dtAnim);
 
@@ -714,6 +771,27 @@
     game: G,
     fishScreen(id) { const m = anim.get(id); return m ? { x: m.x, y: m.y } : null; },
     showAway,
+    pinFish(id, nx, ny) { // screenshot/test hook: park a living fish at (nx, ny) of the tank
+      const f = G.state.fish.find((x) => x.id === id); if (!f) return false;
+      const m = motion(f); m.x = nx * W; m.y = ny * H; m.tx = m.x; m.ty = m.y; m.vx = 0; m.vy = 0; m.pause = 1e9; m.retarget = 1e9;
+      f.x = nx; f.y = ny; return true;
+    },
+    filmInfo() { // test hook: last drawn film grid (alpha per cell, guard cap, middle-zone flag)
+      if (!film.strength || !film.a) return { strength: film.strength, max: 0 };
+      let max = 0, midMax = 0; for (let i = 0; i < film.a.length; i++) { max = Math.max(max, film.a[i]); if (film.mid[i]) midMax = Math.max(midMax, film.a[i]); }
+      return { strength: film.strength, max, midMax, cols: film.cols, rows: film.rows };
+    },
+    guardCheck() { // worst "film + one spot" combined opacity in the middle zone, using each spot's own fill alpha
+      if (!film.strength || !film.a) return { worst: 0 };
+      let worst = 0; const spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W * 1.25, a: spotFillAlpha(s) }));
+      for (let j = 0; j < film.rows; j++) for (let i = 0; i < film.cols; i++) {
+        const idx = j * film.cols + i; if (!film.mid[idx]) continue;
+        const px = (i + 0.5) * W / film.cols, py = (j + 0.5) * H / film.rows;
+        for (const sp of spots) if (Math.hypot(px - sp.x, py - sp.y) < sp.r) worst = Math.max(worst, 1 - (1 - film.a[idx]) * (1 - sp.a));
+        worst = Math.max(worst, film.a[idx]);
+      }
+      return { worst: +worst.toFixed(4) };
+    },
     spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
     setTool,

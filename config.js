@@ -24,13 +24,13 @@
  *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
  *   - unlockTankLevel  : species can only be bought at this tank level or higher
  *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean
- *                        (the dirt clock only runs while the tank has at least one living fish)
+ *                        (runs regardless of living, dead or no fish: the empty tank gets dirty too)
  *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
  *   - dirt.cleanGold   : flat payout for any full clean (+ tank.xp.clean XP)
  *   - dirt.rubPxPerSpot: grime of a spot that appears at stage n = px of sponge travel over it
  *   - tank.levelAtXp   : total XP needed for tank level 1..5
  *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
- *   - deadFish         : dead fish float belly-up until removed (0 gold), take a tank slot and keep the dirt clock running
+ *   - deadFish         : dead fish float belly-up until removed (0 gold) and take a tank slot (the dirt clock ignores fish entirely)
  *   - debugSpeeds / debugDefaultSpeed : on-screen speed control (x1..x20), page opens at x1; ?speed=N (hidden) allows any N
  * ============================================================================
  */
@@ -255,18 +255,35 @@ window.AQUARIUM_CONFIG = {
     speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
     spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
     spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
-    // Dirt look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1). r = radius range as a fraction of
-    // tank width (stage 3: the long radius of its 2.2:1 drip). A spot keeps the look of the stage it spawned at.
+    // Dirt look per stage (Art Director DIRT_AND_FISH_GROWTH.md "v2 dirt look", replaces the s.1 table; shapes as s.1).
+    // r = radius range as a fraction of tank width (stage 3: the long radius of its 2.2:1 drip).
+    // A spot keeps the look of the stage it spawned at.
     dirtStages: [
-      { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.16 }, // soft round film, no speckles
-      { look: 'dots',   r: [0.10, 0.13],  color: '#6B8F3A', alpha: 0.20 }, // 5-8 small algae dots
-      { look: 'drip',   r: [0.14, 0.18],  color: '#5E7A2E', alpha: 0.24 }, // 2.2:1 streak, darker bottom
-      { look: 'hair',   r: [0.16, 0.20],  color: '#4A6B24', alpha: 0.28, strandAlpha: 0.5 }, // patch 0.28 + 6-10 wavy strands at ~50% (AD ruling 3)
-      { look: 'crust',  r: [0.20, 0.24],  color: '#5A5228', alpha: 0.34 }, // rough brown crust + speckles
+      { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.14 }, // soft round film, no speckles
+      { look: 'dots',   r: [0.11, 0.14],  color: '#6B8F3A', alpha: 0.22 }, // 5-8 small algae dots
+      { look: 'drip',   r: [0.16, 0.20],  color: '#5E7A2E', alpha: 0.32 }, // 2.2:1 streak, darker bottom (+0.08); reads like old stage 5
+      { look: 'hair',   r: [0.20, 0.25],  color: '#4A6B24', alpha: 0.40, strandAlpha: 0.5, // patch + wavy strands at ~50% (AD ruling 3)
+        tintHalf: '#5A5228', tintMix: 0.6 },                                             // brown crust tint on half the spots
+      { look: 'crust',  r: [0.24, 0.30],  color: '#5A5228', alpha: 0.46 }, // rough brown crust + speckles
     ],
+    // Tank-wide layer per stage, drawn in front of the fish and behind the spots. null = none,
+    // { wash: css colour } = flat tint, { film: true } = the stage 5 film below.
+    dirtLayer: [
+      null,
+      { wash: 'rgba(95,110,40,0.04)' },
+      { wash: 'rgba(95,110,40,0.08)' },
+      { wash: 'rgba(108,116,38,0.12)' }, // slight yellow-green
+      { film: true },
+    ],
+    dirtFilm: {
+      rgb: [70, 110, 40], centre: 0.28, edge: 0.42, // radial vignette: flat in the middle 60%, rising to the edges/corners
+      cloud: 0.06, cloudDriftSec: 120,               // low-frequency blotches +-0.06, drifting one tank width per 2 minutes
+      scumRgb: [96, 108, 46], scumFrac: 0.08, scumAlpha: 0.45, // waterline scum band (top 8%, soft bottom edge)
+      guardZone: 0.6, guardMax: 0.6,                 // middle 60% of the tank: film + one spot <= 0.6 combined opacity
+      cellPx: 6,                                     // film is computed on a coarse grid and smoothed
+    },
     dirtOverlapChance: 0.5,   // stage 2+ spot spawns overlapping an older spot this often
     dirtOverlapEdgeFrac: 0.6, // ...with its centre within 0.6 x older radius of the older spot's edge
-    dirtWashPerStage: 0.03,   // whole-tank green wash alpha per stage
     // Fish growth look by level L1..L4 (s.2). Size still comes from levelSizeScale.
     fishGrowth: {
       sat:        [0.30, 0.55, 0.80, 1.00], // body colour saturation vs adult palette
