@@ -324,7 +324,7 @@ def main():
         gid = ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.45); toStage(3); return f.id;")
         page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(250)  # let earlier toasts/floats/callouts expire
         # visible text outside the dirt bar (#dirt-wrap) must carry no dirt message (NUMBERS.md 3 rule 1)
-        DIRT_TXT = """() => { const out = []; const walk = (el) => { if (el.id === 'dirt-wrap' || el.id === 'debug') return;
+        DIRT_TXT = """() => { const out = []; const walk = (el) => { if (el.id === 'dirt-wrap' || el.id === 'dirt-callout' || el.id === 'debug') return;
             const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') return;
             for (const n of el.childNodes) { if (n.nodeType === 3 && /dirt|dirty|clean the tank|pick the sponge|rub the/i.test(n.textContent)) out.push(n.textContent.trim()); else if (n.nodeType === 1) walk(n); } };
           walk(document.getElementById('app')); return out; }"""
@@ -381,6 +381,87 @@ def main():
         ev("G.reset(); G.state.gold = 500; G.state.tank.xp = 1200; ['guppy','danio','neon','platy','guppy','danio'].forEach((id, i) => { const f = G.buyFish(id); f.level = [4,3,2,4,1,2][i]; f.state = f.level === 4 ? 'ADULT' : 'GROWING'; }); G.state.speed = 1;")
         page.wait_for_timeout(2500)
         page.screenshot(path=os.path.join(SHOTS, "tank_mixed_levels_staged.png"))
+
+        # ================================================================ E2. Playtester pass 6 fixes (N1-N3, N6, D1)
+        R = lambda sel: page.evaluate(f"(() => {{ const r = document.querySelector('{sel}').getBoundingClientRect(); return {{ l: r.left, t: r.top, r: r.right, b: r.bottom }}; }})()")
+        hit = lambda a, b: a["l"] < b["r"] and b["l"] < a["r"] and a["t"] < b["b"] and b["t"] < a["b"]
+        # N1: dirt-bar callout never covers the tank XP bar, still under / pointing at the dirt bar
+        ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.4, 0.5); toStage(2);")
+        page.wait_for_timeout(200); tool("food"); tank_click(box()["width"] * 0.4, box()["height"] * 0.6); page.wait_for_timeout(300)
+        co, xpb, xprow, tk, db = R("#dirt-callout"), R("#tank-xpbar"), R("#tankbar"), R("#tank"), R("#dirt-bar")
+        check("N1: dirt callout visible, doesn't intersect the tank XP bar/row, sits in the tank's top corner under the dirt bar",
+              page.locator("#dirt-callout").is_visible() and not hit(co, xpb) and not hit(co, xprow) and co["t"] >= xprow["b"] and co["l"] < db["r"] and co["r"] > db["l"]
+              and co["t"] >= tk["t"] and co["b"] - tk["t"] <= 0.08 * (tk["b"] - tk["t"]), json.dumps({"callout": co, "xpRow": xprow, "tank": tk, "dirtBar": db}))
+        page.wait_for_timeout(2700); tool("hand"); ev("clean();")
+        # N2: toasts stay out of the top 12% of the tank, where dead fish float
+        did = ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, 0.3, 0.5); f.state = 'HUNGRY'; f.deathLeft = 0.5; G.tick(1); G.state.gameTime += 25; G.debugAddXp(60); return f.id;")
+        page.wait_for_timeout(700)
+        tk = R("#tank"); band = {"l": tk["l"], "t": tk["t"], "r": tk["r"], "b": tk["t"] + 0.12 * (tk["b"] - tk["t"])}
+        toasts = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom }; })")
+        dy = page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y")
+        page.screenshot(path=os.path.join(SHOTS, "dead_fish_with_toast.png"))
+        check("N2: toasts ('Guppy died', tank level-up) never intersect the top 12% of the tank; dead fish stays in its 6-10% band",
+              len(toasts) >= 2 and any("died" in t_["text"] for t_ in toasts) and any("Tank level 2" in t_["text"] for t_ in toasts) and not any(hit(t_, band) for t_ in toasts) and 0.05 <= dy <= 0.11,
+              json.dumps({"band": band, "toasts": toasts, "deadY": round(dy, 3)}))
+        # N3: only dead fish -> no hint; back once a living fish is there
+        page.wait_for_timeout(2800)
+        h_dead = page.inner_text("#hint").strip() if page.locator("#hint").is_visible() else ""
+        page.screenshot(path=os.path.join(SHOTS, "only_dead_fish.png"))
+        ev("const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.5);"); page.wait_for_timeout(200); h_wait = page.inner_text("#hint")
+        ev("const f = G.state.fish.find((x) => x.state === 'WAITING'); clean(); feedFull(f);"); page.wait_for_timeout(200); h_live = page.inner_text("#hint")
+        check("N3: only dead fish -> hint empty; a living fish brings hints back ('Tap a fish to see its details' once fed)",
+              h_dead == "" and h_wait.startswith("New fish!") and h_live == "Tap a fish to see its details", json.dumps([h_dead, h_wait, h_live]))
+        # D1: Start new tank modal states exactly what resets, and the button does reset exactly that
+        ev("G.reset(); G.state.speed = 1; G.state.tank.xp = 1500; G.state.food = 3; G.state.starterGrantUsed = true; const f = G.buyFish('guppy') || null; G.state.gold = 3; if (f) { f.state = 'DEAD'; f.diedAt = G.state.gameTime - 30; } G.tick(1);")
+        page.wait_for_timeout(400)
+        line = page.inner_text("#newtank-reset") if page.locator("#tankover").is_visible() else ""
+        page.screenshot(path=os.path.join(SHOTS, "start_new_tank_modal.png"))
+        exp_line = "Everything resets: gold back to 20, food back to 10, no fish, tank level 1 (0 XP), and Zebra Danio, Neon Tetra and Platy lock again."
+        page.click("#btn-newtank"); page.wait_for_timeout(250)
+        after = ev("return { gold: G.state.gold, food: G.state.food, fish: G.state.fish.length, xp: G.state.tank.xp, lvl: G.tankInfo().level, locked: ['danio', 'neon', 'platy'].map((id) => !!G.canBuy(id).locked), grant: G.state.starterGrantUsed, speed: G.state.speed };")
+        check("D1: 'Your tank is empty' modal has the reset line, and Start new tank resets exactly that (gold 20, food 10, no fish, TL1 / 0 XP, 3 species relocked)",
+              line == exp_line and after == {"gold": 20, "food": 10, "fish": 0, "xp": 0, "lvl": 1, "locked": [True, True, True], "grant": False, "speed": 1}, json.dumps({"line": line, "after": after}))
+        # N6: every float type stays fully inside the tank with >= 8 px margin, at every edge/corner, also while rising
+        sz = page.evaluate("AQ.size()"); Wt, Ht = sz["W"], sz["H"]
+        pts = [(2, 2), (Wt - 2, 2), (2, Ht - 2), (Wt - 2, Ht - 2), (Wt / 2, 2), (2, Ht / 2), (Wt - 2, Ht / 2), (Wt / 2, Ht - 2), (-40, -40), (Wt + 40, Ht + 40)]
+        bad, n_boxes = [], 0
+        page.wait_for_timeout(1900)  # earlier floats gone
+        for kind in ("clean", "levelup", "feed"):
+            for (px_, py_) in pts:
+                page.evaluate(f"AQ.testFloat('{kind}', {px_}, {py_})")
+            for wait in (80, 900):   # just spawned, and after rising ~25 px
+                page.wait_for_timeout(wait)
+                bxs = page.evaluate("AQ.floatBoxes()"); n_boxes += len(bxs)
+                for q in bxs:
+                    if not (q["x0"] >= 8 - 0.01 and q["y0"] >= 8 - 0.01 and q["x1"] <= Wt - 8 + 0.01 and q["y1"] <= Ht - 8 + 0.01): bad.append({"kind": kind, **q})
+                if kind == "levelup":
+                    grps = {}
+                    for q in bxs: grps.setdefault(q["grp"], []).append(q)
+                    for pair in grps.values():
+                        if len(pair) == 2:
+                            a_, b_ = pair
+                            if a_["x0"] < b_["x1"] and b_["x0"] < a_["x1"] and a_["y0"] < b_["y1"] and b_["y0"] < a_["y1"]: bad.append({"overlap": pair})
+                        else: bad.append({"pairSize": len(pair)})
+            page.wait_for_timeout(1000)
+        check("N6: clean / level-up (gold+XP pair) / feed floats spawned at every edge and corner stay >= 8 px inside the tank (measured text box), pair never overlaps",
+              not bad and n_boxes >= 2 * len(pts) * 4, f"boxes checked={n_boxes} bad={json.dumps(bad[:3])}")
+        # real clean finishing at the far right edge
+        ev("G.reset(); G.state.gold = 50; G.state.speed = 1; toStage(1); G.state.dirt.spots.forEach((s, i) => { s.x = 0.9; s.y = 0.3 + i * 0.25; });")
+        page.wait_for_timeout(200); page.evaluate("AQ.floats(true)"); tool("sponge"); b_ = box()
+        for _ in range(12):
+            if stage() == 0: break
+            for sp in page.evaluate("AQ.spotsScreen()"):
+                page.mouse.move(b_["x"] + sp["x"] - sp["r"], b_["y"] + sp["y"]); page.mouse.down()
+                for _k in range(3):
+                    page.mouse.move(b_["x"] + b_["width"] + 30, b_["y"] + sp["y"] + 4, steps=6)
+                    page.mouse.move(b_["x"] + sp["x"] - sp["r"], b_["y"] + sp["y"] - 4, steps=6)
+                page.mouse.move(b_["x"] + b_["width"] - 3, b_["y"] + sp["y"], steps=4); page.mouse.up()
+        page.wait_for_timeout(250)
+        cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
+        page.screenshot(path=os.path.join(SHOTS, "float_edge_clamp.png"))
+        check("N6: a real clean finished at the far right edge: 'Sparkling! +2 gold' fully inside the tank (>= 8 px)",
+              stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps(cb))
+        tool("hand")
 
         # ================================================================ F. balance
         bc = page.evaluate("AQ.game.balanceChecks()")
