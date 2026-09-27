@@ -321,10 +321,27 @@ def main():
             l1Clear: k1.clear && k1.sat === 0.3 && k1.tl === 0.45 && k4.fin === 1 && k4.sat === 1,
             tailL1: tail(1), tailL4: tail(4),
           };
+          // AD rulings: danio L1 no stripe (pixel on the stripe line equals plain body, stays tan), neon L2 line 55%,
+          // fins keep the species hue unblended (platy L2 dorsal pixel = fin colour at 40% alpha), hair patch 0.28 / strands 0.5
+          const px = (sp, lv, fx, fy) => { const c = document.createElement('canvas'); c.width = 400; c.height = 300; const x = c.getContext('2d');
+            x.translate(200, 150); FishArt.drawFish(x, sp, 200, 0, { level: lv }); const hh = FishArt.ART[sp].depth * 100;
+            const d = x.getImageData(Math.round(200 + fx * 200), Math.round(150 + fy * hh), 1, 1).data; return [d[0], d[1], d[2], +(d[3] / 255).toFixed(2)]; };
+          const stripeY = 0.14 * 0.8125, stripeX = -0.015; // danio stripe 2 at mid body
+          res.danioL1 = px('danio', 1, stripeX, stripeY); res.danioL1off = px('danio', 1, stripeX, stripeY + 0.12); res.danioL3 = px('danio', 3, stripeX, stripeY);
+          res.danioStripes = FishArt.LOOK.danioStripes.map((a) => a.length);
+          res.neonL2 = FishArt.LOOK.neonL2LineAlpha;
+          res.platyFinL2 = px('platy', 2, -0.04, -1.2); res.platyFinL4 = px('platy', 4, -0.04, -1.2);
+          res.hair = [V.dirtStages[3].alpha, V.dirtStages[3].strandAlpha];
           G.reset(); G.save(); return res; }""")
         check("dirt: 5 distinct stage looks, every spot drawn in its own stage's style, radius per stage", a["looksDistinct"] and a["everyStageStyled"] and a["radiusInRange"], json.dumps(a))
         check("dirt: alpha 0.16 -> 0.34 rising, stage 5 biggest, spot counts unchanged", a["stage1Faintest"] and a["stage5Biggest"] and a["countsOk"])
         check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
+        dl1, dof, dl3 = a["danioL1"], a["danioL1off"], a["danioL3"]
+        check("AD ruling 1: zebra danio L1 has no stripe (stripes from L2)", a["danioStripes"] == [0, 2, 4, 4] and dl1[0] >= dl1[2] and max(abs(dl1[i] - dof[i]) for i in range(3)) < 12 and dl3[2] > dl3[0] + 30, f"L1 {dl1} off {dof} L3 {dl3} stripes {a['danioStripes']}")
+        check("AD ruling 6: neon tetra L2 blue line at 55%", a["neonL2"] == 0.55)
+        f2, f4 = a["platyFinL2"], a["platyFinL4"]
+        check("AD ruling 5: platy L2 fin keeps its own orange hue (not grey-blended), only alpha lower", f2[0] > 230 and f2[0] - f2[2] > 150 and abs(f2[1] - f4[1]) < 25 and 0.2 < f2[3] < 0.5 and f4[3] > 0.75, f"L2 {f2} L4 {f4}")
+        check("AD ruling 3: hair-algae patch 0.28, strands 0.5", a["hair"] == [0.28, 0.5], str(a["hair"]))
         check("fish: L1 tail clear/uncoloured, L4 tail full colour (growth table)", a["l1Clear"] and a["tailL1"]["alpha"] < 0.35 and a["tailL1"]["sat"] < 0.15 and a["tailL4"]["alpha"] > 0.6 and a["tailL4"]["sat"] > 0.4, f"L1 {a['tailL1']} L4 {a['tailL4']}")
 
         # ---- 14. touch: rub-clean with real touch drags (CDP touch events, phone emulation)

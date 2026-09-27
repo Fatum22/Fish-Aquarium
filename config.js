@@ -224,7 +224,7 @@ window.AQUARIUM_CONFIG = {
       { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.16 }, // soft round film, no speckles
       { look: 'dots',   r: [0.10, 0.13],  color: '#6B8F3A', alpha: 0.20 }, // 5-8 small algae dots
       { look: 'drip',   r: [0.14, 0.18],  color: '#5E7A2E', alpha: 0.24 }, // 2.2:1 streak, darker bottom
-      { look: 'hair',   r: [0.16, 0.20],  color: '#4A6B24', alpha: 0.28 }, // patch + 6-10 wavy strands
+      { look: 'hair',   r: [0.16, 0.20],  color: '#4A6B24', alpha: 0.28, strandAlpha: 0.5 }, // patch 0.28 + 6-10 wavy strands at ~50% (AD ruling 3)
       { look: 'crust',  r: [0.20, 0.24],  color: '#5A5228', alpha: 0.34 }, // rough brown crust + speckles
     ],
     dirtOverlapChance: 0.5,   // stage 2+ spot spawns overlapping an older spot this often

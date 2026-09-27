@@ -1,6 +1,6 @@
 """Review screenshots for Art Director's DIRT_AND_FISH_GROWTH.md (phone 390x844 @2x).
 Run (server on 8766): /workspace/tools/venv-aq/bin/python tests/art_shots.py
-Writes screenshots/dirt_stage1..5.png, dirt_stage_looks.png, fish_{guppy,neon,danio,platy}_L1-L4.png, fish_all_L1-L4.png, tank_guppy_L1-L4.png.
+Writes screenshots/dirt_stage1..5.png, dirt_stage_looks.png, fish_{guppy,neon,danio,platy}_L1-L4.png, fish_all_L1-L4.png, tank_{guppy,neon}_L1-L4.png.
 """
 import os
 from playwright.sync_api import sync_playwright
@@ -76,12 +76,13 @@ def main():
         big.goto(BASE + "?speed=1&debug=0"); big.wait_for_function("window.AQ && window.AQ.game")
         wh = big.evaluate(SHEET, [SPECIES, 4, 250, 185])
         path = os.path.join(SHOTS, "fish_all_L1-L4.png"); big.screenshot(path=path, clip={"x": 0, "y": 0, "width": wh["W"], "height": wh["H"]}); out.append(path)
-        # in-tank: guppy L1..L4 swimming (real game rendering), clean glass
-        page.evaluate("""() => { const G = AQ.game; G.reset(); G.state.speed = 1; G.state.gold = 1000;
-          [1,2,3,4].forEach((lv) => { const f = G.buyFish('guppy'); f.level = lv; f.state = lv === 4 ? 'ADULT' : 'GROWING';
-            f.x = [0.25, 0.7, 0.3, 0.68][lv - 1]; f.y = [0.25, 0.3, 0.55, 0.6][lv - 1]; }); }""")
-        page.wait_for_timeout(1200)
-        path = os.path.join(SHOTS, "tank_guppy_L1-L4.png"); page.screenshot(path=path); out.append(path)
+        # in-tank: guppy / neon L1..L4 swimming (real game rendering), clean glass
+        for sp in ["guppy", "neon"]:
+            page.evaluate("""(sp) => { const G = AQ.game; G.reset(); G.state.speed = 1; G.state.gold = 1000;
+              [1,2,3,4].forEach((lv) => { const f = G.buyFish(sp); f.level = lv; f.state = lv === 4 ? 'ADULT' : 'GROWING';
+                f.x = [0.25, 0.7, 0.3, 0.68][lv - 1]; f.y = [0.25, 0.3, 0.55, 0.6][lv - 1]; }); }""", sp)
+            page.wait_for_timeout(1200)
+            path = os.path.join(SHOTS, f"tank_{sp}_L1-L4.png"); page.screenshot(path=path); out.append(path)
         page.evaluate("AQ.game.reset(); AQ.game.save()")
         big.evaluate("AQ.game.reset(); AQ.game.save()")
         b.close()

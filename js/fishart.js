@@ -12,6 +12,8 @@
     finAlpha: [0, 0.4, 0.7, 1], markAlpha: [0, 0.4, 1, 1],
   };
   const CLEAR_FIN = 'rgba(235,240,245,0.22)', CLEAR_EDGE = 'rgba(255,255,255,0.35)';
+  // Art Director rulings 2026-09-27: danio stripes start at L2 (none at L1); neon L2 line at 55%.
+  const LOOK = { neonL2LineAlpha: 0.55, danioStripes: [[], [1, 2], [0, 1, 2, 3], [0, 1, 2, 3]] };
 
   // Adult palette (L4). Pushed richer per the spec: vivid guppy tail, deep red platy, dark-blue danio stripes.
   const ART = {
@@ -69,12 +71,17 @@
     const i = Math.max(1, Math.min(4, level || 4)) - 1;
     return { lv: i + 1, sat: GROW.sat[i], tl: GROW.tailLen[i], ts: GROW.tailSpread[i], fin: GROW.finAlpha[i], mark: GROW.markAlpha[i], clear: GROW.finAlpha[i] === 0 };
   }
-  /** fill the current path as a fin: clear at L1, else the species fill at finAlpha of its alpha */
+  /** fill the current path as a fin: clear at L1, else the species' own fin colour (never grey-blended,
+   *  AD ruling 5) at finAlpha of its alpha */
   function finFill(ctx, k, style) {
     if (k.clear) { ctx.fillStyle = CLEAR_FIN; ctx.fill(); return; }
     ctx.save(); ctx.globalAlpha *= k.fin; ctx.fillStyle = style; ctx.fill(); ctx.restore();
   }
-  const edgeOf = (k, a) => (k.clear ? CLEAR_EDGE : a.finEdge);
+  /** fin edge stroke: white 0.35 at L1, else the species edge colour with only its alpha scaled by level */
+  function finStroke(ctx, k, a) {
+    if (k.clear) { ctx.strokeStyle = CLEAR_EDGE; ctx.stroke(); return; }
+    ctx.save(); ctx.globalAlpha *= k.fin; ctx.strokeStyle = a.finEdge; ctx.stroke(); ctx.restore();
+  }
 
   function bodyPath(ctx, L, hh) {
     const nx = 0.48 * L, px = -0.32 * L, ph = hh * 0.24;
@@ -136,7 +143,7 @@
     // fin rays / pattern
     ctx.save();
     tailPath(ctx, a, L, hh); ctx.clip();
-    ctx.strokeStyle = k.clear ? 'rgba(255,255,255,0.18)' : id === 'guppy' ? 'rgba(40,10,80,0.25)' : 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = k.clear ? 'rgba(255,255,255,0.18)' : id === 'guppy' ? 'rgba(40,10,80,0.25)' : id === 'platy' ? 'rgba(160,40,10,0.3)' : 'rgba(255,255,255,0.35)'; // platy rays in its own red, not white
     ctx.lineWidth = Math.max(0.5, L * 0.006);
     for (let i = -4; i <= 4; i++) {
       ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0 - tl * 1.2, i * a.tailSpread * hh * 0.3); ctx.stroke();
@@ -189,19 +196,19 @@
       fill.addColorStop(0, '#5fd0ff'); fill.addColorStop(1, k.lv >= 4 ? '#ff6a2b' : '#ff9a4a');
     }
     finFill(ctx, k, fill);
-    ctx.strokeStyle = edgeOf(k, a); ctx.lineWidth = Math.max(0.5, L * 0.008); ctx.stroke();
+    ctx.lineWidth = Math.max(0.5, L * 0.008); finStroke(ctx, k, a);
   }
 
   function drawBellyFins(ctx, id, a, L, hh, wave, k) {
     const w = Math.sin(wave + 1) * hh * 0.08;
     const fill = id === 'guppy' ? 'rgba(255,160,90,0.7)' : a.fin;
-    ctx.strokeStyle = edgeOf(k, a); ctx.lineWidth = Math.max(0.5, L * 0.006);
+    ctx.lineWidth = Math.max(0.5, L * 0.006);
     // anal fin
     ctx.beginPath();
     ctx.moveTo(-0.06 * L, hh * 0.78);
     ctx.quadraticCurveTo(-0.14 * L, hh * 1.45 + w, -0.24 * L, hh * 1.2 + w);
     ctx.quadraticCurveTo(-0.22 * L, hh * 0.8, -0.2 * L, hh * 0.55);
-    ctx.closePath(); finFill(ctx, k, fill); ctx.stroke();
+    ctx.closePath(); finFill(ctx, k, fill); finStroke(ctx, k, a);
     // pelvic fin
     ctx.beginPath();
     ctx.moveTo(0.14 * L, hh * 0.9);
@@ -210,7 +217,7 @@
     ctx.closePath(); finFill(ctx, k, fill);
   }
 
-  /** markings: none at L1 (danio: one faint stripe per spec), main marking at L2, full at L3, + adult detail at L4 */
+  /** markings: none at L1, main marking at L2, full at L3, + adult detail at L4 */
   function drawPattern(ctx, id, a, L, hh, k) {
     const lv = k.lv;
     ctx.save();
@@ -224,7 +231,7 @@
         ctx.globalAlpha = 1;
       }
       if (lv === 2) { // thin faint blue line
-        ctx.strokeStyle = 'rgba(80,200,255,1)'; ctx.globalAlpha = k.mark; ctx.lineWidth = hh * 0.12; ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(90,225,255,1)'; ctx.globalAlpha = LOOK.neonL2LineAlpha; ctx.lineWidth = hh * 0.18; ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(0.34 * L, -hh * 0.12); ctx.quadraticCurveTo(0.0, -hh * 0.27, -0.32 * L, -hh * 0.08); ctx.stroke();
       } else if (lv >= 3) { // full electric-blue stripe; L4 glows (soft ~2px)
         const g = ctx.createLinearGradient(0.35 * L, 0, -0.32 * L, 0);
@@ -248,12 +255,11 @@
       }
     } else if (id === 'danio') {
       const ys = [-0.5, -0.18, 0.14, 0.44];
-      const show = lv === 1 ? [2] : lv === 2 ? [1, 2] : [0, 1, 2, 3];
       ctx.strokeStyle = lv >= 4 ? '#1a2f86' : '#2a4aa8'; ctx.lineCap = 'round';
-      ctx.globalAlpha = lv === 1 ? 0.14 : k.mark;
-      show.forEach((i) => {
+      ctx.globalAlpha = k.mark;
+      LOOK.danioStripes[lv - 1].forEach((i) => { // none at L1 (AD ruling 1)
         const y = ys[i];
-        ctx.lineWidth = hh * (lv === 1 ? 0.08 : i === 1 || i === 2 ? 0.17 : 0.12);
+        ctx.lineWidth = hh * (i === 1 || i === 2 ? 0.17 : 0.12);
         ctx.beginPath();
         ctx.moveTo(0.3 * L, y * hh * 0.7);
         ctx.quadraticCurveTo(0.0, y * hh * 1.05, -0.36 * L, y * hh * 0.45);
@@ -374,5 +380,5 @@
     ctx.restore();
   }
 
-  window.FishArt = { drawFish, ART, growth };
+  window.FishArt = { drawFish, ART, growth, LOOK };
 })();

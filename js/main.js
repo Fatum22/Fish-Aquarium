@@ -281,10 +281,10 @@
       ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, R / 2.2, R, 0, 0, 7); ctx.fill();
       ctx.restore();
     },
-    hair(cx, cy, R, c, a, s, rng) { // irregular patch + 6-10 short wavy strands (1.5px, 0.3R) out of the edge
+    hair(cx, cy, R, c, a, s, rng, look, k) { // irregular patch + 6-10 short wavy strands (1.5px, 0.3R) out of the edge
       ctx.fillStyle = rgbaHex(c, a); blobPath(cx, cy, R, s.seed, 1); ctx.fill();
       const n = 6 + Math.floor(rng() * 5);
-      ctx.strokeStyle = rgbaHex(c, a * 1.8); ctx.lineWidth = 1.5; ctx.lineCap = 'round'; // strands need more alpha to read at 1.5px
+      ctx.strokeStyle = rgbaHex(c, look.strandAlpha * k); ctx.lineWidth = 1.5; ctx.lineCap = 'round'; // strands ~50% (AD ruling 3); patch body stays look.alpha
       for (let i = 0; i < n; i++) {
         const th = ((i + rng() * 0.6) / n) * Math.PI * 2, rr = blobR(R, s.seed, 1, th) * 0.96, len = R * 0.3;
         const ux = Math.cos(th), uy = Math.sin(th), w = len * 0.18 * (rng() < 0.5 ? 1 : -1);
@@ -312,7 +312,7 @@
     G.state.dirt.spots.forEach((s) => {
       const look = V.dirtStages[Math.max(1, Math.min(5, s.stage || 1)) - 1];
       const k = Math.max(0.12, s.grime / s.grime0); // fades while rubbed
-      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, look.color, look.alpha * k, s, seeded(s.seed));
+      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, look.color, look.alpha * k, s, seeded(s.seed), look, k);
     });
   }
   function drawGlass() {
