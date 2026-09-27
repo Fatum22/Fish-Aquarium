@@ -17,10 +17,10 @@ Plain HTML/CSS/JS. There's no build step, no framework and no npm. It also opens
 2. **Buy:** Shop → Guppy (20). The fish swims in and shows a blue "feed me" marker. Tap it with **Look** and the panel reads *Growth: Not started - feed to start* and *Waiting for first feed*. An unfed fish never gets hungry or dies.
 3. **Feed:** pick **Food** and tap the tank. Pellets drop, it costs 1 food, you get +1 gold, and growth starts.
 4. **Get hungry:** at ×60 the Guppy is hungry after about 2 s (halfway through L1). It shows an orange "!" marker and swims sluggishly. With **Look**, tap it: *Hungry! Growth paused*, the growth bar is striped and frozen, and **Death timer: dies in m:ss** counts down.
-5. **Dirty → blocked:** the dirt bar fills in 5 stages (no clock is shown) and spots appear on the glass. At stage 1 or higher, a Food tap is refused with **"Clean the tank first"**.
+5. **Dirty → blocked:** the dirt bar fills in 5 stages (no clock is shown) and spots appear on the glass. Each stage has its own look (Art Director's `DIRT_AND_FISH_GROWTH.md`): 1 faint round smudge, 2 cluster of algae dots, 3 drip streak, 4 hair-algae patch, 5 big dark brown crust. Later spots often overlap older ones, so crossings read darker. At stage 1 or higher, a Food tap is refused with **"Clean the tank first"**.
 6. **Rub clean:** pick **Sponge** and drag (mouse or finger) back and forth over the spots. Each spot fades as you rub. When the last spot clears, you're paid gold (3/5/7/8/9 for stages 1–5) and the dirt timer resets.
 7. **Feed again:** the death timer clears and growth resumes.
-8. **Level up:** at the end of L1 the fish grows, you get **+10 gold** (Guppy) with a floating "+10g", and it gets bigger. Max level is L4 (Adult).
+8. **Level up:** at the end of L1 the fish grows, you get **+10 gold** (Guppy) with a floating "+10g", and it gets bigger. Max level is L4 (Adult). Each level also adds colour: L1 is a pale fry with clear fins and a short tail, L2-L3 gain fin colour, a longer tail and markings, L4 shows the full adult colours (for example the neon's glowing stripe and full red).
 9. **Sell / release:** open the panel. L2 or higher shows **Sell for X gold**. L1 shows **Release (0 gold)** with a confirm dialog.
 10. **Death:** leave a hungry fish unfed. At ×60 an L1 Guppy dies about 6 s after getting hungry. It floats up grey, belly-up, and a toast says "Guppy died of hunger".
 11. **Debug bar:** ×1 / ×10 / ×60 speed, **+100g** (a cheat for testing), **Reset save**.
@@ -29,7 +29,7 @@ Automated check: `/workspace/tools/venv-aq/bin/python tests/verify.py` (Playwrig
 
 ## Numbers
 
-Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy of Designer's `/workspace/studio/briefs/aquarium/design/tuning.json`** (v1.2, dirt-load model). The rules follow `NUMBERS.md` in the same folder. The test asserts that `config.js` and `tuning.json` match. To retune, paste a new tuning.json over `TUNING`. The only non-tuning values in config.js are the drafted rare/epic multipliers (NUMBERS.md §7, not used in v1) and presentation-only values (fish draw size, sponge size, save key).
+Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy of Designer's `/workspace/studio/briefs/aquarium/design/tuning.json`** (v1.2, dirt-load model). The rules follow `NUMBERS.md` in the same folder. The test asserts that `config.js` and `tuning.json` match. To retune, paste a new tuning.json over `TUNING`. The only non-tuning values in config.js are the drafted rare/epic multipliers (NUMBERS.md §7, not used in v1) and presentation-only values in `VISUAL` (fish draw size, fish growth look by level, dirt look per stage, sponge size, save key).
 
 ## Rules as implemented (NUMBERS.md)
 
@@ -54,4 +54,5 @@ Progress is saved to `localStorage` (`aquarium.save.v1`) every 2 s and when the 
 - `js/fishart.js`: procedural canvas fish art for 4 species
 - `js/main.js`: rendering, swimming AI, pointer input, panels, shop, debug bar
 - `tests/verify.py`: headless end-to-end test
+- `tests/art_shots.py`: review screenshots for the look spec (dirt stages, fish L1-L4 sheets)
 - `screenshots/`: output from the test run

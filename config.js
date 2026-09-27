@@ -218,7 +218,26 @@ window.AQUARIUM_CONFIG = {
     speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
     spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
     spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
-    spotRadiusFrac: [0.075, 0.11],          // dirt spot radius range (fraction of tank width)
+    // Dirt look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1). r = radius range as a fraction of
+    // tank width (stage 3: the long radius of its 2.2:1 drip). A spot keeps the look of the stage it spawned at.
+    dirtStages: [
+      { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.16 }, // soft round film, no speckles
+      { look: 'dots',   r: [0.10, 0.13],  color: '#6B8F3A', alpha: 0.20 }, // 5-8 small algae dots
+      { look: 'drip',   r: [0.14, 0.18],  color: '#5E7A2E', alpha: 0.24 }, // 2.2:1 streak, darker bottom
+      { look: 'hair',   r: [0.16, 0.20],  color: '#4A6B24', alpha: 0.28 }, // patch + 6-10 wavy strands
+      { look: 'crust',  r: [0.20, 0.24],  color: '#5A5228', alpha: 0.34 }, // rough brown crust + speckles
+    ],
+    dirtOverlapChance: 0.5,   // stage 2+ spot spawns overlapping an older spot this often
+    dirtOverlapEdgeFrac: 0.6, // ...with its centre within 0.6 x older radius of the older spot's edge
+    dirtWashPerStage: 0.03,   // whole-tank green wash alpha per stage
+    // Fish growth look by level L1..L4 (s.2). Size still comes from levelSizeScale.
+    fishGrowth: {
+      sat:        [0.30, 0.55, 0.80, 1.00], // body colour saturation vs adult palette
+      tailLen:    [0.45, 0.65, 0.85, 1.00],
+      tailSpread: [0.50, 0.70, 0.85, 1.00],
+      finAlpha:   [0,    0.40, 0.70, 1.00], // 0 = clear fins rgba(235,240,245,0.22) + white edge
+      markAlpha:  [0,    0.40, 1.00, 1.00], // main markings; L4 adds adult detail
+    },
     saveKey: 'aquarium.save.v1',
     saveEveryMs: 2000,
   },

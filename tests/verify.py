@@ -285,6 +285,48 @@ def main():
         check("first Guppy: dirt bar empty through L1, stage 1 at ~9:20 (9-10 min)", d["stAtL2"] == 0 and 540 <= d["firstStage1"] <= 600, json.dumps(d))
         check("full adult tank load capped at maxLoadPerMin (20/min)", d["cap"] == d["maxLoad"] == 20, json.dumps(d))
 
+        # ---- 13c. Art Director look spec (DIRT_AND_FISH_GROWTH.md): per-stage dirt looks, overlap spawning, fish growth look
+        a = page.evaluate("""() => {
+          const G = AQ.game, T = G.T, V = G.CFG.VISUAL, sz = AQ.size(); G.reset(); G.state.gold = 1000;
+          const f = G.buyFish('guppy'); f.level = 4; f.state = 'ADULT';
+          let spots = [], counts = [];
+          for (let run = 0; run < 40; run++) {
+            G.state.dirt.points = 0; G.state.dirt.spots = []; G.state.dirt.spawned = 0;
+            for (let i = 0; i < 5; i++) { G.state.dirt.points = T.dirt.stageAtPoints[i] + 0.01; G.tick(0.001); counts.push(G.state.dirt.spots.length === T.dirt.spots[i]); }
+            spots = spots.concat(G.state.dirt.spots.map((s) => {
+              const o = G.state.dirt.spots.find((x) => x.id === s.over);
+              const d = o ? Math.hypot((s.x - o.x) * sz.W, (s.y - o.y) * sz.H) / (o.r * sz.W) : null;
+              return { stage: s.stage, r: s.r, over: s.over, d, olderOk: o ? o.id < s.id : true };
+            }));
+          }
+          const looks = V.dirtStages.map((l) => l.look);
+          const later = spots.filter((s) => s.stage >= 2), ov = later.filter((s) => s.over != null);
+          const k1 = FishArt.growth(1), k4 = FishArt.growth(4);
+          // tail pixels of an L1 vs L4 guppy on a transparent canvas: L1 must be clear (low alpha, near-grey)
+          const tail = (lv) => { const c = document.createElement('canvas'); c.width = 400; c.height = 300; const x = c.getContext('2d');
+            x.translate(260, 150); FishArt.drawFish(x, 'guppy', 200, 0, { level: lv });
+            const tl = FishArt.ART.guppy.tailLen * FishArt.growth(lv).tl * 200, cx = 260 - 0.31 * 200 - tl * 0.55;
+            const d = x.getImageData(Math.round(cx - 6), 140, 12, 20).data; let al = 0, sat = 0, n = 0;
+            for (let i = 0; i < d.length; i += 4) { al += d[i + 3] / 255; if (d[i + 3] > 0) { sat += (Math.max(d[i], d[i+1], d[i+2]) - Math.min(d[i], d[i+1], d[i+2])) / 255; n++; } }
+            return { alpha: +(al / (d.length / 4)).toFixed(3), sat: +(sat / Math.max(1, n)).toFixed(3) }; };
+          const res = {
+            looksDistinct: new Set(looks).size === 5,
+            everyStageStyled: spots.every((s) => s.stage >= 1 && s.stage <= 5 && !!looks[s.stage - 1]),
+            radiusInRange: spots.every((s) => s.r >= V.dirtStages[s.stage - 1].r[0] - 1e-9 && s.r <= V.dirtStages[s.stage - 1].r[1] + 1e-9),
+            stage1Faintest: V.dirtStages.every((l, i) => i === 0 || l.alpha > V.dirtStages[i - 1].alpha) && V.dirtStages[0].alpha === 0.16 && V.dirtStages[4].alpha === 0.34,
+            stage5Biggest: V.dirtStages.every((l, i) => i === 4 || l.r[1] <= V.dirtStages[4].r[0]),
+            countsOk: counts.every(Boolean), stage1NeverOver: spots.filter((s) => s.stage === 1).every((s) => s.over == null),
+            overlapRate: +(ov.length / later.length).toFixed(2),
+            overlapDistOk: ov.every((s) => s.d >= 0.4 - 1e-6 && s.d <= 1.6 + 1e-6 && s.olderOk),
+            l1Clear: k1.clear && k1.sat === 0.3 && k1.tl === 0.45 && k4.fin === 1 && k4.sat === 1,
+            tailL1: tail(1), tailL4: tail(4),
+          };
+          G.reset(); G.save(); return res; }""")
+        check("dirt: 5 distinct stage looks, every spot drawn in its own stage's style, radius per stage", a["looksDistinct"] and a["everyStageStyled"] and a["radiusInRange"], json.dumps(a))
+        check("dirt: alpha 0.16 -> 0.34 rising, stage 5 biggest, spot counts unchanged", a["stage1Faintest"] and a["stage5Biggest"] and a["countsOk"])
+        check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
+        check("fish: L1 tail clear/uncoloured, L4 tail full colour (growth table)", a["l1Clear"] and a["tailL1"]["alpha"] < 0.35 and a["tailL1"]["sat"] < 0.15 and a["tailL4"]["alpha"] > 0.6 and a["tailL4"]["sat"] > 0.4, f"L1 {a['tailL1']} L4 {a['tailL4']}")
+
         # ---- 14. touch: rub-clean with real touch drags (CDP touch events, phone emulation)
         tctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, has_touch=True, is_mobile=True)
         tp = tctx.new_page()

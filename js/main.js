@@ -197,7 +197,7 @@
       ctx.scale(m.faceAnim >= 0 ? Math.max(0.08, m.faceAnim) : Math.min(-0.08, m.faceAnim), 1);
       ctx.rotate(tilt);
       if (hungry) ctx.globalAlpha = 0.9;
-      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry });
+      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, level: f.level });
       ctx.restore();
       drawStatusIcon(f, L);
       ctx.restore();
@@ -226,7 +226,7 @@
       c.t += dt; c.y -= dt * 25; if (c.y < 14) c.y = 14;
       ctx.save(); ctx.globalAlpha = Math.max(0, 1 - c.t / 4);
       ctx.translate(c.x, c.y + Math.sin(c.t * 2) * 2);
-      FishArt.drawFish(ctx, c.sp, c.L, 0, { dead: true });
+      FishArt.drawFish(ctx, c.sp, c.L, 0, { dead: true, level: c.level });
       ctx.restore();
       if (c.t > 4) corpses.splice(i, 1);
     }
@@ -242,33 +242,77 @@
       if (p.t > 5) pellets.splice(i, 1);
     }
   }
-  function spotPath(s, R, cx, cy) {
-    // irregular blob from seeded harmonics
+  // ---- dirt: one look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1), deterministic from spot.seed
+  function seeded(seed) { // mulberry32
+    let t = Math.floor(seed * 9973) >>> 0;
+    return () => { t = (t + 0x6D2B79F5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
+  }
+  function rgbaHex(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${Math.min(1, a).toFixed(3)})`; }
+  // irregular blob edge radius at angle th; rough 2 = edge noise doubled (crust)
+  function blobR(R, seed, rough, th) {
+    return R * (0.84 + rough * (0.1 * Math.sin(th * 3 + seed) + 0.06 * Math.sin(th * 5 + seed * 2) + 0.03 * Math.sin(th * 11 + seed * 3)));
+  }
+  function blobPath(cx, cy, R, seed, rough) {
     ctx.beginPath();
-    for (let a = 0; a <= 24; a++) {
-      const th = (a / 24) * Math.PI * 2;
-      const rr = R * (0.8 + 0.14 * Math.sin(th * 3 + s.seed) + 0.08 * Math.sin(th * 5 + s.seed * 2));
-      const x = cx + Math.cos(th) * rr, y = cy + Math.sin(th) * rr;
-      a ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    for (let i = 0; i <= 48; i++) {
+      const th = (i / 48) * Math.PI * 2, rr = blobR(R, seed, rough, th);
+      i ? ctx.lineTo(cx + Math.cos(th) * rr, cy + Math.sin(th) * rr) : ctx.moveTo(cx + Math.cos(th) * rr, cy + Math.sin(th) * rr);
     }
     ctx.closePath();
   }
+  const SPOT_DRAW = {
+    smudge(cx, cy, R, c, a, s) { // soft round film, no speckles
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+      g.addColorStop(0, rgbaHex(c, a)); g.addColorStop(0.6, rgbaHex(c, a * 0.85)); g.addColorStop(1, rgbaHex(c, 0));
+      ctx.fillStyle = g; blobPath(cx, cy, R, s.seed, 0.5); ctx.fill();
+    },
+    dots(cx, cy, R, c, a, s, rng) { // cluster of 5-8 small round algae dots, dot r 0.15-0.3 R
+      const n = 5 + Math.floor(rng() * 4);
+      ctx.fillStyle = rgbaHex(c, a);
+      for (let i = 0; i < n; i++) {
+        const dr = R * (0.15 + rng() * 0.15), th = rng() * Math.PI * 2, d = Math.sqrt(rng()) * (R - dr);
+        ctx.beginPath(); ctx.arc(cx + Math.cos(th) * d, cy + Math.sin(th) * d, dr, 0, 7); ctx.fill();
+      }
+    },
+    drip(cx, cy, R, c, a, s, rng) { // 2.2:1 ellipse, long axis within +-30 deg of vertical, darker bottom edge
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate((rng() * 2 - 1) * Math.PI / 6);
+      const g = ctx.createLinearGradient(0, -R, 0, R);
+      g.addColorStop(0, rgbaHex(c, a)); g.addColorStop(0.72, rgbaHex(c, a)); g.addColorStop(0.86, rgbaHex(c, a + 0.08)); g.addColorStop(1, rgbaHex(c, a + 0.08));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, R / 2.2, R, 0, 0, 7); ctx.fill();
+      ctx.restore();
+    },
+    hair(cx, cy, R, c, a, s, rng) { // irregular patch + 6-10 short wavy strands (1.5px, 0.3R) out of the edge
+      ctx.fillStyle = rgbaHex(c, a); blobPath(cx, cy, R, s.seed, 1); ctx.fill();
+      const n = 6 + Math.floor(rng() * 5);
+      ctx.strokeStyle = rgbaHex(c, a * 1.8); ctx.lineWidth = 1.5; ctx.lineCap = 'round'; // strands need more alpha to read at 1.5px
+      for (let i = 0; i < n; i++) {
+        const th = ((i + rng() * 0.6) / n) * Math.PI * 2, rr = blobR(R, s.seed, 1, th) * 0.96, len = R * 0.3;
+        const ux = Math.cos(th), uy = Math.sin(th), w = len * 0.18 * (rng() < 0.5 ? 1 : -1);
+        const x0 = cx + ux * rr, y0 = cy + uy * rr;
+        ctx.beginPath(); ctx.moveTo(x0, y0);
+        ctx.bezierCurveTo(x0 + ux * len * 0.33 - uy * w, y0 + uy * len * 0.33 + ux * w,
+          x0 + ux * len * 0.66 + uy * w, y0 + uy * len * 0.66 - ux * w, x0 + ux * len, y0 + uy * len);
+        ctx.stroke();
+      }
+    },
+    crust(cx, cy, R, c, a, s, rng) { // rough brown crust (edge noise doubled) + 10-14 dark speckles
+      ctx.fillStyle = rgbaHex(c, a); blobPath(cx, cy, R, s.seed, 2); ctx.fill();
+      const n = 10 + Math.floor(rng() * 5);
+      ctx.fillStyle = rgbaHex('#3A3418', Math.min(1, a * 1.6));
+      for (let i = 0; i < n; i++) {
+        const th = rng() * Math.PI * 2, d = Math.sqrt(rng()) * R * 0.6, sr = R * (0.025 + rng() * 0.04);
+        ctx.beginPath(); ctx.ellipse(cx + Math.cos(th) * d, cy + Math.sin(th) * d, sr * 1.3, sr, th, 0, 7); ctx.fill();
+      }
+    },
+  };
   function drawDirt() {
     const stage = G.dirtStage();
-    if (stage > 0) { ctx.fillStyle = `rgba(95,110,40,${0.035 * stage})`; ctx.fillRect(0, 0, W, H); }
+    if (stage > 0) { ctx.fillStyle = `rgba(95,110,40,${V.dirtWashPerStage * stage})`; ctx.fillRect(0, 0, W, H); }
+    // array order = spawn order, so older spots are drawn first and newer ones on top (source-over)
     G.state.dirt.spots.forEach((s) => {
-      const R = s.r * W, cx = s.x * W, cy = s.y * H;
-      const k = Math.max(0.12, s.grime / s.grime0);
-      const a = (0.4 + 0.1 * stage) * k;
-      const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
-      g.addColorStop(0, `rgba(86,96,34,${a})`); g.addColorStop(0.7, `rgba(110,118,48,${a * 0.85})`); g.addColorStop(1, `rgba(120,125,60,${a * 0.2})`);
-      ctx.fillStyle = g; spotPath(s, R, cx, cy); ctx.fill();
-      // speckles
-      ctx.fillStyle = `rgba(60,55,20,${a * 0.8})`;
-      for (let i = 0; i < 7; i++) {
-        const th = s.seed + i * 2.1, rr = R * 0.55 * ((i * 37 % 10) / 10);
-        ctx.beginPath(); ctx.arc(cx + Math.cos(th) * rr, cy + Math.sin(th) * rr, 1.5 + (i % 3), 0, 7); ctx.fill();
-      }
+      const look = V.dirtStages[Math.max(1, Math.min(5, s.stage || 1)) - 1];
+      const k = Math.max(0.12, s.grime / s.grime0); // fades while rubbed
+      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, look.color, look.alpha * k, s, seeded(s.seed));
     });
   }
   function drawGlass() {
@@ -406,7 +450,7 @@
     const pc = $('panel-portrait'), p = pc.getContext('2d');
     p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, pc.width, pc.height);
     p.translate(pc.width * 0.55, pc.height * 0.52);
-    FishArt.drawFish(p, f.sp, pc.width * 0.5, realTime * 5, { hungry: dying });
+    FishArt.drawFish(p, f.sp, pc.width * 0.5, realTime * 5, { hungry: dying, level: f.level });
   }
   $('p-sell').addEventListener('click', () => {
     const id = +$('p-sell').dataset.fish;
@@ -525,7 +569,7 @@
         break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
       case 'death':
-        corpses.push({ x: fx, y: fy + 20, sp: d.fish.sp, L: fishLen(d.fish), t: 0 });
+        corpses.push({ x: fx, y: fy + 20, sp: d.fish.sp, L: fishLen(d.fish), level: d.fish.level, t: 0 });
         anim.delete(d.fish.id);
         toast(`${name} died of hunger`, 'bad');
         break;
@@ -611,7 +655,7 @@
   window.AQ = {
     game: G,
     fishScreen(id) { const m = anim.get(id); return m ? { x: m.x, y: m.y } : null; },
-    spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime })); },
+    spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
     setTool,
   };

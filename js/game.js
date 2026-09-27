@@ -152,13 +152,29 @@
 
   function spawnSpot(stage) {
     const grime = T.dirt.rubPxPerSpot[stage - 1];
-    const [r0, r1] = CFG.VISUAL.spotRadiusFrac;
-    // positions normalized to the tank (0..1); avoid the very edges
-    let x, y, tries = 0;
-    do {
-      x = rnd(0.14, 0.86); y = rnd(0.14, 0.78); tries++;
-    } while (tries < 20 && S.dirt.spots.some((s) => Math.hypot(s.x - x, (s.y - y) * 1.3) < 0.2));
-    S.dirt.spots.push({ id: S.nextId++, x, y, r: rnd(r0, r1), grime, grime0: grime, stage, seed: Math.random() * 1000 });
+    const V = CFG.VISUAL, look = V.dirtStages[stage - 1];
+    const r = rnd(look.r[0], look.r[1]);
+    // positions normalized to the tank (0..1); avoid the very edges. Visual placement only.
+    let x, y, over = null;
+    const older = S.dirt.spots;
+    if (stage >= 2 && older.length && Math.random() < V.dirtOverlapChance) {
+      // overlap an older spot: centre within dirtOverlapEdgeFrac x its radius of its edge (px, aspect-correct)
+      const o = older[Math.floor(Math.random() * older.length)];
+      const asp = (root.AQ && root.AQ.size) ? root.AQ.size() : { W: 1, H: 1.4 };
+      for (let i = 0; i < 12; i++) {
+        const th = Math.random() * Math.PI * 2;
+        const d = o.r * rnd(1 - V.dirtOverlapEdgeFrac, 1 + V.dirtOverlapEdgeFrac); // in tank widths
+        x = o.x + Math.cos(th) * d; y = o.y + Math.sin(th) * d * asp.W / asp.H;
+        if (x > 0.08 && x < 0.92 && y > 0.08 && y < 0.8) { over = o.id; break; }
+      }
+    }
+    if (over === null) {
+      let tries = 0;
+      do {
+        x = rnd(0.14, 0.86); y = rnd(0.14, 0.78); tries++;
+      } while (tries < 20 && older.some((s) => Math.hypot(s.x - x, (s.y - y) * 1.3) < 0.2));
+    }
+    S.dirt.spots.push({ id: S.nextId++, x, y, r, grime, grime0: grime, stage, seed: Math.random() * 1000, over });
     S.dirt.spawned++;
   }
 
