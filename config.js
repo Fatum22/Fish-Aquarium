@@ -3,38 +3,43 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/tuning.json   (v1 numbers)
- *  with the rules/proofs in NUMBERS.md in the same folder. The earlier
- *  engineer placeholders were dropped. To retune: paste a new tuning.json over
- *  the TUNING object (keys unchanged) and reload. The headless test
- *  (tests/verify.py) asserts TUNING == tuning.json.
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (v2, slow game)
+ *  with the rules/proofs in NUMBERS.md (v2) in the same folder. To retune: paste
+ *  a new tuning.json over the TUNING object (keys unchanged) and reload. The
+ *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
  *  Units: seconds of game time at debug speed x1 (the debug speed multiplies
- *  every timer equally). Gold and food are integers.
+ *  every timer equally, including time while the game is closed).
+ *  Gold, food and XP are integers.
  *
- *  How the game reads TUNING (per NUMBERS.md):
+ *  How the game reads TUNING (NUMBERS.md v2):
  *   - growSec[i]       : growth time from level i+1 to i+2 (L1->L2, L2->L3, L3->L4)
  *   - hungerPoint      : fraction of the current level's growth at which the fish gets hungry (once per level)
- *   - deathMult        : death timer = deathMult * that level's growSec
- *   - adultHungerSec   : "= growSec[2] of species" -> an adult (L4) gets hungry growSec[2] after
- *                        its last feed; its death timer = deathMult * growSec[2]
- *   - food portion     : foodBase * level * rarityFoodMult[rarity]  (per fish actually fed)
- *   - feedGoldPerFish  : gold per fish actually fed on a tap
- *   - levelUpGold[i]   : gold on reaching L(i+2)
+ *   - deathSec         : death timer from the moment a fish gets hungry (same for every species/level)
+ *   - adultHungerSec   : an adult (L4) gets hungry this long after reaching L4, then after each full feed
+ *   - portion          : foodBase * level * rarityFoodMult[rarity] food; one Food tap gives foodPerTap food
+ *                        to the nearest fish that still needs food, so it takes ceil(portion / foodPerTap) taps
+ *   - feedGoldPerFish  : gold paid when a fish becomes fully fed
+ *   - levelUpGold[i]   : gold on reaching L(i+2); also tank XP when tank.xp.fishLevelUp = "equalsLevelUpGold"
  *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
- *   - dirt (model loadPoints): each living fish adds loadPerMinByLevel[level-1] points/min (unfed fish count as L1),
- *     tank total capped at maxLoadPerMin; stage n is reached at stageAtPoints[n-1] points since the last clean
- *                        (dirt only builds while the tank has at least one living fish)
+ *   - unlockTankLevel  : species can only be bought at this tank level or higher
+ *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean
+ *                        (the dirt clock only runs while the tank has at least one living fish)
  *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
- *   - dirt.cleanGold   : payout for a full clean, by the stage when the LAST spot clears
+ *   - dirt.cleanGold   : flat payout for any full clean (+ tank.xp.clean XP)
  *   - dirt.rubPxPerSpot: grime of a spot that appears at stage n = px of sponge travel over it
+ *   - tank.levelAtXp   : total XP needed for tank level 1..5
+ *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
+ *   - deadFish         : dead fish float belly-up until removed (0 gold), take a tank slot and keep the dirt clock running
+ *   - debugSpeeds / debugDefaultSpeed : on-screen speed control (x1..x20), page opens at x1; ?speed=N (hidden) allows any N
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json (Designer v1.2 dirt-load, 2026-09-27)',
+  source: 'tuning.json (Designer v2 slow game, 2026-09-27)',
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
+    "version": 2,
     "startGold": 20,
     "startFood": 10,
     "tankCapacity": 6,
@@ -43,16 +48,20 @@ window.AQUARIUM_CONFIG = {
       "food": 10,
       "gold": 10
     },
+    "foodPerTap": 1,
     "feedGoldPerFish": 1,
     "hungerPoint": 0.5,
-    "deathMult": 1.5,
+    "deathSec": 57600,
     "rarityFoodMult": {
       "common": 1
     },
+    "offlineProgress": true,
     "debugSpeeds": [
       1,
+      5,
       10,
-      60
+      15,
+      20
     ],
     "species": [
       {
@@ -60,12 +69,13 @@ window.AQUARIUM_CONFIG = {
         "name": "Guppy",
         "latin": "Poecilia reticulata",
         "rarity": "common",
+        "unlockTankLevel": 1,
         "price": 20,
         "foodBase": 1,
         "growSec": [
-          240,
-          480,
-          960
+          3600,
+          7200,
+          14400
         ],
         "levelUpGold": [
           10,
@@ -78,19 +88,20 @@ window.AQUARIUM_CONFIG = {
           30,
           90
         ],
-        "adultHungerSec": 960
+        "adultHungerSec": 14400
       },
       {
         "id": "danio",
         "name": "Zebra Danio",
         "latin": "Danio rerio",
         "rarity": "common",
+        "unlockTankLevel": 2,
         "price": 40,
         "foodBase": 1,
         "growSec": [
-          300,
-          600,
-          1200
+          4500,
+          9000,
+          18000
         ],
         "levelUpGold": [
           20,
@@ -103,19 +114,20 @@ window.AQUARIUM_CONFIG = {
           60,
           180
         ],
-        "adultHungerSec": 1200
+        "adultHungerSec": 18000
       },
       {
         "id": "neon",
         "name": "Neon Tetra",
         "latin": "Paracheirodon innesi",
         "rarity": "common",
+        "unlockTankLevel": 3,
         "price": 60,
         "foodBase": 2,
         "growSec": [
-          420,
-          840,
-          1680
+          6300,
+          12600,
+          25200
         ],
         "levelUpGold": [
           30,
@@ -128,19 +140,20 @@ window.AQUARIUM_CONFIG = {
           90,
           270
         ],
-        "adultHungerSec": 1680
+        "adultHungerSec": 25200
       },
       {
         "id": "platy",
         "name": "Platy",
         "latin": "Xiphophorus maculatus",
         "rarity": "common",
+        "unlockTankLevel": 4,
         "price": 100,
         "foodBase": 2,
         "growSec": [
-          600,
-          1200,
-          2400
+          9000,
+          18000,
+          36000
         ],
         "levelUpGold": [
           50,
@@ -153,25 +166,18 @@ window.AQUARIUM_CONFIG = {
           150,
           450
         ],
-        "adultHungerSec": 2400
+        "adultHungerSec": 36000
       }
     ],
+    "adultHungerFrom": "reachL4ThenLastFeed",
     "dirt": {
-      "model": "loadPoints",
-      "loadPerMinByLevel": [
-        2,
-        3,
-        5,
-        8
-      ],
-      "waitingFishCountsAsLevel": 1,
-      "maxLoadPerMin": 20,
-      "stageAtPoints": [
-        24,
-        48,
-        80,
-        120,
-        176
+      "model": "timeSinceClean",
+      "stageAtSec": [
+        10800,
+        21600,
+        43200,
+        86400,
+        172800
       ],
       "spots": [
         2,
@@ -180,32 +186,63 @@ window.AQUARIUM_CONFIG = {
         5,
         6
       ],
-      "cleanGold": [
-        7,
-        12,
-        17,
-        20,
-        23
-      ],
+      "cleanGold": 10,
       "rubPxPerSpot": [
         150,
         150,
         220,
         220,
         220
-      ]
+      ],
+      "stage5Film": true,
+      "runsWithEmptyTank": true
     },
-    "adultHungerFrom": "reachL4ThenLastFeed",
+    "tank": {
+      "levelAtXp": [
+        0,
+        60,
+        400,
+        1200,
+        3000
+      ],
+      "maxLevel": 5,
+      "xp": {
+        "fishLevelUp": "equalsLevelUpGold",
+        "clean": 5,
+        "sell": 0,
+        "feed": 0
+      },
+      "level5Reward": "decorationsLater"
+    },
     "starterGrant": {
       "oneTime": true,
       "when": "noLivingFish && gold < 20",
       "topUpGoldTo": 20
+    },
+    "debugDefaultSpeed": 1,
+    "deadFish": {
+      "staysUntilRemoved": true,
+      "removeGold": 0,
+      "takesTankSlot": true
     }
   },
 
-  // ---- Rarity scaling for LATER (not in tuning.json; from NUMBERS.md section 7).
-  // Only "common" is used in v1. Food multiplier for the game comes from
-  // TUNING.rarityFoodMult (falls back to foodMult here for non-common).
+  // ---- Tank XP source switch (NUMBERS.md 1f / 11: open question for Maksims) --
+  // 'designer' = use TUNING.tank.xp as written (default: level-ups give XP equal to their gold,
+  // +5 per clean, 0 for selling/feeding). The other presets exist so the answer is a one-word change
+  // here without editing the verbatim TUNING copy.
+  XP_SOURCE: 'designer',
+  XP_PRESETS: {
+    levelUpsOnly:    { fishLevelUp: 'equalsLevelUpGold', clean: 0, sell: 0, feed: 0 },
+    levelUpsAndSell: { fishLevelUp: 'equalsLevelUpGold', clean: 5, sell: 'equalsSellGold', feed: 0 },
+  },
+
+  // ---- Offline catch-up (NUMBERS.md 9.3) -------------------------------------
+  OFFLINE_CAP_SEC: 7 * 24 * 3600, // one catch-up replays at most 7 days of game time
+
+  // ---- Rarity scaling for LATER (not in tuning.json; NUMBERS.md section 8).
+  // Only "common" is used now. Food multiplier comes from TUNING.rarityFoodMult
+  // (falls back to foodMult here for non-common).
   RARITY_LATER: {
     common: { growthMult: 1, foodMult: 1, goldMult: 1,  diamondStub: false },
     rare:   { growthMult: 2, foodMult: 3, goldMult: 4,  diamondStub: true },
@@ -241,19 +278,14 @@ window.AQUARIUM_CONFIG = {
       // Multipliers on the platy's own fin alpha 0.85: 0.65/0.85 and 0.85/0.85.
       finAlphaBySpecies: { platy: [0, 0.65 / 0.85, 1.00, 1.00] },
     },
-    saveKey: 'aquarium.save.v1',
+    saveKey: 'aquarium.save.v2', // v2 rules: v1 saves are not loaded
     saveEveryMs: 2000,
   },
 };
 
 /*
- * Sanity checks of Designer's inequalities (NUMBERS.md sections 4 and 5) are
- * recomputed from TUNING at startup in js/game.js -> Game.balanceChecks() and
- * printed with console.info. Designer's proof (gold per minute per tank slot,
- * food valued at 1 gold/unit, ideal play):
- *   Guppy       sell@L3 3.25  < sell@L4 4.89
- *   Zebra Danio sell@L3 5.27  < sell@L4 7.91
- *   Neon Tetra  sell@L3 5.48  < sell@L4 8.37
- *   Platy       sell@L3 6.50  < sell@L4 9.86
- * Clean gold/hour at stage 1..5: 60 > 50 > 42 > 32 > 24.5 (clean often pays more).
+ * Designer's proofs (NUMBERS.md v2 sections 4 and 5) are recomputed from TUNING at startup in
+ * js/game.js -> Game.balanceChecks() and printed with console.info:
+ *   clean gold per day at stage 1..5: 80 > 40 > 20 > 10 > 5 (cleaning at stage 1 earns 16x stage 5)
+ *   gold per hour, sell@L3 vs sell@L4: Guppy 13.0 < 19.6, Danio 21.1 < 31.7, Neon 21.9 < 33.5, Platy 26.0 < 39.4
  */

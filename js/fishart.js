@@ -311,18 +311,64 @@
    * @param opts {dead, hungry, level (1..4, default 4)}
    */
   function drawFish(ctx, id, L, phase, opts) {
-    const base = ART[id] || ART.neon;
     opts = opts || {};
+    if (opts.dead) { drawDead(ctx, id, L, opts); return; }
+    drawLive(ctx, id, L, phase, opts);
+  }
+
+  // ---- dead pose (Art Director, DIRT_AND_FISH_GROWTH.md "Dead fish pose"): belly-up, same species/size/tail/markings,
+  // colour 35% of living saturation blended 20% toward #D8DCD6, fins/tail at 60% opacity, cloudy pale-grey eye, no motion.
+  // Rendered once per species/level/size into an offscreen canvas (colour pass on pixels; no ctx.filter, Safari lacks it).
+  const DEAD = { sat: 0.35, wash: [0xD8, 0xDC, 0xD6], washMix: 0.2, finAlpha: 0.6, eye: '#C9CFCF' };
+  const deadCache = new Map();
+  function deadSprite(id, L, level, scale) {
+    const key = `${id}|${level}|${Math.round(L)}|${scale.toFixed(2)}`;
+    let c = deadCache.get(key);
+    if (c) return c;
+    const ox = 1.2 * L, oy = 0.62 * L, w = 1.85 * L, h = 1.24 * L;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.ceil(w * scale)); cv.height = Math.max(1, Math.ceil(h * scale));
+    const x = cv.getContext('2d');
+    x.scale(scale, scale); x.translate(ox, oy);
+    drawLive(x, id, L, 0, { level, deadParts: true });
+    const img = x.getImageData(0, 0, cv.width, cv.height), d = img.data, [wr, wg, wb] = DEAD.wash, t = DEAD.washMix;
+    for (let i = 0; i < d.length; i += 4) {
+      if (!d[i + 3]) continue;
+      const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      d[i] = (y + (d[i] - y) * DEAD.sat) * (1 - t) + wr * t;
+      d[i + 1] = (y + (d[i + 1] - y) * DEAD.sat) * (1 - t) + wg * t;
+      d[i + 2] = (y + (d[i + 2] - y) * DEAD.sat) * (1 - t) + wb * t;
+    }
+    x.putImageData(img, 0, 0);
+    c = { cv, ox, oy, w, h };
+    if (deadCache.size > 60) deadCache.delete(deadCache.keys().next().value);
+    deadCache.set(key, c);
+    return c;
+  }
+  function drawDead(ctx, id, L, opts) {
+    const m = ctx.getTransform(), scale = Math.max(0.5, Math.min(4, Math.hypot(m.a, m.b) || 1));
+    const sp = deadSprite(id, L, opts.level || 4, scale);
+    ctx.save();
+    ctx.scale(1, -1); // belly-up
+    ctx.drawImage(sp.cv, -sp.ox, -sp.oy, sp.w, sp.h);
+    ctx.restore();
+  }
+
+  function drawLive(ctx, id, L, phase, opts) {
+    const base = ART[id] || ART.neon;
+    const dead = !!opts.deadParts;
     const k = growth(opts.level, id);
     const a = Object.assign({}, base, { tailLen: base.tailLen * k.tl, tailSpread: base.tailSpread * k.ts });
     const hh = (a.depth * L) / 2;
-    const sway = opts.dead ? 0 : Math.sin(phase) * (opts.hungry ? 0.14 : 0.28);
+    const sway = dead ? 0 : Math.sin(phase) * (opts.hungry ? 0.14 : 0.28);
     ctx.save();
-    if (opts.dead) { ctx.scale(1, -1); ctx.globalAlpha *= 0.85; try { ctx.filter = 'grayscale(0.9) brightness(1.1)'; } catch (e) {} }
 
+    ctx.save();
+    if (dead) ctx.globalAlpha *= DEAD.finAlpha; // dead: fins and tail at 60% of their living opacity
     drawTail(ctx, id, a, L, hh, sway, k);
-    drawDorsal(ctx, id, a, L, hh, phase * 0.7, k);
-    drawBellyFins(ctx, id, a, L, hh, phase, k);
+    drawDorsal(ctx, id, a, L, hh, dead ? 0 : phase * 0.7, k);
+    drawBellyFins(ctx, id, a, L, hh, dead ? 0 : phase, k);
+    ctx.restore();
 
     // body: adult palette blended toward grey by level (platy also shifts hue orange -> deep red)
     let top = a.top, mid = a.mid, belly = a.belly;
@@ -357,7 +403,8 @@
     // pectoral fin (flaps)
     ctx.save();
     ctx.translate(0.24 * L, hh * 0.25);
-    ctx.rotate(0.5 + (opts.dead ? 0 : Math.sin(phase * 1.6) * 0.35));
+    ctx.rotate(0.5 + (dead ? 0 : Math.sin(phase * 1.6) * 0.35));
+    if (dead) ctx.globalAlpha *= DEAD.finAlpha;
     ctx.beginPath(); ctx.ellipse(-hh * 0.4, 0, hh * 0.45, hh * 0.18, 0, 0, 7);
     if (id === 'platy') finFill(ctx, k, 'rgba(255,150,80,0.8)');
     else { ctx.fillStyle = k.clear ? CLEAR_FIN : 'rgba(255,255,255,0.4)'; ctx.fill(); }
@@ -366,10 +413,9 @@
     // eye
     const ex = 0.33 * L, ey = -hh * 0.18, er = Math.max(1.6, hh * 0.3);
     ctx.fillStyle = sat(a.eyeRing, k.sat); ctx.beginPath(); ctx.arc(ex, ey, er, 0, 7); ctx.fill();
-    if (opts.dead) {
-      ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1, er * 0.35);
-      ctx.beginPath(); ctx.moveTo(ex - er * 0.6, ey - er * 0.6); ctx.lineTo(ex + er * 0.6, ey + er * 0.6);
-      ctx.moveTo(ex + er * 0.6, ey - er * 0.6); ctx.lineTo(ex - er * 0.6, ey + er * 0.6); ctx.stroke();
+    if (dead) { // cloudy pale grey disc instead of the pupil (no cartoon X eyes)
+      ctx.fillStyle = DEAD.eye; ctx.beginPath(); ctx.arc(ex + er * 0.08, ey, er * 0.72, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.arc(ex - er * 0.1, ey - er * 0.2, er * 0.35, 0, 7); ctx.fill();
     } else {
       ctx.fillStyle = '#0d0f14'; ctx.beginPath(); ctx.arc(ex + er * 0.12, ey, er * 0.66, 0, 7); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + er * 0.35, ey - er * 0.3, er * 0.25, 0, 7); ctx.fill();
@@ -381,5 +427,5 @@
     ctx.restore();
   }
 
-  window.FishArt = { drawFish, ART, growth, LOOK };
+  window.FishArt = { drawFish, ART, growth, LOOK, DEAD };
 })();

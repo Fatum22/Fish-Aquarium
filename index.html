@@ -31,6 +31,10 @@
         <div id="dirt-callout" hidden>Clean the tank first</div>
       </div>
     </header>
+    <div id="tankbar" title="Tank level: level-ups and cleans earn XP; tank levels unlock species">
+      <span id="tank-label">Tank Lv 1</span>
+      <div class="bar"><div id="tank-xpbar"></div></div>
+    </div>
 
     <main id="tank-wrap">
       <canvas id="tank" aria-label="Aquarium tank"></canvas>
@@ -47,17 +51,18 @@
             <div class="p-chips"><span class="chip" id="p-rarity"></span><span class="chip" id="p-level"></span></div>
           </div>
         </div>
-        <div class="p-row"><span class="k">Growth</span><span class="v" id="p-growth"></span></div>
-        <div class="bar"><div id="p-growbar"></div></div>
-        <div class="p-row"><span class="k">Hunger</span><span class="v" id="p-hunger"></span></div>
-        <div class="p-row" id="p-death-row" hidden><span class="k">Death timer</span><span class="v danger" id="p-death"></span></div>
-        <div class="p-row small"><span class="k">Food per feed</span><span class="v" id="p-portion"></span></div>
+        <div class="p-row alive"><span class="k">Growth</span><span class="v" id="p-growth"></span></div>
+        <div class="bar alive"><div id="p-growbar"></div></div>
+        <div class="p-row alive"><span class="k">Hunger</span><span class="v" id="p-hunger"></span></div>
+        <div class="p-row small alive"><span class="k">Food per feed</span><span class="v" id="p-portion"></span></div>
+        <div class="p-row deadonly"><span class="k">Status</span><span class="v danger" id="p-dead">Dead</span></div>
         <button id="p-sell" class="btn wide"></button>
       </section>
 
       <section id="shop" class="sheet" hidden>
         <button class="close" data-close="shop" aria-label="Close">&times;</button>
         <h2>Fish shop <small>babies only</small></h2>
+        <div id="shop-tankrow"><span id="shop-tank"></span><div class="bar"><div id="shop-tankbar"></div></div></div>
         <div id="shop-list"></div>
         <button class="btn wide diamond" disabled title="Diamonds are not available in this prototype">&#9670; Diamonds: coming later</button>
         <p class="note" id="shop-note"></p>
@@ -70,6 +75,13 @@
           <div class="modal-actions">
             <button class="btn primary" id="btn-newtank">Start new tank</button>
           </div>
+        </div>
+      </div>
+      <div id="away" class="modal" hidden>
+        <div class="modal-box">
+          <p><strong>While you were away</strong> <span id="away-time"></span></p>
+          <ul id="away-list"></ul>
+          <div class="modal-actions"><button class="btn primary" id="away-ok">OK</button></div>
         </div>
       </div>
       <div id="confirm" class="modal" hidden>

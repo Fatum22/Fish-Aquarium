@@ -6,9 +6,12 @@
 
   // ------------------------------------------------------------ boot / URL
   const params = new URLSearchParams(location.search);
-  G.load();
+  const hadSave = G.load();
+  // Offline progress (NUMBERS.md 9.2-9.3): replay the time away at the speed that was running when the game closed.
+  let awaySummary = hadSave ? G.resume(Date.now()) : null;
+  // The page always opens at the default speed (x1); a hidden ?speed=N (any N > 0) overrides it for tests/Playtester.
   const urlSpeed = parseFloat(params.get('speed'));
-  if (urlSpeed > 0 && urlSpeed <= 1000) G.state.speed = urlSpeed; // ?speed=60 overrides saved/default speed
+  G.state.speed = urlSpeed > 0 ? urlSpeed : (T.debugDefaultSpeed || 1);
   if (params.get('debug') === '0') document.body.classList.add('nodebug');
   console.info('[Aquarium] numbers from', CFG.source, 'balance checks:', JSON.stringify(G.balanceChecks()));
 
@@ -47,8 +50,7 @@
 
   // ------------------------------------------------------------ animation state (not saved)
   const anim = new Map(); // fish id -> motion
-  const corpses = [];
-  const pellets = [];
+  const pellets = [];  // food flakes: travel from the tap point to the fish they feed
   const floaters = [];
   const bubbles = [];
   let realTime = 0;
@@ -79,8 +81,24 @@
     m.ty = Math.min(b.y1, Math.max(b.y0, yMid + (Math.random() - 0.5) * (b.y1 - b.y0) * 0.95));
     m.retarget = 3 + Math.random() * 5;
   }
+  const DEAD_RISE_SEC = 20; // game seconds to rise to the waterline (Art Director dead-fish pose)
+  function stepDead(f, m, dt) {
+    const L = fishLen(f), b = bounds(f);
+    if (m.deadY0 == null) { m.deadY0 = m.y; m.drift = Math.random() < 0.5 ? -1 : 1; }
+    const yTop = Math.max(H * 0.08, L * 0.36 + 4); // just under the waterline (top 6-10%), never behind the edge
+    const p = f.diedAt == null ? 1 : Math.max(0, Math.min(1, (G.state.gameTime - f.diedAt) / DEAD_RISE_SEC));
+    const e = p * p * (3 - 2 * p);
+    m.y = m.deadY0 + (yTop - m.deadY0) * e;
+    if (p >= 1) { // drift sideways ~3 px/s, turning back at the walls
+      m.x += m.drift * 3 * dt;
+      if (m.x < b.x0) { m.x = b.x0; m.drift = 1; } else if (m.x > b.x1) { m.x = b.x1; m.drift = -1; }
+    }
+    m.vx = 0; m.vy = 0;
+    f.x = m.x / W; f.y = m.y / H;
+  }
   function stepFish(f, dt) {
     const m = motion(f);
+    if (f.state === 'DEAD') { stepDead(f, m, dt); return; }
     const hungry = f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY';
     const L = fishLen(f);
     const maxSpeed = (hungry ? 0.35 : 1) * (22 + L * 0.9);
@@ -185,25 +203,39 @@
       const m = anim.get(f.id);
       const L = fishLen(f);
       const hungry = f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY';
-      const bobY = Math.sin(m.bob) * (hungry ? 1.5 : 3);
+      const dead = f.state === 'DEAD';
+      const bobY = dead ? Math.sin(realTime * Math.PI / 2) * 2 : Math.sin(m.bob) * (hungry ? 1.5 : 3); // dead: +-2 px on a 4 s cycle
       ctx.save();
       ctx.translate(m.x, m.y + bobY);
       if (selectedId === f.id) {
         ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
         ctx.beginPath(); ctx.ellipse(0, 0, L * 0.75, L * 0.45, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]);
       }
-      const tilt = Math.max(-0.35, Math.min(0.35, Math.atan2(m.vy, Math.abs(m.vx) + 10))) + (hungry ? 0.12 : 0);
+      const tilt = dead ? Math.sin(realTime * 0.9 + f.id) * 0.14 // +-8 degrees
+        : Math.max(-0.35, Math.min(0.35, Math.atan2(m.vy, Math.abs(m.vx) + 10))) + (hungry ? 0.12 : 0);
       ctx.save();
       ctx.scale(m.faceAnim >= 0 ? Math.max(0.08, m.faceAnim) : Math.min(-0.08, m.faceAnim), 1);
       ctx.rotate(tilt);
       if (hungry) ctx.globalAlpha = 0.9;
-      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, level: f.level });
+      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, dead, level: f.level });
       ctx.restore();
       drawStatusIcon(f, L);
       ctx.restore();
     });
   }
+  /** small "fed" meter (taps received of taps needed) above a fish that still needs food (NUMBERS.md 3.5) */
+  function drawFeedMeter(f, L) {
+    const i = G.fishInfo(f); if (!i.needsFood) return;
+    const n = i.taps, got = i.tapsFed, seg = n > 8 ? 5 : 8, gap = 2, w = n * seg + (n - 1) * gap, y = -L * 0.45 - 8;
+    ctx.fillStyle = 'rgba(6,24,42,0.75)'; roundRect(-w / 2 - 3, y - 3, w + 6, 11, 5); ctx.fill();
+    for (let k = 0; k < n; k++) {
+      ctx.fillStyle = k < got ? '#3ddc84' : 'rgba(255,255,255,0.25)';
+      roundRect(-w / 2 + k * (seg + gap), y, seg, 5, 2); ctx.fill();
+    }
+  }
   function drawStatusIcon(f, L) {
+    if (f.state === 'DEAD') return;
+    drawFeedMeter(f, L);
     let color = null, glyph = null;
     if (f.state === 'WAITING') { color = '#37c3ff'; glyph = 'food'; }
     else if (f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY') {
@@ -212,7 +244,7 @@
     }
     if (!color) return;
     const pulse = 1 + Math.sin(realTime * 6) * 0.08;
-    const y = -L * 0.45 - 12, r = 9 * pulse;
+    const y = -L * 0.45 - 28, r = 9 * pulse;
     ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(0, y, r, 0, 7); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-4, y + r - 2); ctx.lineTo(0, y + r + 5); ctx.lineTo(4, y + r - 2); ctx.fill();
@@ -220,26 +252,17 @@
     if (glyph === '!') { ctx.font = '900 13px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 0, y + 1); }
     else { for (const [dx, dy] of [[-3, -2], [2, -3], [0, 2], [3, 2], [-3, 3]]) { ctx.beginPath(); ctx.arc(dx, y + dy, 1.4, 0, 7); ctx.fill(); } }
   }
-  function drawCorpses(dt) {
-    for (let i = corpses.length - 1; i >= 0; i--) {
-      const c = corpses[i];
-      c.t += dt; c.y -= dt * 25; if (c.y < 14) c.y = 14;
-      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - c.t / 4);
-      ctx.translate(c.x, c.y + Math.sin(c.t * 2) * 2);
-      FishArt.drawFish(ctx, c.sp, c.L, 0, { dead: true, level: c.level });
-      ctx.restore();
-      if (c.t > 4) corpses.splice(i, 1);
-    }
-  }
   function drawPellets(dt) {
     for (let i = pellets.length - 1; i >= 0; i--) {
       const p = pellets[i];
       p.t += dt;
-      if (p.y < sandTop() - 2) { p.y += dt * (26 + p.s * 8); p.x += Math.sin(p.t * 3 + p.s) * dt * 8; }
-      ctx.globalAlpha = Math.max(0, Math.min(1, 5 - p.t));
-      ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.6, 2, p.s, 0, 7); ctx.fill();
-      ctx.globalAlpha = 1;
-      if (p.t > 5) pellets.splice(i, 1);
+      const m = p.fishId != null ? anim.get(p.fishId) : null;
+      if (m) { // flake glides/drops to its fish
+        const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy), step = dt * 260;
+        if (d <= step + 4) { if (p.full) floatText(`+${p.gold} gold`, m.x, m.y - 30, '#ffe07a'); pellets.splice(i, 1); continue; }
+        p.x += dx / d * step; p.y += dy / d * step;
+      } else { p.y += dt * 40; if (p.t > 2) { pellets.splice(i, 1); continue; } }
+      ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 3.2, 2.4, p.t * 3, 0, 7); ctx.fill();
     }
   }
   // ---- dirt: one look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1), deterministic from spot.seed
@@ -360,26 +383,33 @@
     const st = G.dirtStage();
     const bar = $('dirt-bar'); bar.dataset.stage = st;
     [...bar.children].forEach((el, i) => el.classList.toggle('on', i < st));
-    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtPoints.length}`;
+    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtSec.length}`;
+    const ti = G.tankInfo();
+    $('tank-label').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP · Decorations coming soon` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
+    $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
     $('buyfood-label').textContent = `+${T.foodPack.food} food · ${T.foodPack.gold}g`;
     $('btn-buyfood').disabled = s.gold < T.foodPack.gold;
     $('tankover').hidden = !G.tankOver();
     // hint line
     let hint = '';
     if (!s.fish.length) hint = 'Open the Shop and buy a baby fish';
-    else if (tool === 'food') hint = st >= 1 ? 'Clean the tank first (Sponge)' : 'Tap the tank to feed';
+    else if (tool === 'food') hint = st >= 1 ? 'Dirty glass: pick the Sponge' : 'Tap near a hungry fish to feed it';
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
     else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
     else hint = 'Tap a fish to see its details';
-    $('hint').textContent = hint;
-    $('dbg-clock').textContent = `game ${fmt(s.gameTime)} · ×${s.speed}`;
+    $('hint').textContent = $('dirt-callout').hidden ? hint : ''; // one message at a time: the dirt-bar callout wins
+    $('dbg-clock').textContent = `game ${clock(s.gameTime)} · ×${s.speed}`;
     document.querySelectorAll('#speed-btns .dbg').forEach((b) => b.classList.toggle('on', +b.dataset.speed === s.speed));
   }
+  /** NUMBERS.md 2: "1h 12m" when an hour or more is left, "12m 30s" when less */
   function fmt(sec) {
     sec = Math.max(0, Math.ceil(sec));
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-    const ss = String(s).padStart(2, '0');
-    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(s).padStart(2, '0')}s`;
+  }
+  function clock(sec) { // debug bar only (game time), never used for dirt
+    sec = Math.max(0, Math.floor(sec)); const d = Math.floor(sec / 86400), h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60;
+    return `${d ? d + 'd ' : ''}${h}h ${String(m).padStart(2, '0')}m`;
   }
   function realNote(sec) { return G.state.speed > 1 ? ` (≈${fmt(sec / G.state.speed)} real at ×${G.state.speed})` : ''; }
 
@@ -421,41 +451,54 @@
     const f = G.state.fish.find((x) => x.id === selectedId);
     if (!f) { closePanel(); return; }
     const i = G.fishInfo(f), sp = i.species;
+    const panel = $('panel');
+    panel.classList.toggle('dead', i.dead);
     $('p-name').textContent = sp.name;
     $('p-latin').textContent = sp.latin;
     $('p-rarity').textContent = sp.rarity[0].toUpperCase() + sp.rarity.slice(1);
-    $('p-level').textContent = f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
-    const gEl = $('p-growth'), hEl = $('p-hunger'), bar = $('p-growbar');
-    gEl.className = 'v'; hEl.className = 'v';
-    bar.classList.toggle('paused', f.state === 'HUNGRY');
-    bar.style.width = (i.progressFrac * 100).toFixed(1) + '%';
-    if (f.state === 'WAITING') { gEl.textContent = 'Not started - feed to start'; gEl.classList.add('warn'); }
-    else if (f.state === 'GROWING') gEl.textContent = `L${f.level + 1} in ${fmt(i.growLeft)}${realNote(i.growLeft)}`;
-    else if (f.state === 'HUNGRY') { gEl.textContent = `Paused · L${f.level + 1} in ${fmt(i.growLeft)} once fed`; gEl.classList.add('danger'); }
-    else gEl.textContent = `Adult (L${f.level}) · max level`;
-    if (f.state === 'WAITING') hEl.textContent = 'Waiting for first feed';
-    else if (f.state === 'HUNGRY') { hEl.textContent = 'Hungry! Growth paused'; hEl.classList.add('danger'); }
-    else if (f.state === 'ADULT_HUNGRY') { hEl.textContent = 'Hungry!'; hEl.classList.add('danger'); }
-    else if (f.state === 'ADULT') { hEl.textContent = `Fed · hungry in ${fmt(i.adultHungerIn)}`; hEl.classList.add('ok'); }
-    else { hEl.textContent = 'Fed'; hEl.classList.add('ok'); }
-    const dying = f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY';
-    $('p-death-row').hidden = !dying;
-    if (dying) $('p-death').textContent = `dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`;
-    $('p-portion').textContent = `${i.portion} food`;
+    $('p-level').textContent = i.dead ? 'Dead' : f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
     const btn = $('p-sell');
-    btn.className = 'btn wide ' + (f.level === 1 ? 'danger' : 'sell');
-    btn.textContent = f.level === 1 ? 'Release (0 gold)' : `Sell for ${i.sell} gold`;
     btn.dataset.fish = f.id;
+    if (i.dead) { // NUMBERS.md 9.12: "Dead" and one button, Remove (0 gold), no confirm, no selling
+      $('p-dead').textContent = 'Dead';
+      btn.className = 'btn wide danger'; btn.dataset.action = 'remove';
+      btn.textContent = `Remove (${T.deadFish ? T.deadFish.removeGold : 0} gold)`;
+    } else {
+      const gEl = $('p-growth'), hEl = $('p-hunger'), bar = $('p-growbar');
+      gEl.className = 'v'; hEl.className = 'v';
+      bar.classList.toggle('paused', f.state === 'HUNGRY');
+      bar.style.width = (i.progressFrac * 100).toFixed(1) + '%';
+      const fedTxt = `${i.tapsFed}/${i.taps} fed`;
+      if (f.state === 'WAITING') { gEl.textContent = 'Not started'; gEl.classList.add('warn'); hEl.textContent = `Waiting for first feed · ${fedTxt}`; hEl.classList.add('warn'); }
+      else if (f.state === 'GROWING') {
+        gEl.textContent = `L${f.level} · next level in ${fmt(i.growLeft)}${realNote(i.growLeft)}`;
+        const hungerIn = f.hungerDone ? null : i.growNeed * T.hungerPoint - f.progress;
+        hEl.textContent = hungerIn != null ? `Fed · hungry in ${fmt(hungerIn)}` : 'Fed'; hEl.classList.add('ok');
+      } else if (f.state === 'HUNGRY') {
+        gEl.textContent = `L${f.level} · Growth paused`; gEl.classList.add('danger');
+        hEl.textContent = `Hungry! ${fedTxt} · Growth paused · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+      } else if (f.state === 'ADULT') {
+        gEl.textContent = `Adult (L${f.level})`;
+        hEl.textContent = `Fed · hungry in ${fmt(i.adultHungerIn)}`; hEl.classList.add('ok');
+      } else { // ADULT_HUNGRY
+        gEl.textContent = `Adult (L${f.level})`;
+        hEl.textContent = `Hungry! ${fedTxt} · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+      }
+      $('p-portion').textContent = `${i.portion} food · ${i.taps} tap${i.taps > 1 ? 's' : ''}`;
+      btn.className = 'btn wide ' + (f.level === 1 ? 'danger' : 'sell'); btn.dataset.action = 'sell';
+      btn.textContent = f.level === 1 ? 'Release (0 gold)' : `Sell for ${i.sell} gold`;
+    }
     // portrait
     const pc = $('panel-portrait'), p = pc.getContext('2d');
     p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, pc.width, pc.height);
     p.translate(pc.width * 0.55, pc.height * 0.52);
-    FishArt.drawFish(p, f.sp, pc.width * 0.5, realTime * 5, { hungry: dying, level: f.level });
+    FishArt.drawFish(p, f.sp, pc.width * 0.5, i.dead ? 0 : realTime * 5, { hungry: f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY', dead: i.dead, level: f.level });
   }
   $('p-sell').addEventListener('click', () => {
     const id = +$('p-sell').dataset.fish;
     const f = G.state.fish.find((x) => x.id === id);
     if (!f) return;
+    if (f.state === 'DEAD') { G.removeDead(id); closePanel(); return; } // no confirm for a dead fish
     if (f.level === 1) {
       confirmBox(`Release this ${G.SPECIES[f.sp].name}? Level 1 fish give 0 gold.`, 'Release (0 gold)', () => { G.sell(id); closePanel(); });
     } else { G.sell(id); closePanel(); }
@@ -478,7 +521,7 @@
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
         card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
-          <div class="s">Baby · adult in ${Math.round(total / 60)} min · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
+          <div class="s">Baby · adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
           <button class="btn buy" data-buy="${sp.id}"><svg><use href="#i-coin"/></svg><span class="price">${sp.price}</span><span class="lbl"></span></button>`;
         list.appendChild(card);
         const c = card.querySelector('canvas').getContext('2d');
@@ -489,15 +532,21 @@
         });
       });
     }
-    const full = G.living() >= T.tankCapacity;
+    const full = G.state.fish.length >= T.tankCapacity; // dead fish take a slot until removed
     list.querySelectorAll('button[data-buy]').forEach((b) => {
       const sp = G.SPECIES[b.dataset.buy];
+      const locked = !G.isUnlocked(sp);
       const poor = G.state.gold < sp.price;
-      b.disabled = full || poor;
-      b.classList.toggle('poor', poor && !full);
-      b.querySelector('.lbl').textContent = full ? ' · Tank full' : '';
+      b.disabled = locked || full || poor;
+      b.closest('.card').classList.toggle('locked', locked);
+      b.classList.toggle('poor', poor && !full && !locked);
+      b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
+      b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
     });
-    $('shop-note').textContent = `Tank: ${G.living()} / ${T.tankCapacity} fish. Numbers: Designer v1 (config.js ← tuning.json).`;
+    const ti = G.tankInfo(), dead = G.state.fish.length - G.living();
+    $('shop-tank').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
+    $('shop-tankbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
+    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${T.tankCapacity} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: Decorations coming soon. Numbers: Designer v2 (config.js ← tuning.json).`;
   }
 
   // ------------------------------------------------------------ input on tank
@@ -527,11 +576,8 @@
       const f = hitFish(p.x, p.y);
       if (f) openPanel(f.id); else closePanel();
     } else if (tool === 'food') {
-      const r = G.feed();
-      if (r.ok || r.reason === 'nobodyhungry' || r.reason === 'nofood') {
-        for (let i = 0; i < (r.ok ? 7 : 2); i++) pellets.push({ x: p.x + (Math.random() - 0.5) * 24, y: p.y + (Math.random() - 0.5) * 10, t: 0, s: Math.random() * 3, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
-      }
-      if (r.ok) floatText(`-${r.spent} food  +${r.gold}g`, p.x, p.y - 16, '#ffe07a');
+      const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the nearest fish that still needs food
+      if (r.ok) pellets.push({ x: p.x, y: p.y, t: 0, fishId: r.fish.id, full: r.full, gold: r.gold, c: ['#d9772f', '#b8542a', '#e8a13a'][G.state.stats.taps % 3] });
     } else if (tool === 'sponge') {
       rubTo(p.x, p.y - spongeLift());
     }
@@ -564,21 +610,19 @@
     const name = d.fish ? G.SPECIES[d.fish.sp].name : '';
     switch (type) {
       case 'levelup':
-        floatText(`+${d.gold}g`, fx, fy - 10, '#ffd84a', true);
+        floatText(`+${d.gold}g`, fx - 26, fy - 10, '#ffd84a', true);
+        if (d.xp) floatText(`+${d.xp} XP`, fx + 30, fy - 10, '#9fdcff', true);
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
+      case 'tanklevel':
+        toast(d.unlocks.length ? `Tank level ${d.level}! ${d.unlocks.map((id) => G.SPECIES[id].name).join(', ')} unlocked` : `Tank level ${d.level}! Decorations coming soon`, 'good');
+        break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
-      case 'death':
-        corpses.push({ x: fx, y: fy + 20, sp: d.fish.sp, L: fishLen(d.fish), level: d.fish.level, t: 0 });
-        anim.delete(d.fish.id);
-        toast(`${name} died of hunger`, 'bad');
-        break;
-      case 'feedblocked': toast('Clean the tank first', 'bad'); dirtyCallout(); break;
-      case 'feedfail':
-        toast(d.reason === 'nofish' ? 'No fish to feed. Visit the Shop.' : d.reason === 'nofood' ? 'Not enough food. Buy food.' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : '');
-        break;
-      case 'fed': if (d.unfed) toast(`Not enough food: ${d.unfed} fish left unfed`, 'bad'); break;
-      case 'cleaned': toast(`Tank clean! +${d.gold} gold`, 'good'); break;
+      case 'death': toast(`${name} died`, 'bad'); break; // stays in the tank belly-up until removed
+      case 'removed': anim.delete(d.fish.id); toast(`Removed ${name} (${d.gold} gold)`); break;
+      case 'feedblocked': dirtyCallout(); break; // Maksims: ONLY the message by the dirt bar, no centre toast
+      case 'feedfail': toast(d.reason === 'nofood' ? 'Out of food' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : ''); break;
+      case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
       case 'sold':
         anim.delete(d.fish.id);
         toast(d.gold ? `Sold ${name} for ${d.gold} gold` : `Released ${name} (0 gold)`, d.gold ? 'good' : '');
@@ -586,7 +630,7 @@
       case 'foodbought': toast(`+${d.food} food (−${d.gold} gold)`); break;
       case 'grant': toast(`Starter grant: gold topped up to ${d.gold}`, 'good'); break;
       case 'msg': toast(d.text, 'bad'); break;
-      case 'reset': anim.clear(); corpses.length = 0; closePanel(); closeShop(); break;
+      case 'reset': anim.clear(); pellets.length = 0; closePanel(); closeShop(); $('away').hidden = true; break;
       default: break;
     }
     if (!$('shop').hidden) renderShop();
@@ -599,14 +643,14 @@
     $('speed-btns').appendChild(b);
   });
   $('btn-newtank').addEventListener('click', () => {
-    const keep = G.state.speed; G.reset(); G.state.speed = urlSpeed > 0 ? urlSpeed : keep; G.save();
+    const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save();
     $('tankover').hidden = true; closePanel(); toast('New tank started', 'good');
   });
   $('dbg-gold').textContent = '+100g';
   $('dbg-gold').addEventListener('click', () => { G.state.gold += 100; toast('Debug: +100 gold'); });
   $('dbg-reset').addEventListener('click', () => {
     confirmBox('Reset the save and start over?', 'Reset', () => {
-      const keep = G.state.speed; G.reset(); G.state.speed = urlSpeed > 0 ? urlSpeed : keep; G.save(); toast('Save reset');
+      const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save(); toast('Save reset');
     });
   });
 
@@ -617,7 +661,10 @@
     let dtReal = (now - last) / 1000; last = now;
     if (dtReal < 0) dtReal = 0;
     // Hidden tab: rAF stops; on return we catch up the real elapsed time (NUMBERS.md §8.9).
-    G.tick(dtReal * G.state.speed);
+    if (dtReal > 5) { // tab was hidden / device asleep: replay like offline time and summarise
+      const r = G.catchUp(dtReal * G.state.speed);
+      if (r.sec >= 60) showAway(r);
+    } else G.tick(dtReal * G.state.speed);
     const dtAnim = Math.min(dtReal, 0.05);
     realTime += dtAnim;
 
@@ -627,7 +674,6 @@
     drawBubbles(dtAnim);
     decor.plants.forEach((p, i) => { if (i % 2) drawPlant(p, 0.9); });
     drawPellets(dtAnim);
-    drawCorpses(dtAnim);
     drawFishAll(dtAnim);
     drawGlass();
     drawDirt();
@@ -647,14 +693,27 @@
   window.addEventListener('resize', resize);
   if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap);
 
+  // ------------------------------------------------------------ "while you were away" summary (NUMBERS.md 9.2)
+  function showAway(r) {
+    if (!r) return;
+    $('away-time').textContent = `(${fmt(r.sec)}${r.realSec != null && G.state.speed !== 1 && r.realSec !== r.sec ? ' game time' : ''})`;
+    const ul = $('away-list'); ul.innerHTML = '';
+    r.lines.forEach((t) => { const li = document.createElement('li'); li.textContent = t[0].toUpperCase() + t.slice(1); ul.appendChild(li); });
+    $('away').hidden = false;
+  }
+  $('away-ok').addEventListener('click', () => { $('away').hidden = true; });
+
   resize();
   setTool('hand');
+  if (awaySummary && awaySummary.sec >= 60) showAway(awaySummary);
+  G.save();
   requestAnimationFrame((t) => { last = t; frame(t); });
 
   // Test/debug hook (read-mostly): used by tests/verify.py
   window.AQ = {
     game: G,
     fishScreen(id) { const m = anim.get(id); return m ? { x: m.x, y: m.y } : null; },
+    showAway,
     spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
     setTool,
