@@ -12,8 +12,10 @@
     finAlpha: [0, 0.4, 0.7, 1], markAlpha: [0, 0.4, 1, 1],
   };
   const CLEAR_FIN = 'rgba(235,240,245,0.22)', CLEAR_EDGE = 'rgba(255,255,255,0.35)';
-  // Art Director rulings 2026-09-27: danio stripes start at L2 (none at L1); neon L2 line at 70% (raised from 55%); platy fins 65%/85% at L2/L3 (VISUAL.fishGrowth.finAlphaBySpecies).
-  const LOOK = { neonL2LineAlpha: 0.70, danioStripes: [[], [1, 2], [0, 1, 2, 3], [0, 1, 2, 3]] };
+  // Art Director rulings 2026-09-27: danio stripes start at L2 (none at L1); neon L2 line at 85% / >= 2 px (was 70%, 55%); platy fins 65%/85% at L2/L3 (VISUAL.fishGrowth.finAlphaBySpecies).
+  // AD ruling (neon L2 at 390 px phone size read as plain silver): L2 line at 85%, at least 2 px thick at tank size (2.4 drawn so antialiased edges still measure >= 2) and
+  // never under 12% of body depth (13% used), same blue gradient as the adult stripe, no glow. L3/L4 unchanged.
+  const LOOK = { neonL2LineAlpha: 0.85, neonL2LineMinPx: 2.4, neonL2LineDepthFrac: 0.13, neonStripe: ['#5ff6ff', '#2aa8ff', '#2a6bff'], danioStripes: [[], [1, 2], [0, 1, 2, 3], [0, 1, 2, 3]] };
 
   // Adult palette (L4). Pushed richer per the spec: vivid guppy tail, deep red platy, dark-blue danio stripes.
   const ART = {
@@ -231,12 +233,15 @@
         ctx.fillStyle = r; ctx.fillRect(-0.4 * L, hh * 0.02, (start + 0.4) * L, hh * 1.2);
         ctx.globalAlpha = 1;
       }
-      if (lv === 2) { // thin faint blue line
-        ctx.strokeStyle = 'rgba(90,225,255,1)'; ctx.globalAlpha = LOOK.neonL2LineAlpha; ctx.lineWidth = hh * 0.18; ctx.lineCap = 'round';
+      if (lv === 2) { // thin blue line: adult stripe colours at 85%, >= max(2 px, 13% of body depth), no glow
+        const lg = ctx.createLinearGradient(0.35 * L, 0, -0.32 * L, 0);
+        lg.addColorStop(0, LOOK.neonStripe[0]); lg.addColorStop(0.5, LOOK.neonStripe[1]); lg.addColorStop(1, LOOK.neonStripe[2]);
+        ctx.strokeStyle = lg; ctx.globalAlpha = LOOK.neonL2LineAlpha; ctx.shadowBlur = 0;
+        ctx.lineWidth = Math.max(LOOK.neonL2LineMinPx, LOOK.neonL2LineDepthFrac * 2 * hh); ctx.lineCap = 'round';
         ctx.beginPath(); ctx.moveTo(0.34 * L, -hh * 0.12); ctx.quadraticCurveTo(0.0, -hh * 0.27, -0.32 * L, -hh * 0.08); ctx.stroke();
       } else if (lv >= 3) { // full electric-blue stripe; L4 glows (soft ~2px)
         const g = ctx.createLinearGradient(0.35 * L, 0, -0.32 * L, 0);
-        g.addColorStop(0, '#5ff6ff'); g.addColorStop(0.5, '#2aa8ff'); g.addColorStop(1, '#2a6bff');
+        g.addColorStop(0, LOOK.neonStripe[0]); g.addColorStop(0.5, LOOK.neonStripe[1]); g.addColorStop(1, LOOK.neonStripe[2]);
         ctx.fillStyle = g;
         if (lv >= 4) { const m = ctx.getTransform(); ctx.shadowColor = 'rgba(95,240,255,0.95)'; ctx.shadowBlur = 4 * Math.hypot(m.a, m.b); }
         ctx.beginPath();

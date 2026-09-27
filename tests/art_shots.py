@@ -1,7 +1,7 @@
 """Review screenshots (phone 390x844 @2x) for Art Director's DIRT_AND_FISH_GROWTH.md and the v2 rules UI.
 Run (server on 8766): /workspace/tools/venv-aq/bin/python tests/art_shots.py
 Writes screenshots/: dirt_stage1..5.png (adult neon mid-tank), dirt_stage5_midrub.png, dead_fish_panel.png,
-dead_fish_stage5.png, fish_{guppy,neon,danio,platy}_L1-L4.png, fish_all_L1-L4.png, tank_{guppy,neon}_L1-L4.png,
+dead_fish_stage5.png, fish_{guppy,neon,danio,platy}_L1-L4.png, tank_neon_L2_closeup.png, fish_all_L1-L4.png, tank_{guppy,neon}_L1-L4.png,
 shop_locked.png, feeding_meter.png, dirty_feed.png, away_summary.png. Resets the save at the end.
 """
 import os
@@ -115,6 +115,11 @@ def main():
                 f.x = [0.25, 0.7, 0.3, 0.68][lv - 1]; f.y = [0.25, 0.3, 0.55, 0.6][lv - 1]; }); }""", sp)
             page.wait_for_timeout(1200)
             shot(page, f"tank_{sp}_L1-L4.png")
+            if sp == "neon":  # AD ruling check: the L2 line at real tank size (native pixels, no upscaling)
+                ids = page.evaluate("AQ.game.state.fish.map((f) => f.id)")
+                page.evaluate(f"AQ.pinFish({ids[1]}, 0.5, 0.4)"); page.wait_for_timeout(400)
+                pos = page.evaluate(f"AQ.fishScreen({ids[1]})")
+                shot(page, "tank_neon_L2_closeup.png", clip={"x": box["x"] + pos["x"] - 70, "y": box["y"] + pos["y"] - 35, "width": 140, "height": 70})
         # ---- away summary: real reload 49 h after the save (one fed guppy, one waiting guppy)
         page.evaluate("""() => { const G = AQ.game; G.reset(); G.state.speed = 1; G.state.gold = 100;
           const a = G.buyFish('guppy'); G.feedTap(a.x, a.y); G.buyFish('guppy'); G.save();
