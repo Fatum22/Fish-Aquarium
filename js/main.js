@@ -50,7 +50,8 @@
 
   // ------------------------------------------------------------ animation state (not saved)
   const anim = new Map(); // fish id -> motion
-  const pellets = [];  // food flakes: travel from the tap point to the fish they feed
+  const pellets = [];  // food flakes: a shower from the tap point that sinks and drifts toward the fed fish (v1 look)
+  const flakeStats = { spawned: 0, showers: 0 }; // test hook counters
   const floaters = [];
   const bubbles = [];
   let realTime = 0;
@@ -252,17 +253,44 @@
     if (glyph === '!') { ctx.font = '900 13px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 0, y + 1); }
     else { for (const [dx, dy] of [[-3, -2], [2, -3], [0, 2], [3, 2], [-3, 3]]) { ctx.beginPath(); ctx.arc(dx, y + dy, 1.4, 0, 7); ctx.fill(); } }
   }
+  /** v1 flake shower (NUMBERS.md 3.4): many small flakes from the tap point, still 1 food / one meter step per tap */
+  function flakeShower(x, y, r) {
+    const n = V.flakesPerTap || 12;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, burst = 25 + Math.random() * 45; // small scatter as the pinch of food hits the water
+      pellets.push({ x: x + (Math.random() - 0.5) * 24, y: y + (Math.random() - 0.5) * 10, x0: x, t: 0, s: Math.random() * 3,
+        vx: Math.cos(a) * burst, gain: 0.7 + Math.random() * 0.6, vmax: 60 + Math.random() * 60,
+        ox: (Math.random() - 0.5) * 22, oy: (Math.random() - 0.5) * 10, fishId: r.fish.id, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
+    }
+    flakeStats.spawned += n; flakeStats.showers++;
+    if (r.full && r.gold > 0) { const m = anim.get(r.fish.id); if (m) floatText(`+${r.gold} gold`, m.x, m.y - 30, '#ffe07a'); } // v3 feed pays 0: no float
+  }
   function drawPellets(dt) {
     for (let i = pellets.length - 1; i >= 0; i--) {
       const p = pellets[i];
       p.t += dt;
       const m = p.fishId != null ? anim.get(p.fishId) : null;
-      if (m) { // flake glides/drops to its fish
-        const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy), step = dt * 260;
-        if (d <= step + 4) { if (p.full && p.gold > 0) floatText(`+${p.gold} gold`, m.x, m.y - 30, '#ffe07a'); /* v3 feed pays 0: no float at all */ pellets.splice(i, 1); continue; }
-        p.x += dx / d * step; p.y += dy / d * step;
-      } else { p.y += dt * 40; if (p.t > 2) { pellets.splice(i, 1); continue; } }
-      ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 3.2, 2.4, p.t * 3, 0, 7); ctx.fill();
+      // v1 shower look: small flakes sink (26 + s*8 px/s) with a gentle side-to-side wobble and fade after ~4 s.
+      // v2/v3: each flake also drifts toward the fish that was fed (horizontal pull; a little vertical pull when the
+      // fish is below) and is eaten when it reaches the fish's mouth area.
+      const sink = 26 + p.s * 8;
+      let want = 0, vy = sink;
+      if (m) { // each flake drifts toward the fed fish at its own pace, so the shower strings out along the way
+        const tx = m.x + p.ox, ty = m.y + p.oy;
+        want = Math.max(-p.vmax, Math.min(p.vmax, (tx - p.x) * p.gain));
+        if (ty > p.y) vy = Math.max(sink, Math.min(sink * 2.2, (ty - p.y) * 0.9)); // fish below: sink toward it
+        else vy = sink * 0.35;                                                    // already level with / below it: linger
+        const fl = fishLen(G.state.fish.find((f) => f.id === p.fishId) || { sp: 'guppy', level: 1 });
+        if (Math.abs(m.x - p.x) < fl * 0.45 && Math.abs(m.y - p.y) < fl * 0.22 && p.t > 0.5) { pellets.splice(i, 1); continue; } // eaten
+      }
+      p.vx += (want - p.vx) * Math.min(1, dt * 2.2); // the initial scatter eases into the drift
+      p.x += p.vx * dt + Math.sin(p.t * 3 + p.s) * dt * 8;
+      p.y += vy * dt;
+      if (p.y > sandTop() - 2) p.y = sandTop() - 2;
+      if (p.t > 5) { pellets.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.max(0, Math.min(1, 5 - p.t));
+      ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.6, 2, p.s + p.t, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
   // ---- dirt: one look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1), deterministic from spot.seed
@@ -634,7 +662,7 @@
       if (f) openPanel(f.id); else closePanel();
     } else if (tool === 'food') {
       const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the nearest fish that still needs food
-      if (r.ok) pellets.push({ x: p.x, y: p.y, t: 0, fishId: r.fish.id, full: r.full, gold: r.gold, c: ['#d9772f', '#b8542a', '#e8a13a'][G.state.stats.taps % 3] });
+      if (r.ok) flakeShower(p.x, p.y, r); // blocked taps (dirty / nobody hungry / no food) show no flakes
     } else if (tool === 'sponge') {
       rubTo(p.x, p.y - spongeLift());
     }
@@ -705,6 +733,8 @@
   });
   $('dbg-gold').textContent = '+100g';
   $('dbg-gold').addEventListener('click', () => { G.state.gold += 100; toast('Debug: +100 gold'); });
+  // +50 XP (NUMBERS.md 9.13): normal XP path -> tank level-ups, unlock toasts and saving as in real play; no gold
+  $('dbg-xp').addEventListener('click', () => { G.debugAddXp(50); if (!$('shop').hidden) renderShop(); });
   $('dbg-reset').addEventListener('click', () => {
     confirmBox('Reset the save and start over?', 'Reset', () => {
       const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save(); toast('Save reset');
@@ -795,6 +825,7 @@
     },
     spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
     size() { return { W, H }; },
+    flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, t: p.t, fishId: p.fishId })) }; }, // test hook
     fishLen(sp, level) { return fishLen({ sp, level }); }, // tank render length (CSS px) of a fish
     floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; }, // test hook: float texts shown since the last clear
 

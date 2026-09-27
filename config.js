@@ -275,6 +275,7 @@ window.AQUARIUM_CONFIG = {
   // ---- Presentation only (NOT balance; engineer-chosen, safe to change) -----
   VISUAL: {
     levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
+    flakesPerTap: 16,                       // food flakes in one tap's shower (visual only; still 1 food per tap)
     speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
     spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
     spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
