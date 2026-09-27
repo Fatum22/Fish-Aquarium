@@ -1,4 +1,5 @@
-/* Aquarium UI: rendering, swimming animation, input, panels, save loop. */
+/* Aquarium UI (landscape v4, Art Director LANDSCAPE_LAYOUT_V4.md): rendering, swimming, input, side panels, shop,
+   decorations + edit mode, rotate screen, save loop. Game rules live in game.js. */
 (function () {
   'use strict';
   const G = window.Game, T = G.T, CFG = G.CFG, V = CFG.VISUAL;
@@ -15,43 +16,45 @@
   if (params.get('debug') === '0') document.body.classList.add('nodebug');
   console.info('[Aquarium] numbers from', CFG.source, 'balance checks:', JSON.stringify(G.balanceChecks()));
 
-  // ------------------------------------------------------------ canvas setup
-  const canvas = $('tank'), ctx = canvas.getContext('2d');
+  // ------------------------------------------------------------ canvas + tank geometry (AD v4 4)
+  const canvas = $('tank');
+  let ctx = canvas.getContext('2d'); // swapped briefly to draw shop card previews with the same code
   const wrap = $('tank-wrap');
-  let W = 300, H = 400, DPR = 1;
+  let W = 752, H = 302, DPR = 1;
+  let SURF = 21, WATER_H = 281, SAND = 260, INSET = 26; // water surface y, water height, sand top y, glass-line inset
+  const LARGE = () => window.innerHeight >= 600;
+  function geom() {
+    SURF = Math.max(V.airMinPx, H * V.airFrac);          // air gap: top 7% (min 16 px)
+    WATER_H = H - SURF;
+    SAND = Math.min(H * V.sandFrac, H - V.sandMinPx);     // sand top at 86% (band >= 36 px)
+    INSET = W * V.glassInsetFrac;                          // sand back corners / glass edge lines
+  }
   function resize() {
     const r = wrap.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return; // upright: #app is display:none, keep the last landscape geometry
     DPR = Math.min(window.devicePixelRatio || 1, 2.5);
     W = Math.max(100, r.width); H = Math.max(100, r.height);
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-    decor = makeDecor();
+    geom();
+    pebbles = makePebbles();
+    // toasts start just under the dead-fish band (6-10% of the water height below the surface)
+    $('toasts').style.top = `${Math.round(SURF + WATER_H * 0.10 + 6)}px`;
+    if (selDecor) placeMenu();
   }
-  const sandTop = () => H * 0.86;
+  const sandTop = () => SAND;
+  const floorY = (d) => SAND + (H - SAND) * V.decorFloorBand * d.y; // decoration base y (top 60% of the sand band)
 
-  // ------------------------------------------------------------ decor (static per size)
-  let decor = null;
-  function makeDecor() {
-    const plants = [];
-    const n = Math.max(5, Math.round(W / 60));
-    for (let i = 0; i < n; i++) {
-      const x = (i + 0.3 + Math.random() * 0.4) * (W / n);
-      const blades = 2 + Math.floor(Math.random() * 3);
-      for (let b = 0; b < blades; b++) {
-        plants.push({ x: x + (b - blades / 2) * 6, h: H * (0.1 + Math.random() * 0.22), w: 5 + Math.random() * 5,
-          hue: 110 + Math.random() * 40, light: 28 + Math.random() * 18, ph: Math.random() * 6.28 });
-      }
-    }
-    const rocks = [];
-    for (let i = 0; i < 4; i++) rocks.push({ x: Math.random() * W, w: 26 + Math.random() * 40, h: 14 + Math.random() * 18, c: 90 + Math.random() * 60 });
-    const pebbles = [];
-    for (let i = 0; i < W / 3; i++) pebbles.push({ x: Math.random() * W, y: sandTop() + 6 + Math.random() * (H - sandTop()), r: 0.8 + Math.random() * 2, c: 150 + Math.random() * 80 });
-    return { plants, rocks, pebbles };
+  let pebbles = [];
+  function makePebbles() { // sand texture only (the old random plants and rocks are gone: AD v4 7)
+    const out = [], rng = seeded(7);
+    for (let i = 0; i < W / 3; i++) out.push({ x: rng() * W, y: SAND + 6 + rng() * (H - SAND), r: 0.8 + rng() * 2, c: 150 + rng() * 80 });
+    return out;
   }
 
   // ------------------------------------------------------------ animation state (not saved)
   const anim = new Map(); // fish id -> motion
-  const pellets = [];  // food flakes: a shower from the tap point that sinks and drifts toward the fed fish (v1 look)
-  const flakeStats = { spawned: 0, showers: 0 }; // test hook counters
+  const pellets = [];  // food flakes of the current taps
+  const flakeStats = { spawned: 0, showers: 0, eaten: 0 }; // test hook counters
   const floaters = [];
   const bubbles = [];
   let realTime = 0;
@@ -67,16 +70,16 @@
     }
     return m;
   }
+  /** fish length in px: min(W, waterH*0.8) * 0.30 * species size * level size (AD v4 4) */
   function fishLen(f) {
-    return Math.min(W, H * 0.8) * 0.27 * (V.speciesSize[f.sp] || 1) * V.levelSizeScale[f.level - 1];
+    return Math.min(W, WATER_H * 0.8) * V.fishSizeFrac * (V.speciesSize[f.sp] || 1) * V.levelSizeScale[f.level - 1];
   }
-  function bounds(f) {
+  function bounds(f) { // swim area: inside the glass lines, top = surface + 4% of the water height, bottom = sand
     const L = fishLen(f);
-    return { x0: L * 0.8, x1: W - L * 0.8, y0: H * 0.1 + L * 0.3, y1: sandTop() - L * 0.35 };
+    return { x0: INSET + L * 0.6, x1: W - INSET - L * 0.6, y0: SURF + WATER_H * 0.04 + L * 0.3, y1: SAND - L * 0.35 };
   }
   function pickTarget(m, f) {
     const b = bounds(f);
-    // prefer mid-water, mostly horizontal travel
     m.tx = b.x0 + Math.random() * Math.max(1, b.x1 - b.x0);
     const yMid = (b.y0 + b.y1) / 2;
     m.ty = Math.min(b.y1, Math.max(b.y0, yMid + (Math.random() - 0.5) * (b.y1 - b.y0) * 0.95));
@@ -84,120 +87,237 @@
   }
   const DEAD_RISE_SEC = 20; // game seconds to rise to the waterline (Art Director dead-fish pose)
   function stepDead(f, m, dt) {
-    const L = fishLen(f), b = bounds(f);
+    const b = bounds(f);
     if (m.deadY0 == null) { m.deadY0 = m.y; m.drift = Math.random() < 0.5 ? -1 : 1; }
-    const yTop = Math.max(H * 0.08, L * 0.36 + 4); // just under the waterline (top 6-10%), never behind the edge
+    const yTop = SURF + WATER_H * 0.08; // dead-fish band: 6-10% of the water height below the surface
     const p = f.diedAt == null ? 1 : Math.max(0, Math.min(1, (G.state.gameTime - f.diedAt) / DEAD_RISE_SEC));
     const e = p * p * (3 - 2 * p);
     m.y = m.deadY0 + (yTop - m.deadY0) * e;
-    if (p >= 1) { // drift sideways ~3 px/s, turning back at the walls
+    if (p >= 1) { // drift sideways ~3 px/s, turning back at the glass
       m.x += m.drift * 3 * dt;
       if (m.x < b.x0) { m.x = b.x0; m.drift = 1; } else if (m.x > b.x1) { m.x = b.x1; m.drift = -1; }
     }
     m.vx = 0; m.vy = 0;
     f.x = m.x / W; f.y = m.y / H;
   }
+  /** the fish's own flakes still in the water (it rushes to them and eats every one: bible item 16) */
+  function flakesFor(id) { return pellets.filter((p) => p.fishId === id); }
+  function mouth(m, L) { return { x: m.x + (m.faceAnim >= 0 ? 1 : -1) * L * 0.38, y: m.y }; }
   function stepFish(f, dt) {
     const m = motion(f);
     if (f.state === 'DEAD') { stepDead(f, m, dt); return; }
     const hungry = f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY';
     const L = fishLen(f);
-    const maxSpeed = (hungry ? 0.35 : 1) * (22 + L * 0.9);
+    const mine = flakesFor(f.id);
+    let maxSpeed = (hungry ? 0.35 : 1) * (22 + L * 0.9);
+    if (mine.length) { // rush: head for the nearest of its flakes, fast, no pauses
+      const mo = mouth(m, L);
+      let best = mine[0], bd = Infinity;
+      for (const p of mine) { const d = Math.hypot(p.x - mo.x, p.y - mo.y); if (d < bd) { bd = d; best = p; } }
+      m.tx = best.x - (best.x >= m.x ? 1 : -1) * L * 0.3; m.ty = best.y; m.pause = 0; m.retarget = 0.5;
+      maxSpeed = 2.4 * (22 + L * 0.9);
+      m.rushing = true;
+    } else if (m.rushing) { m.rushing = false; pickTarget(m, f); }
     m.retarget -= dt;
     const dx = m.tx - m.x, dy = m.ty - m.y, dist = Math.hypot(dx, dy);
     if (m.pause > 0) m.pause -= dt;
-    else if (dist < 8 || m.retarget <= 0) {
+    else if (!m.rushing && (dist < 8 || m.retarget <= 0)) {
       if (Math.random() < 0.3) m.pause = 0.6 + Math.random() * 1.6;
       pickTarget(m, f);
     }
-    // arrive steering with easing
     let desX = 0, desY = 0;
     if (m.pause <= 0 && dist > 0.01) {
       const ease = Math.min(1, dist / (L * 1.5 + 30));
       const sp = maxSpeed * (0.35 + 0.65 * ease * ease * (3 - 2 * ease));
-      desX = (dx / dist) * sp; desY = (dy / dist) * sp * 0.6;
+      desX = (dx / dist) * sp; desY = (dy / dist) * sp * (m.rushing ? 1 : 0.6);
     }
-    const k = Math.min(1, dt * 1.6);
+    const k = Math.min(1, dt * (m.rushing ? 4 : 1.6));
     m.vx += (desX - m.vx) * k; m.vy += (desY - m.vy) * k;
     m.x += m.vx * dt; m.y += m.vy * dt;
     const b = bounds(f);
     m.x = Math.min(b.x1, Math.max(b.x0, m.x));
     m.y = Math.min(b.y1, Math.max(b.y0, m.y));
     if (Math.abs(m.vx) > 4) m.face = m.vx > 0 ? 1 : -1;
-    m.faceAnim += (m.face - m.faceAnim) * Math.min(1, dt * 5);
+    m.faceAnim += (m.face - m.faceAnim) * Math.min(1, dt * (m.rushing ? 8 : 5));
     const spd = Math.hypot(m.vx, m.vy);
-    m.phase += dt * (hungry ? 3 : 5 + spd * 0.12);
+    m.phase += dt * (hungry && !m.rushing ? 3 : 5 + spd * 0.12);
     m.bob += dt * (hungry ? 1.0 : 1.8);
     f.x = m.x / W; f.y = m.y / H;
+    // eat: any of its flakes at the mouth (or inside the body) is gone
+    if (mine.length) {
+      const mo = mouth(m, L), reach = Math.max(10, L * 0.3);
+      for (const p of mine) {
+        if (Math.hypot(p.x - mo.x, p.y - mo.y) < reach || (Math.abs(p.x - m.x) < L * 0.45 && Math.abs(p.y - m.y) < L * 0.2)) {
+          pellets.splice(pellets.indexOf(p), 1); flakeStats.eaten++;
+        }
+      }
+    }
   }
 
-  // ------------------------------------------------------------ drawing
+  // ------------------------------------------------------------ drawing: water, air gap, sand, glass lines
+  function surfY(x) { return SURF + Math.sin(x * 0.025 + realTime * Math.PI * 2 / 3) * 1.5; } // +-1.5 px on a 3 s cycle
   function drawWater() {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
+    // air gap (darker than the water, no rays)
+    const a = ctx.createLinearGradient(0, 0, 0, SURF);
+    a.addColorStop(0, '#0c2638'); a.addColorStop(1, '#11354f');
+    ctx.fillStyle = a; ctx.fillRect(0, 0, W, SURF + 2);
+    // water under the waving surface
+    const g = ctx.createLinearGradient(0, SURF, 0, H);
     g.addColorStop(0, '#3fc0e8'); g.addColorStop(0.35, '#1d8fc2'); g.addColorStop(1, '#0a4c78');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    // light rays
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, surfY(x));
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    // light rays start at the surface
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 5; i++) {
-      const x = ((i * 0.23 + 0.05) * W + Math.sin(realTime * 0.2 + i) * 20);
-      const gr = ctx.createLinearGradient(0, 0, 0, H * 0.8);
+    const rayH = WATER_H * 0.8;
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 0.18 + 0.04) * W + Math.sin(realTime * 0.2 + i) * 20);
+      const gr = ctx.createLinearGradient(0, SURF, 0, SURF + rayH);
       gr.addColorStop(0, 'rgba(255,255,255,0.10)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = gr;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 40, 0); ctx.lineTo(x + 120, H * 0.8); ctx.lineTo(x + 30, H * 0.8); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x, SURF); ctx.lineTo(x + 40, SURF); ctx.lineTo(x + 120, SURF + rayH); ctx.lineTo(x + 30, SURF + rayH); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
-    // surface line
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.beginPath(); ctx.moveTo(0, 0);
-    for (let x = 0; x <= W; x += 10) ctx.lineTo(x, 6 + Math.sin(x * 0.04 + realTime * 1.5) * 2.5);
-    ctx.lineTo(W, 0); ctx.closePath(); ctx.fill();
+    // surface: 6 px band rgba(255,255,255,0.10) under a 2 px line rgba(191,239,255,0.6)
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.beginPath(); ctx.moveTo(0, surfY(0));
+    for (let x = 0; x <= W + 8; x += 8) ctx.lineTo(x, surfY(x));
+    for (let x = Math.ceil(W / 8) * 8; x >= 0; x -= 8) ctx.lineTo(x, surfY(x) + 6);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(191,239,255,0.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); for (let x = 0; x <= W + 8; x += 8) (x ? ctx.lineTo(x, surfY(x)) : ctx.moveTo(x, surfY(x))); ctx.stroke();
   }
-  function drawBack() {
-    const st = sandTop();
-    // back plants
-    decor.plants.forEach((p, i) => {
-      if (i % 2) return; drawPlant(p, 0.55);
-    });
-    // sand
+  /** sand back edge y at x: gentle wave that is exactly 0 at both back corners (so lines meet the corner point exactly) */
+  function sandBackY(x) { const taper = Math.max(0, Math.min(1, (x - INSET) / 40, (W - INSET - x) / 40)); return SAND + Math.sin(x * 0.015) * 2.5 * taper; }
+  /** the one glass back line (AD v4 4, updated 19:58): side from VISUAL.glassLineSide, from the frame's inner top edge (y 0) to the sand corner */
+  function glassLine() { const side = V.glassLineSide === 'left' ? 'left' : 'right', x = side === 'left' ? INSET : W - INSET; return { side, x, y0: 0, y1: SAND, cornerY: sandBackY(x) }; }
+  function drawSand() {
+    const st = SAND, drop = Math.min((H - st) * 0.45, INSET * 0.9);
+    // floor as a box: back edge between the two corners (inset 3.5% of W), side edges slanting down to the front glass
     const g = ctx.createLinearGradient(0, st - 10, 0, H);
     g.addColorStop(0, '#e8d49a'); g.addColorStop(1, '#b89a5a');
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.moveTo(0, st + 6);
-    for (let x = 0; x <= W; x += 20) ctx.lineTo(x, st + Math.sin(x * 0.015) * 6);
-    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
-    decor.pebbles.forEach((p) => { ctx.fillStyle = `rgb(${p.c},${p.c * 0.85},${p.c * 0.6})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); });
-    decor.rocks.forEach((r) => {
-      const rg = ctx.createLinearGradient(0, st - r.h, 0, st + 8);
-      rg.addColorStop(0, `rgb(${r.c + 30},${r.c + 30},${r.c + 40})`); rg.addColorStop(1, `rgb(${r.c - 30},${r.c - 30},${r.c - 20})`);
-      ctx.fillStyle = rg;
-      ctx.beginPath(); ctx.ellipse(r.x, st + 4, r.w / 2, r.h, 0, Math.PI, 0); ctx.fill();
-    });
+    ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(0, st + drop); ctx.lineTo(INSET, st);
+    for (let x = INSET; x <= W - INSET; x += 20) ctx.lineTo(x, sandBackY(x));
+    ctx.lineTo(W - INSET, st); ctx.lineTo(W, st + drop); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    // the side faces of the sand (between the side edge and the tank side) a touch darker
+    ctx.fillStyle = 'rgba(120,90,40,0.18)';
+    ctx.beginPath(); ctx.moveTo(0, st + drop); ctx.lineTo(INSET, st); ctx.lineTo(INSET, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(W, st + drop); ctx.lineTo(W - INSET, st); ctx.lineTo(W - INSET, H); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    pebbles.forEach((p) => { ctx.fillStyle = `rgb(${p.c},${p.c * 0.85},${p.c * 0.6})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); });
   }
-  function drawPlant(p, alpha) {
-    const st = sandTop() + 4;
-    const sway = Math.sin(realTime * 0.9 + p.ph) * p.h * 0.08;
-    ctx.save(); ctx.globalAlpha = alpha;
-    ctx.fillStyle = `hsl(${p.hue},55%,${p.light}%)`;
-    ctx.beginPath();
-    ctx.moveTo(p.x - p.w / 2, st);
-    ctx.quadraticCurveTo(p.x - p.w + sway * 0.5, st - p.h * 0.5, p.x + sway, st - p.h);
-    ctx.quadraticCurveTo(p.x + p.w + sway * 0.5, st - p.h * 0.5, p.x + p.w / 2, st);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = `hsla(${p.hue},60%,${p.light + 15}%,0.5)`; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(p.x, st); ctx.quadraticCurveTo(p.x + sway * 0.5, st - p.h * 0.5, p.x + sway, st - p.h); ctx.stroke();
+  /** glass back line (AD v4 4): ONE vertical line from the frame's inner top edge straight down to the sand's back corner on
+   *  VISUAL.glassLineSide, plus the side-glass strip between it and the frame on that side. The other side: no line, no strip. */
+  function drawGlassLines() {
+    const gl = glassLine(), x = gl.x;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    if (gl.side === 'left') ctx.fillRect(0, 0, x, SAND); else ctx.fillRect(x, 0, W - x, SAND);
+    ctx.fillStyle = 'rgba(190,235,255,0.08)'; ctx.fillRect(x - 3, gl.y0, 6, gl.y1 - gl.y0);      // 6 px soft glow
+    ctx.fillStyle = 'rgba(190,235,255,0.35)'; ctx.fillRect(x - 1, SURF, 2, gl.y1 - SURF);        // in the water, ends on the sand corner
+    ctx.fillStyle = 'rgba(190,235,255,0.45)'; ctx.fillRect(x - 1, gl.y0, 2, SURF - gl.y0);       // through the air gap, starts at the frame top
     ctx.restore();
   }
   function drawBubbles(dt) {
-    if (Math.random() < dt * 4) bubbles.push({ x: W * 0.9 + (Math.random() - 0.5) * 8, y: sandTop(), r: 1.5 + Math.random() * 3, w: Math.random() * 6 });
+    if (Math.random() < dt * 4) bubbles.push({ x: W * 0.9 + (Math.random() - 0.5) * 8, y: SAND, r: 1.5 + Math.random() * 3, w: Math.random() * 6 });
     ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1;
     for (let i = bubbles.length - 1; i >= 0; i--) {
       const b = bubbles[i];
       b.y -= dt * (30 + b.r * 10); b.w += dt * 3;
       const x = b.x + Math.sin(b.w) * 3;
       ctx.beginPath(); ctx.arc(x, b.y, b.r, 0, 7); ctx.stroke();
-      if (b.y < 5) bubbles.splice(i, 1);
+      if (b.y < SURF + 3) bubbles.splice(i, 1);
     }
   }
+
+  // ------------------------------------------------------------ decorations (AD v4 7)
+  function hsl(h, s, l) { return `hsl(${h.toFixed(1)},${s.toFixed(1)}%,${Math.max(0, Math.min(100, l)).toFixed(1)}%)`; }
+  function hexRgb(hex) { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+  function rgbStr(c, k) { return `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(255, v * (k || 1))))).join(',')})`; }
+  /** leaf colour 0..100: light hsl(98,68%,65%) -> dark hsl(135,50%,23%); returns [h, s, l] */
+  function leafHsl(c) { const t = c / 100, a = V.leaf.light, b = V.leaf.dark; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  /** stone colour 0..100: light grey #b8bec4 -> dark slate #3c4550 */
+  function stoneRgb(c) { const t = c / 100, a = hexRgb(V.stone.light), b = hexRgb(V.stone.dark); return a.map((v, i) => v + (b[i] - v) * t); }
+  function decorColorCss(d) { if (d.type === 'leaf') { const [h, s, l] = leafHsl(d.color); return hsl(h, s, l); } return rgbStr(stoneRgb(d.color)); }
+  function decorGradientCss(type) {
+    const stops = [0, 25, 50, 75, 100].map((c) => (type === 'leaf' ? hsl(...leafHsl(c)) : rgbStr(stoneRgb(c))));
+    return `linear-gradient(90deg, ${stops.join(', ')})`;
+  }
+  /** size + box of a decoration in tank px. Leaf: 3 blades, height 0.30 x waterH (top kept >= 4% of waterH under the
+   *  surface), spread 0.07 x waterH. Stone: 0.20 x 0.11 of waterH, bottom 15% sunk into the sand. */
+  function decorGeom(d) {
+    const bx = d.x * W, by = floorY(d);
+    if (d.type === 'leaf') {
+      const h = Math.min(V.leaf.h * WATER_H * d.sh, by - SURF - V.leaf.topGapFrac * WATER_H);
+      const spread = V.leaf.spread * WATER_H * d.sw, bw = spread * 0.6;
+      const half = spread + bw + h * Math.tan(V.leaf.swayDeg * Math.PI / 180) * 0.6;
+      return { bx, by, h, spread, bw, half, x0: bx - half, x1: bx + half, y0: by - h, y1: by + 2 };
+    }
+    const w = V.stone.w * WATER_H * d.sw, h = V.stone.h * WATER_H * d.sh;
+    return { bx, by, w, h, half: w / 2, x0: bx - w / 2, x1: bx + w / 2, y0: by - h * (1 - V.stone.sink), y1: by + 2 };
+  }
+  function drawLeaf(d, g) {
+    const [hh, ss, ll] = leafHsl(d.color);
+    const sway = Math.sin(realTime * Math.PI * 2 / V.leaf.swaySec + (d.seed % 17)) * Math.tan(V.leaf.swayDeg * Math.PI / 180);
+    const blades = [[-g.spread, 0.82], [0, 1], [g.spread * 0.85, 0.7]];
+    blades.forEach(([tipX, hk], i) => {
+      const h = g.h * hk, tx = g.bx + tipX + sway * h * (0.9 + i * 0.08), ty = g.by - h;
+      const bl = g.bx + (i - 1) * g.bw * 0.35 - g.bw / 2, br = bl + g.bw;
+      const gr = ctx.createLinearGradient(0, g.by, 0, ty);
+      gr.addColorStop(0, hsl(hh, ss, ll * 0.82)); gr.addColorStop(0.55, hsl(hh, ss, ll)); gr.addColorStop(1, hsl(hh, ss, ll * 1.10));
+      ctx.fillStyle = gr;
+      const mx = (bl + br) / 2, cx = mx + (tx - mx) * 0.5 + (i - 1) * g.bw * 0.3;
+      ctx.beginPath(); ctx.moveTo(bl, g.by);
+      ctx.quadraticCurveTo(cx - g.bw * 0.55, g.by - h * 0.5, tx, ty);
+      ctx.quadraticCurveTo(cx + g.bw * 0.55, g.by - h * 0.5, br, g.by);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = hsl(hh, ss, ll * 0.88); ctx.globalAlpha = 0.5; ctx.lineWidth = Math.max(1, g.bw * 0.08); // midrib, 12% darker at 50%
+      ctx.beginPath(); ctx.moveTo(mx, g.by); ctx.quadraticCurveTo(cx, g.by - h * 0.5, tx, ty); ctx.stroke(); ctx.globalAlpha = 1;
+    });
+  }
+  function stonePath(d, g, cx, cy) {
+    const rng = seeded(d.seed + 1), k = [0, 1, 2, 3, 4].map(() => rng());
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const th = (i / 40) * Math.PI * 2;
+      const n = 1 + 0.07 * Math.sin(th * 2 + k[0] * 6) + 0.05 * Math.sin(th * 3 + k[1] * 6) + 0.03 * Math.sin(th * 5 + k[2] * 6);
+      const x = cx + Math.cos(th) * g.w / 2 * n, y = cy + Math.sin(th) * g.h / 2 * n * (Math.sin(th) < 0 ? 1 : 0.9);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  }
+  function drawStone(d, g) {
+    const c = stoneRgb(d.color), cx = g.bx, cy = g.by - g.h * (0.5 - V.stone.sink);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; // contact shadow
+    ctx.beginPath(); ctx.ellipse(cx, g.by + 1, g.w * 0.55, Math.max(3, g.h * 0.12), 0, 0, 7); ctx.fill();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(g.x0 - 10, g.y0 - 10, g.w + 20, g.by - g.y0 + 10); ctx.clip(); // bottom 15% sunk into the sand
+    stonePath(d, g, cx, cy);
+    const gr = ctx.createLinearGradient(cx - g.w / 2, cy - g.h / 2, cx + g.w * 0.2, cy + g.h / 2);
+    gr.addColorStop(0, rgbStr(c, 1.15)); gr.addColorStop(0.45, rgbStr(c)); gr.addColorStop(1, rgbStr(c, 0.75)); // highlight 15% lighter, bottom 25% darker
+    ctx.fillStyle = gr; ctx.fill();
+    const rng = seeded(d.seed + 5);
+    ctx.fillStyle = rgbStr(c, 0.6);
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(cx + (rng() - 0.5) * g.w * 0.6, cy + (rng() - 0.6) * g.h * 0.5, Math.max(1, g.h * 0.04), 0, 7); ctx.fill(); }
+    ctx.restore();
+  }
+  function drawDecor() {
+    const list = G.state.decor.slice().sort((a, b) => a.y - b.y); // lower base = in front
+    for (const d of list) {
+      const g = decorGeom(d);
+      if (d.type === 'leaf') drawLeaf(d, g); else drawStone(d, g);
+      if (editing) { // edit mode outlines: dashed white 0.5 on each, solid 2px --accent on the selected one
+        ctx.save();
+        if (d.id === selDecor) { ctx.strokeStyle = '#37c3ff'; ctx.lineWidth = 2; ctx.setLineDash([]); }
+        else { ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); }
+        roundRect(g.x0 - 4, g.y0 - 4, g.x1 - g.x0 + 8, g.y1 - g.y0 + 6, 8); ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ fish
   function drawFishAll(dt) {
     G.state.fish.forEach((f) => {
       stepFish(f, dt);
@@ -207,36 +327,25 @@
       const dead = f.state === 'DEAD';
       const bobY = dead ? Math.sin(realTime * Math.PI / 2) * 2 : Math.sin(m.bob) * (hungry ? 1.5 : 3); // dead: +-2 px on a 4 s cycle
       ctx.save();
+      if (editing) ctx.globalAlpha = 0.3; // edit mode: see-through fish
       ctx.translate(m.x, m.y + bobY);
-      if (selectedId === f.id) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(0, 0, L * 0.75, L * 0.45, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-      }
       const tilt = dead ? Math.sin(realTime * 0.9 + f.id) * 0.14 // +-8 degrees
         : Math.max(-0.35, Math.min(0.35, Math.atan2(m.vy, Math.abs(m.vx) + 10))) + (hungry ? 0.12 : 0);
       ctx.save();
       ctx.scale(m.faceAnim >= 0 ? Math.max(0.08, m.faceAnim) : Math.min(-0.08, m.faceAnim), 1);
       ctx.rotate(tilt);
-      if (hungry) ctx.globalAlpha = 0.9;
+      if (hungry && !editing) ctx.globalAlpha = 0.9;
       FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, dead, level: f.level });
       ctx.restore();
-      drawStatusIcon(f, L);
+      if (!editing) drawStatusIcon(f, L, m);
       ctx.restore();
     });
   }
-  /** small "fed" meter (taps received of taps needed) above a fish that still needs food (NUMBERS.md 3.5) */
-  function drawFeedMeter(f, L) {
-    const i = G.fishInfo(f); if (!i.needsFood) return;
-    const n = i.taps, got = i.tapsFed, seg = n > 8 ? 5 : 8, gap = 2, w = n * seg + (n - 1) * gap, y = -L * 0.45 - 8;
-    ctx.fillStyle = 'rgba(6,24,42,0.75)'; roundRect(-w / 2 - 3, y - 3, w + 6, 11, 5); ctx.fill();
-    for (let k = 0; k < n; k++) {
-      ctx.fillStyle = k < got ? '#3ddc84' : 'rgba(255,255,255,0.25)';
-      roundRect(-w / 2 + k * (seg + gap), y, seg, 5, 2); ctx.fill();
-    }
-  }
-  function drawStatusIcon(f, L) {
+  /** hunger / waiting icon (AD v4 5): centre y = -(body half-depth) - 12, x = +0.25 L toward the head; r 8 (Large 10) */
+  const bodyHalfDepth = (L) => L * 0.21;
+  function statusIconPos(f, L, m) { return { x: (m.faceAnim >= 0 ? 1 : -1) * 0.25 * L, y: -bodyHalfDepth(L) - 12 }; }
+  function drawStatusIcon(f, L, m) {
     if (f.state === 'DEAD') return;
-    drawFeedMeter(f, L);
     let color = null, glyph = null;
     if (f.state === 'WAITING') { color = '#37c3ff'; glyph = 'food'; }
     else if (f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY') {
@@ -244,62 +353,48 @@
       color = frac < 0.33 ? '#ff3b3b' : '#ffa53b'; glyph = '!';
     }
     if (!color) return;
+    const pos = statusIconPos(f, L, m), base = LARGE() ? 10 : 8;
     const pulse = 1 + Math.sin(realTime * 6) * 0.08;
-    const y = -L * 0.45 - 28, r = 9 * pulse;
+    const x = pos.x, y = pos.y, r = base * pulse;
     ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, y, r, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-4, y + r - 2); ctx.lineTo(0, y + r + 5); ctx.lineTo(4, y + r - 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 3, y + r - 2); ctx.lineTo(x, y + r + 4); ctx.lineTo(x + 3, y + r - 2); ctx.fill();
     ctx.fillStyle = '#fff';
-    if (glyph === '!') { ctx.font = '900 13px Nunito, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 0, y + 1); }
-    else { for (const [dx, dy] of [[-3, -2], [2, -3], [0, 2], [3, 2], [-3, 3]]) { ctx.beginPath(); ctx.arc(dx, y + dy, 1.4, 0, 7); ctx.fill(); } }
+    if (glyph === '!') { ctx.font = `900 ${Math.round(base * 1.4)}px Nunito, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + 1); }
+    else { const k = base / 9; for (const [dx, dy] of [[-3, -2], [2, -3], [0, 2], [3, 2], [-3, 3]]) { ctx.beginPath(); ctx.arc(x + dx * k, y + dy * k, 1.3 * k, 0, 7); ctx.fill(); } }
   }
-  /** v1 flake shower (NUMBERS.md 3.4): many small flakes from the tap point, still 1 food / one meter step per tap */
+
+  // ------------------------------------------------------------ food flakes (bible item 16)
+  /** one tap = one small pinch of flakes at the tap point; they sink slowly and the fed fish rushes over and eats all of them */
   function flakeShower(x, y, r) {
     const n = V.flakesPerTap || 12;
+    y = Math.max(y, SURF + 4);
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, burst = 25 + Math.random() * 45; // small scatter as the pinch of food hits the water
-      pellets.push({ x: x + (Math.random() - 0.5) * 24, y: y + (Math.random() - 0.5) * 10, x0: x, t: 0, s: Math.random() * 3,
-        vx: Math.cos(a) * burst, gain: 0.7 + Math.random() * 0.6, vmax: 60 + Math.random() * 60,
-        ox: (Math.random() - 0.5) * 22, oy: (Math.random() - 0.5) * 10, fishId: r.fish.id, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
+      pellets.push({ x: x + (Math.random() - 0.5) * 22, y: y + (Math.random() - 0.5) * 10, x0: x, y0: y, t: 0, s: Math.random() * 3,
+        fishId: r.fish.id, c: ['#d9772f', '#b8542a', '#e8a13a'][i % 3] });
     }
     flakeStats.spawned += n; flakeStats.showers++;
-    if (r.full && r.gold > 0) { const m = anim.get(r.fish.id); if (m) floatFeedGold(r.gold, m.x, m.y); } // v3 feed pays 0: no float
+    const m = anim.get(r.fish.id); if (m) { m.pause = 0; m.retarget = 0; }
+    if (r.full && r.gold > 0 && m) floatFeedGold(r.gold, m.x, m.y); // v3/v4 feed pays 0: no float
   }
+  const FLAKE_SINK = 14; // px/s (slow)
   function drawPellets(dt) {
     for (let i = pellets.length - 1; i >= 0; i--) {
       const p = pellets[i];
       p.t += dt;
-      const m = p.fishId != null ? anim.get(p.fishId) : null;
-      // v1 shower look: small flakes sink (26 + s*8 px/s) with a gentle side-to-side wobble and fade after ~4 s.
-      // v2/v3: each flake also drifts toward the fish that was fed (horizontal pull; a little vertical pull when the
-      // fish is below) and is eaten when it reaches the fish's mouth area.
-      const sink = 26 + p.s * 8;
-      let want = 0, vy = sink;
-      if (m) { // each flake drifts toward the fed fish at its own pace, so the shower strings out along the way
-        const tx = m.x + p.ox, ty = m.y + p.oy;
-        want = Math.max(-p.vmax, Math.min(p.vmax, (tx - p.x) * p.gain));
-        if (ty > p.y) vy = Math.max(sink, Math.min(sink * 2.2, (ty - p.y) * 0.9)); // fish below: sink toward it
-        else vy = sink * 0.35;                                                    // already level with / below it: linger
-        const fl = fishLen(G.state.fish.find((f) => f.id === p.fishId) || { sp: 'guppy', level: 1 });
-        if (Math.abs(m.x - p.x) < fl * 0.45 && Math.abs(m.y - p.y) < fl * 0.22 && p.t > 0.5) { pellets.splice(i, 1); continue; } // eaten
-      }
-      p.vx += (want - p.vx) * Math.min(1, dt * 2.2); // the initial scatter eases into the drift
-      p.x += p.vx * dt + Math.sin(p.t * 3 + p.s) * dt * 8;
-      p.y += vy * dt;
-      if (p.y > sandTop() - 2) p.y = sandTop() - 2;
-      if (p.t > 5) { pellets.splice(i, 1); continue; }
-      ctx.globalAlpha = Math.max(0, Math.min(1, 5 - p.t));
+      p.x += Math.sin(p.t * 2.2 + p.s) * dt * 6;
+      p.y = Math.min(SAND - 2, p.y + (FLAKE_SINK + p.s * 2) * dt);
+      if (!G.state.fish.some((f) => f.id === p.fishId && f.state !== 'DEAD') || p.t > 12) { pellets.splice(i, 1); continue; } // its fish is gone
       ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.6, 2, p.s + p.t, 0, 7); ctx.fill();
-      ctx.globalAlpha = 1;
     }
   }
-  // ---- dirt: one look per stage (Art Director DIRT_AND_FISH_GROWTH.md s.1), deterministic from spot.seed
+
+  // ------------------------------------------------------------ dirt: one look per stage, deterministic from spot.seed
   function seeded(seed) { // mulberry32
     let t = Math.floor(seed * 9973) >>> 0;
     return () => { t = (t + 0x6D2B79F5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
   }
-  function rgbaHex(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${Math.min(1, a).toFixed(3)})`; }
-  // irregular blob edge radius at angle th; rough 2 = edge noise doubled (crust)
+  function rgbaHex(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${Math.max(0, Math.min(1, a)).toFixed(3)})`; }
   function blobR(R, seed, rough, th) {
     return R * (0.84 + rough * (0.1 * Math.sin(th * 3 + seed) + 0.06 * Math.sin(th * 5 + seed * 2) + 0.03 * Math.sin(th * 11 + seed * 3)));
   }
@@ -312,10 +407,20 @@
     ctx.closePath();
   }
   const SPOT_DRAW = {
-    smudge(cx, cy, R, c, a, s) { // soft round film, no speckles
+    smudge(cx, cy, R, c, a, s, rng, look) { // stage 1 (AD v4 21): soft smudge, darker rim (+0.06 over the outer 25%), 3-5 speckles
+      const rim = look.rim || 0;
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
-      g.addColorStop(0, rgbaHex(c, a)); g.addColorStop(0.6, rgbaHex(c, a * 0.85)); g.addColorStop(1, rgbaHex(c, 0));
+      g.addColorStop(0, rgbaHex(c, a)); g.addColorStop(0.75, rgbaHex(c, a)); g.addColorStop(0.8, rgbaHex(c, a + rim));
+      g.addColorStop(0.95, rgbaHex(c, (a + rim) * 0.7)); g.addColorStop(1, rgbaHex(c, 0));
       ctx.fillStyle = g; blobPath(cx, cy, R, s.seed, 0.5); ctx.fill();
+      if (look.speckles) {
+        const n = look.speckles[0] + Math.floor(rng() * (look.speckles[1] - look.speckles[0] + 1));
+        ctx.fillStyle = rgbaHex('#3A3418', look.speckleAlpha * (a / look.alpha));
+        for (let i = 0; i < n; i++) {
+          const th = rng() * Math.PI * 2, d = Math.sqrt(rng()) * R * 0.7, sr = look.speckleR[0] + rng() * (look.speckleR[1] - look.speckleR[0]);
+          ctx.beginPath(); ctx.arc(cx + Math.cos(th) * d, cy + Math.sin(th) * d, sr, 0, 7); ctx.fill();
+        }
+      }
     },
     dots(cx, cy, R, c, a, s, rng) { // cluster of 5-8 small round algae dots, dot r 0.15-0.3 R
       const n = 5 + Math.floor(rng() * 4);
@@ -335,7 +440,7 @@
     hair(cx, cy, R, c, a, s, rng, look, k) { // irregular patch + 6-10 short wavy strands (1.5px, 0.3R) out of the edge
       ctx.fillStyle = rgbaHex(c, a); blobPath(cx, cy, R, s.seed, 1); ctx.fill();
       const n = 6 + Math.floor(rng() * 5);
-      ctx.strokeStyle = rgbaHex(c, look.strandAlpha * k); ctx.lineWidth = 1.5; ctx.lineCap = 'round'; // strands ~50% (AD ruling 3); patch body stays look.alpha
+      ctx.strokeStyle = rgbaHex(c, look.strandAlpha * k * (a / look.alpha / Math.max(0.12, k))); ctx.lineWidth = 1.5; ctx.lineCap = 'round';
       for (let i = 0; i < n; i++) {
         const th = ((i + rng() * 0.6) / n) * Math.PI * 2, rr = blobR(R, s.seed, 1, th) * 0.96, len = R * 0.3;
         const ux = Math.cos(th), uy = Math.sin(th), w = len * 0.18 * (rng() < 0.5 ? 1 : -1);
@@ -356,7 +461,18 @@
       }
     },
   };
-  // ---- tank-wide dirt layer (Art Director v2): stages 2-4 flat wash, stage 5 green film (config VISUAL.dirtLayer)
+  // ---- blocked-feed pulse (AD v4 6): 0 -> 1 over 0.35 s (ease-out), hold 0.15 s, 1 -> 0 over 0.5 s (ease-in); restarts on every blocked tap
+  let pulseT0 = -10;
+  const nowSec = () => performance.now() / 1000;
+  function pulseAmt(t) {
+    const u = (t == null ? nowSec() : t) - pulseT0;
+    if (u < 0 || u >= 1) return 0;
+    if (u < 0.35) { const k = u / 0.35; return 1 - (1 - k) * (1 - k); }
+    if (u < 0.5) return 1;
+    const k = (u - 0.5) / 0.5; return 1 - k * k;
+  }
+  const spotR = (s) => s.r * WATER_H; // AD v4 6: spot radii are fractions of the water height
+  // ---- tank-wide dirt layer (AD v2/v4): stage 1-4 flat wash, stage 5 green film
   const film = { cv: null, x: null, img: null, cols: 0, rows: 0, a: null, cap: null, mid: null, strength: 0 };
   /** fill alpha of one spot as drawn (look alpha x rub fade; drip bottom edge +0.08) */
   function spotFillAlpha(s) {
@@ -364,7 +480,7 @@
     const k = Math.max(0.12, s.grime / s.grime0);
     return look.alpha * k + (look.look === 'drip' ? 0.08 : 0);
   }
-  function drawFilm(strength) {
+  function drawFilm(strength, p) {
     const F = V.dirtFilm, cell = F.cellPx;
     const cols = Math.max(4, Math.ceil(W / cell)), rows = Math.max(4, Math.ceil(H / cell));
     if (!film.cv || film.cols !== cols || film.rows !== rows) {
@@ -372,29 +488,31 @@
       film.x = film.cv.getContext('2d'); film.img = film.x.createImageData(cols, rows);
       Object.assign(film, { cols, rows, a: new Float32Array(cols * rows), cap: new Float32Array(cols * rows), mid: new Uint8Array(cols * rows) });
     }
-    const d = film.img.data, spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W * 1.25, a: spotFillAlpha(s) }));
-    const drift = realTime / F.cloudDriftSec; // tank widths
+    const d = film.img.data, spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: spotR(s) * 1.25, a: spotFillAlpha(s) }));
+    const drift = realTime / F.cloudDriftSec;
     for (let j = 0; j < rows; j++) {
       const py = (j + 0.5) * H / rows, ny = py / H;
       for (let i = 0; i < cols; i++) {
         const px = (i + 0.5) * W / cols, nx = px / W, idx = j * cols + i;
-        const dist = Math.max(Math.abs(nx - 0.5), Math.abs(ny - 0.5)) * 2; // 0 centre .. 1 edges and corners
+        const dist = Math.max(Math.abs(nx - 0.5), Math.abs(ny - 0.5)) * 2;
         const mid = dist <= F.guardZone;
         const t = Math.max(0, Math.min(1, (dist - F.guardZone) / (1 - F.guardZone)));
         let a = F.centre + (F.edge - F.centre) * t * t * (3 - 2 * t);
         const u = (nx - drift) * 6.283, v = ny * 6.283 * H / W;
         a += F.cloud * (Math.sin(u * 1.1 + v * 0.6 + 1.3) + Math.sin(-u * 0.7 + v * 1.3 + 4.1) + 0.6 * Math.sin(u * 1.9 - v * 1.7 + 2.2)) / 2.6;
         let rgb = F.rgb;
-        const scum = ny < F.scumFrac ? 1 : ny < F.scumFrac * 1.4 ? 1 - (ny - F.scumFrac) / (F.scumFrac * 0.4) : 0; // soft bottom edge
+        const sy = (py - SURF) / WATER_H; // waterline scum band sits under the surface
+        const scum = sy < 0 ? 0 : sy < F.scumFrac ? 1 : sy < F.scumFrac * 1.4 ? 1 - (sy - F.scumFrac) / (F.scumFrac * 0.4) : 0;
         if (scum > 0) { a = a + (F.scumAlpha - a) * scum; rgb = F.scumRgb; }
         let cap = 1;
-        if (mid) { // readability guard: film + one spot <= guardMax in the middle of the tank
+        if (mid) { // readability guard: film + one spot <= guardMax in the middle of the tank (lifted during a blocked-feed pulse)
           let sMax = 0;
           for (const sp of spots) if (Math.hypot(px - sp.x, py - sp.y) < sp.r && sp.a > sMax) sMax = sp.a;
           cap = sMax >= F.guardMax ? 0 : 1 - (1 - F.guardMax) / (1 - sMax);
-          a = Math.min(a, cap);
+          if (!(p > 0)) a = Math.min(a, cap);
         }
         a = Math.max(0, a) * strength;
+        if (p > 0) a = Math.max(a, Math.min(0.6, a * (1 + 0.5 * p)));
         film.a[idx] = a; film.cap[idx] = cap; film.mid[idx] = mid ? 1 : 0;
         d[idx * 4] = rgb[0]; d[idx * 4 + 1] = rgb[1]; d[idx * 4 + 2] = rgb[2]; d[idx * 4 + 3] = Math.round(a * 255);
       }
@@ -402,20 +520,27 @@
     film.x.putImageData(film.img, 0, 0);
     ctx.save(); ctx.imageSmoothingEnabled = true; ctx.drawImage(film.cv, 0, 0, W, H); ctx.restore();
   }
-  function drawDirtLayer() {
+  function washAlpha(css) { const m = /rgba\([^)]*,\s*([\d.]+)\)/.exec(css); return m ? +m[1] : 0; }
+  function drawDirtLayer(p) {
     const stage = G.dirtStage(), layer = stage > 0 ? V.dirtLayer[stage - 1] : null;
-    film.strength = layer && layer.film ? G.dirtFilm() : 0; // fades with rub progress, gone when the last spot clears
+    film.strength = layer && layer.film ? G.dirtFilm() : 0;
     if (!layer) return;
-    if (layer.wash) { ctx.fillStyle = layer.wash; ctx.fillRect(0, 0, W, H); }
-    if (layer.film && film.strength > 0) drawFilm(film.strength);
+    if (layer.wash) {
+      const a0 = washAlpha(layer.wash), a = p > 0 ? Math.min(0.6, a0 * (1 + 0.5 * p)) : a0; // pulse: up to 1.5x (max 0.6)
+      ctx.fillStyle = layer.wash.replace(/,\s*[\d.]+\)$/, `,${a.toFixed(3)})`); ctx.fillRect(0, 0, W, H);
+    }
+    if (layer.film && film.strength > 0) drawFilm(film.strength, p);
   }
-  function drawSpots() {
-    // array order = spawn order, so older spots are drawn first and newer ones on top (source-over)
+  const drawnSpots = []; // last drawn alpha per spot (tests)
+  function drawSpots(p) {
+    drawnSpots.length = 0;
     G.state.dirt.spots.forEach((s) => {
       const look = V.dirtStages[Math.max(1, Math.min(5, s.stage || 1)) - 1];
-      const k = Math.max(0.12, s.grime / s.grime0); // fades while rubbed
+      const k = Math.max(0.12, s.grime / s.grime0);
       const color = look.tintHalf && Math.floor(s.seed) % 2 ? mixHex(look.color, look.tintHalf, look.tintMix) : look.color;
-      SPOT_DRAW[look.look](s.x * W, s.y * H, s.r * W, color, look.alpha * k, s, seeded(s.seed), look, k);
+      const a0 = look.alpha * k, a = a0 + (Math.min(a0 + 0.35, 0.85) - a0) * p; // pulse: alpha -> min(a + 0.35, 0.85)
+      SPOT_DRAW[look.look](s.x * W, s.y * H, spotR(s), color, a, s, seeded(s.seed), look, k);
+      drawnSpots.push({ id: s.id, alpha: +a.toFixed(3), base: +a0.toFixed(3) });
     });
   }
   function mixHex(a, b, t) {
@@ -424,13 +549,15 @@
   }
   function drawGlass() {
     const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(0.3, 'rgba(255,255,255,0)'); g.addColorStop(0.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0.06)');
+    g.addColorStop(0, 'rgba(255,255,255,0.08)'); g.addColorStop(0.3, 'rgba(255,255,255,0)'); g.addColorStop(0.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0.05)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
-  function spongeLift() { return pointer.touch ? W * V.spongeRadiusFrac * V.spongeTouchLiftFrac : 0; }
+  /** sponge radius: 0.16 x water height, clamped 40-72 px (AD v4 6) */
+  function spongeR() { return Math.max(V.spongeMinPx, Math.min(V.spongeMaxPx, V.spongeRadiusFrac * WATER_H)); }
+  function spongeLift() { return pointer.touch ? spongeR() * V.spongeTouchLiftFrac : 0; }
   function drawSponge() {
     if (tool !== 'sponge' || !pointer.inside) return;
-    const r = W * V.spongeRadiusFrac;
+    const r = spongeR();
     ctx.save(); ctx.translate(pointer.x, pointer.y - spongeLift()); ctx.rotate(-0.2);
     ctx.fillStyle = '#ffd84a'; ctx.strokeStyle = '#b08d12'; ctx.lineWidth = 2;
     roundRect(-r, -r * 0.7, r * 2, r * 1.4, 8); ctx.fill(); ctx.stroke();
@@ -508,34 +635,54 @@
   }
   function floatFeedGold(gold, x, y) { floatText(`+${gold} gold`, x, y - 30, '#ffe07a'); }
 
-  // ------------------------------------------------------------ HUD / UI
-  const goldEl = $('gold'), foodEl = $('food');
-  let lastGold = null, lastFood = null;
+  // ------------------------------------------------------------ HUD: gold / diamonds / tank level / dirt window / food bottle
+  const goldEl = $('gold'), gemEl = $('gems');
+  let lastGold = null, lastGems = null;
   function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 160); }
+  /** AD v4 3 dirt timer: "5h 12m", "42m" under an hour, "<1m" under a minute */
+  function fmtDirt(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    if (sec < 60) return '<1m';
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+  }
+  /** bottle fill steps (AD v4 2): 0 empty, 1-4 quarter, 5-9 half, 10-19 three quarters, 20+ full */
+  function bottleFill(n) { return n <= 0 ? 0 : n < 5 ? 0.25 : n < 10 ? 0.5 : n < 20 ? 0.75 : 1; }
   function updateHUD() {
     const s = G.state;
     if (s.gold !== lastGold) { goldEl.textContent = s.gold; if (lastGold !== null) bump($('res-gold')); lastGold = s.gold; }
-    if (s.food !== lastFood) { foodEl.textContent = s.food; if (lastFood !== null) bump($('res-food')); lastFood = s.food; }
-    const st = G.dirtStage();
+    const gems = s.diamonds || 0;
+    if (gems !== lastGems) { gemEl.textContent = gems; if (lastGems !== null) bump($('res-gem')); lastGems = gems; }
+    // food bottle + badge
+    const fill = bottleFill(s.food), badge = $('food-badge');
+    badge.textContent = s.food > 999 ? '999+' : String(s.food);
+    badge.classList.toggle('zero', s.food <= 0);
+    $('food-empty').toggleAttribute('hidden', fill > 0); $('food-partial').toggleAttribute('hidden', fill === 0);
+    const cr = $('food-clip-rect'), bh = 15 * fill; cr.setAttribute('y', String(21 - bh)); cr.setAttribute('height', String(bh));
+    $('food-icon').dataset.fill = fill;
+    // dirt window
+    const st = G.dirtStage(), maxSt = T.dirt.stageAtSec.length;
     const bar = $('dirt-bar'); bar.dataset.stage = st;
     [...bar.children].forEach((el, i) => el.classList.toggle('on', i < st));
-    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtSec.length}`;
+    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${maxSt}`;
+    const nx = G.dirtNextIn();
+    $('dirt-next').textContent = st >= maxSt || nx == null ? 'Max dirt' : `Stage ${st + 1} in ${fmtDirt(nx)}`;
+    // tank level block
     const ti = G.tankInfo();
-    $('tank-label').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
+    $('tank-label').textContent = `Tank Lv ${ti.level}`;
+    $('tank-xp').textContent = ti.max ? `${ti.xp} XP` : `${ti.xp} / ${ti.next}`;
     $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
-    $('buyfood-label').textContent = `+${T.foodPacks[0].food} food · ${T.foodPacks[0].gold}g`;
-    $('btn-buyfood').disabled = s.gold < T.foodPacks[0].gold;
     $('tankover').hidden = !G.tankOver();
-    // hint line
+    // hint line (bottom of the tank)
     let hint = '';
-    if (!s.fish.length) hint = 'Open the Shop and buy a baby fish';
-    // Food in a dirty tank: no hint at all. The ONLY dirty-tank message is the dirt-bar callout "Clean the tank first",
-    // shown when a feed tap is blocked (NUMBERS.md 3 rule 1, Maksims 2026-09-27).
-    else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it';
+    if (editing) hint = '';
+    else if (!s.fish.length) hint = st >= 1 && s.firstCleanPending ? 'Pick Clean and rub the dirt off the glass' : 'Open the Shop and buy a baby fish';
+    else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it'; // dirty: the blocked-feed warning is the only message
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
+    else if (tool === 'net') hint = 'Tap a fish to sell or release it';
     else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
-    else hint = G.living() ? 'Tap a fish to see its details' : ''; // only dead fish left: no hint (Playtester pass 6 N3)
-    $('hint').textContent = $('dirt-callout').hidden ? hint : ''; // one message at a time: the dirt-bar callout wins
+    else hint = G.living() ? 'Tap a fish to see its details' : '';
+    $('hint').textContent = hint;
     $('dbg-clock').textContent = `game ${clock(s.gameTime)} · ×${s.speed}`;
     document.querySelectorAll('#speed-btns .dbg').forEach((b) => b.classList.toggle('on', +b.dataset.speed === s.speed));
   }
@@ -545,73 +692,55 @@
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
     return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(s).padStart(2, '0')}s`;
   }
-  function clock(sec) { // debug bar only (game time), never used for dirt
+  function clock(sec) { // debug bar only (game time)
     sec = Math.max(0, Math.floor(sec)); const d = Math.floor(sec / 86400), h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60;
     return `${d ? d + 'd ' : ''}${h}h ${String(m).padStart(2, '0')}m`;
   }
   function realNote(sec) { return G.state.speed > 1 ? ` (≈${fmt(sec / G.state.speed)} real at ×${G.state.speed})` : ''; }
 
-  // Toasts show immediately (there is no hidden queue; at most 3 on screen). An identical toast (same text + kind) that
-  // is still on screen, even fading, is merged into one line with a count ("Guppy reached level 2! +1 gold ×3") and
-  // its timer restarts.
-  function toastTimers(el) {
+  // ------------------------------------------------------------ toasts
+  // At most 3 on screen. An identical toast still showing merges into one line with a count ("... ×3") unless
+  // opts.restart: then it just restarts (blocked feed, edit hint: no stacking).
+  function toastTimers(el, ms) {
+    ms = ms || 2700;
     clearTimeout(el._tOut); clearTimeout(el._tDel); el.classList.remove('out');
-    el._tOut = setTimeout(() => el.classList.add('out'), 2200);
-    el._tDel = setTimeout(() => el.remove(), 2700);
+    el._tOut = setTimeout(() => el.classList.add('out'), ms - 400);
+    el._tDel = setTimeout(() => el.remove(), ms);
   }
-  function toast(text, kind) {
+  function toast(text, kind, opts) {
+    opts = opts || {};
     const box = $('toasts'), k = kind || '';
     const same = [...box.children].find((e) => e.dataset.base === text && e.dataset.kind === k);
     if (same) {
-      const n = +same.dataset.n + 1; same.dataset.n = n; same.textContent = `${text} ×${n}`;
+      if (!opts.restart) { const n = +same.dataset.n + 1; same.dataset.n = n; same.textContent = `${text} ×${n}`; }
       same.classList.remove('merge'); void same.offsetWidth; same.classList.add('merge');
-      toastTimers(same); return;
+      toastTimers(same, opts.ms); return same;
     }
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
     el.textContent = text; el.dataset.base = text; el.dataset.kind = k; el.dataset.n = 1;
     box.appendChild(el);
     while (box.children.length > 3) box.removeChild(box.firstChild);
-    toastTimers(el);
+    toastTimers(el, opts.ms);
+    return el;
   }
-  function clearToasts() { // drop every toast still showing or fading (N4: before "New tank started")
+  function clearToasts() {
     const box = $('toasts');
     [...box.children].forEach((e) => { clearTimeout(e._tOut); clearTimeout(e._tDel); });
     box.replaceChildren();
   }
-  // The one dirty-tank message (NUMBERS.md 3 rule 1): re-shown and restarted on EVERY blocked feed tap, visible for
-  // CALLOUT_MS after the last one (long enough to read and to screenshot).
-  const CALLOUT_MS = 2500;
-  let calloutTimer = 0, calloutCount = 0;
-  function dirtyCallout() {
-    const c = $('dirt-callout');
-    clearTimeout(calloutTimer);
-    c.hidden = false;
-    c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); // restart the pop so each tap is visible
-    const w = $('dirt-wrap'); w.classList.remove('shake'); void w.offsetWidth;
-    placeDirtArrow(); // measured before the shake starts (the shake translates the dirt bar)
-    const a = $('dirt-arrow'); a.style.animation = 'none'; void a.offsetWidth; a.style.animation = '';
-    w.classList.add('shake');
-    calloutCount++; c.dataset.count = calloutCount;
-    $('hint').textContent = ''; // never a second message alongside it
-    calloutTimer = setTimeout(() => { c.hidden = true; $('dirt-arrow').hidden = true; }, CALLOUT_MS);
+  // Blocked feed (AD v4 6, bible 22): top-middle toast, spot pulse and dirt-window flash, all on the same frame,
+  // restarting on every blocked tap.
+  let blockedCount = 0;
+  function blockedFeed() {
+    toast('Clean the tank first', 'bad', { restart: true, ms: 2500 });
+    pulseT0 = nowSec();
+    const w = $('dirt-win'); w.classList.remove('flash'); void w.offsetWidth; w.classList.add('flash');
+    clearTimeout(w._t); w._t = setTimeout(() => w.classList.remove('flash'), 1050);
+    blockedCount++;
   }
-  // Art Director spec: the callout box stays in the tank's top-right corner; a narrow triangle (12px base on the box's top
-  // edge) rises from it, tip 4px below the dirt bar's bottom edge and lined up with the dirt bar's centre.
-  const ARROW_BASE = 12, ARROW_TIP_GAP = 4;
-  function placeDirtArrow() {
-    const a = $('dirt-arrow'), c = $('dirt-callout');
-    if (c.hidden) { a.hidden = true; return; }
-    const bar = $('dirt-bar').getBoundingClientRect();
-    const boxTop = wrap.getBoundingClientRect().top + c.offsetTop; // layout box, unaffected by the pop scale
-    const tipX = (bar.left + bar.right) / 2, tipY = bar.bottom + ARROW_TIP_GAP;
-    a.style.left = `${tipX - ARROW_BASE / 2}px`; a.style.top = `${tipY}px`;
-    a.style.height = `${Math.max(0, boxTop - tipY) + 2}px`; // +2: strip overlapping the box (see CSS)
-    a.hidden = false;
-  }
-  window.addEventListener('resize', () => { if (!$('dirt-callout').hidden) placeDirtArrow(); });
 
-  // tools
+  // ------------------------------------------------------------ tools
   let tool = 'hand';
   function setTool(t) {
     tool = t;
@@ -619,16 +748,17 @@
     wrap.dataset.tool = t;
     if (t !== 'hand') closePanel();
     closeShop();
+    if (t === 'brush') enterEdit(); else exitEdit();
   }
   document.querySelectorAll('.tool[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $('btn-shop').addEventListener('click', () => ($('shop').hidden ? openShop() : closeShop()));
-  $('btn-buyfood').addEventListener('click', () => { G.buyFood(0); });
 
-  // ------------------------------------------------------------ fish panel
+  // ------------------------------------------------------------ fish info (side panel, AD v4 8)
   let selectedId = null;
   function openPanel(id) { selectedId = id; closeShop(); $('panel').hidden = false; renderPanel(true); }
   function closePanel() { selectedId = null; $('panel').hidden = true; }
-  function renderPanel(force) {
+  function mealIndex(f) { return f.state === 'WAITING' ? 1 : f.state === 'HUNGRY' ? (f.progress <= 0 ? 1 : 2) : null; }
+  function renderPanel() {
     if (selectedId == null) return;
     const f = G.state.fish.find((x) => x.id === selectedId);
     if (!f) { closePanel(); return; }
@@ -639,63 +769,100 @@
     $('p-latin').textContent = sp.latin;
     $('p-rarity').textContent = sp.rarity[0].toUpperCase() + sp.rarity.slice(1);
     $('p-level').textContent = i.dead ? 'Dead' : f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
-    const btn = $('p-sell');
-    btn.dataset.fish = f.id;
-    if (i.dead) { // NUMBERS.md 9.12: "Dead" and one button, Remove (0 gold), no confirm, no selling
-      $('p-dead').textContent = 'Dead';
-      btn.className = 'btn wide danger'; btn.dataset.action = 'remove';
-      btn.textContent = `Remove (${T.deadFish ? T.deadFish.removeGold : 0} gold)`;
-    } else {
+    $('p-worth').textContent = i.dead ? 'Worth 0 gold' : `Worth ${i.sell} gold`;
+    if (!i.dead) {
       const gEl = $('p-growth'), hEl = $('p-hunger'), bar = $('p-growbar');
       gEl.className = 'v'; hEl.className = 'v';
       bar.classList.toggle('paused', f.state === 'HUNGRY');
       bar.style.width = (i.progressFrac * 100).toFixed(1) + '%';
-      const fedTxt = `${i.tapsFed}/${i.taps} fed`;
-      if (f.state === 'WAITING') { gEl.textContent = 'Not started'; gEl.classList.add('warn'); hEl.textContent = `Waiting for first feed · ${fedTxt}`; hEl.classList.add('warn'); }
+      if (f.state === 'WAITING') { gEl.textContent = 'Not started'; gEl.classList.add('warn'); hEl.textContent = 'Waiting for its first meal'; hEl.classList.add('warn'); }
       else if (f.state === 'GROWING') {
         gEl.textContent = `L${f.level} · next level in ${fmt(i.growLeft)}${realNote(i.growLeft)}`;
-        const hungerIn = i.midHungerIn;
-        hEl.textContent = hungerIn != null ? `Fed · hungry in ${fmt(hungerIn)}` : 'Fed'; hEl.classList.add('ok');
+        hEl.textContent = i.midHungerIn != null ? `Fed · hungry in ${fmt(i.midHungerIn)}` : 'Fed'; hEl.classList.add('ok');
       } else if (f.state === 'HUNGRY') {
         gEl.textContent = `L${f.level} · Growth paused`; gEl.classList.add('danger');
-        hEl.textContent = `Hungry! ${fedTxt} · Growth paused · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+        hEl.textContent = `Hungry! Growth paused · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
       } else if (f.state === 'ADULT') {
         gEl.textContent = `Adult (L${f.level})`;
         hEl.textContent = `Fed · hungry in ${fmt(i.adultHungerIn)}`; hEl.classList.add('ok');
-      } else { // ADULT_HUNGRY
+      } else {
         gEl.textContent = `Adult (L${f.level})`;
-        hEl.textContent = `Hungry! ${fedTxt} · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+        hEl.textContent = `Hungry! dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
       }
-      $('p-portion').textContent = `${i.portion} food · ${i.taps} tap${i.taps > 1 ? 's' : ''}`;
-      btn.className = 'btn wide ' + (f.level === 1 ? 'danger' : 'sell'); btn.dataset.action = 'sell';
-      btn.textContent = f.level === 1 ? 'Release (0 gold)' : `Sell for ${i.sell} gold`;
+      // meal progress (moved here from above the fish): in food, never taps
+      const k = mealIndex(f), mb = $('p-mealbar');
+      if (i.needsFood) {
+        $('p-meal').textContent = k ? `Meal ${k} of ${T.mealsPerLevel || 2} · needs ${i.needLeft} food` : `Adult meal · needs ${i.needLeft} food`;
+        if (mb.children.length !== i.portion) mb.replaceChildren(...Array.from({ length: i.portion }, () => document.createElement('i')));
+        [...mb.children].forEach((el, n) => el.classList.toggle('on', n < i.fed));
+      } else { $('p-meal').textContent = 'Fed'; mb.replaceChildren(); }
     }
-    // portrait
-    const pc = $('panel-portrait'), p = pc.getContext('2d');
-    p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, pc.width, pc.height);
-    p.translate(pc.width * 0.55, pc.height * 0.52);
-    FishArt.drawFish(p, f.sp, pc.width * 0.5, i.dead ? 0 : realTime * 5, { hungry: f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY', dead: i.dead, level: f.level });
+    drawPortrait($('panel-portrait'), f);
   }
-  $('p-sell').addEventListener('click', () => {
-    const id = +$('p-sell').dataset.fish;
-    const f = G.state.fish.find((x) => x.id === id);
-    if (!f) return;
-    if (f.state === 'DEAD') { G.removeDead(id); closePanel(); return; } // no confirm for a dead fish
-    if (f.level === 1) {
-      confirmBox(`Release this ${G.SPECIES[f.sp].name}? Level 1 fish give 0 gold.`, 'Release (0 gold)', () => { G.sell(id); closePanel(); });
-    } else { G.sell(id); closePanel(); }
-  });
-  function confirmBox(text, yesLabel, onYes) {
-    $('confirm-text').textContent = text; $('confirm-yes').textContent = yesLabel;
+  function drawPortrait(pc, f) {
+    const p = pc.getContext('2d');
+    p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, pc.width, pc.height);
+    p.translate(pc.width * 0.52, pc.height * 0.52);
+    const dead = f.state === 'DEAD';
+    FishArt.drawFish(p, f.sp, pc.width * 0.5, dead ? 0 : realTime * 5, { hungry: f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY', dead, level: f.level });
+  }
+  // confirm windows (AD v4 8): centred, portrait, one line of text, Cancel left, action right
+  function confirmBox(text, yesLabel, onYes, portrait, yesClass) {
+    $('confirm-text').textContent = text;
+    const y = $('confirm-yes'); y.textContent = yesLabel; y.className = 'btn ' + (yesClass || 'danger');
+    const pc = $('confirm-portrait');
+    pc.hidden = !portrait;
+    if (portrait) portrait(pc);
     $('confirm').hidden = false;
-    $('confirm-yes').onclick = () => { $('confirm').hidden = true; onYes(); };
+    y.onclick = () => { $('confirm').hidden = true; onYes(); };
     $('confirm-no').onclick = () => { $('confirm').hidden = true; };
+  }
+  /** net tool (bible 19, NUMBERS 11.4): every sell / release / remove asks first */
+  function netFish(f) {
+    const sp = G.SPECIES[f.sp], name = sp.name, por = (pc) => drawPortrait(pc, f);
+    if (f.state === 'DEAD') confirmBox(`Remove the dead ${name}? You get nothing.`, 'Remove', () => G.removeDead(f.id), por, 'danger');
+    else if (f.level === 1) confirmBox(`Release ${name}? You get nothing.`, 'Release', () => G.sell(f.id), por, 'danger');
+    else {
+      const gold = G.sellPrice(sp, f.level), xp = G.xpFor('sell', { sp, level: f.level });
+      confirmBox(`Sell ${name} (L${f.level}) for ${gold} gold and ${xp} XP?`, 'Sell', () => G.sell(f.id), por, 'sell');
+    }
   }
   document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => (b.dataset.close === 'panel' ? closePanel() : closeShop())));
 
-  // ------------------------------------------------------------ shop
-  function openShop() { closePanel(); $('shop').hidden = false; renderShop(); }
-  function closeShop() { $('shop').hidden = true; }
+  // ------------------------------------------------------------ shop (centred panel, tabs Fish / Food / Decorations)
+  let shopTab = 'fish';
+  function openShop() { closePanel(); $('shop').hidden = false; $('btn-shop').setAttribute('aria-pressed', 'true'); renderShop(); }
+  function closeShop() { $('shop').hidden = true; $('btn-shop').setAttribute('aria-pressed', 'false'); }
+  $('shop-close').addEventListener('click', closeShop);
+  function setShopTab(t) {
+    shopTab = t;
+    document.querySelectorAll('#shop .tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
+    document.querySelectorAll('#shop .grid').forEach((g) => { g.hidden = g.dataset.tab !== t; });
+    $('shop-scroll').scrollTop = 0;
+    renderShop();
+  }
+  document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => setShopTab(b.dataset.tab)));
+  function drawBottleCard(c, n) {
+    c.clearRect(0, 0, 240, 96);
+    const k = n >= 50 ? 3 : 1;
+    for (let i = 0; i < k; i++) {
+      c.save(); c.translate(120 + (i - (k - 1) / 2) * 44, 12); c.scale(3, 3);
+      c.fillStyle = '#ff8a3d'; c.beginPath(); c.roundRect(6 - 12, 6 - 3, 12, 15, 3); c.fill();
+      c.fillStyle = '#d9d9d9'; c.beginPath(); c.roundRect(7 - 12, 3 - 3, 10, 4, 1.5); c.fill();
+      c.restore();
+    }
+  }
+  function drawDecorCard(c, type) {
+    c.clearRect(0, 0, 240, 96);
+    c.fillStyle = '#d8c48a'; c.fillRect(0, 78, 240, 18);
+    const d = { id: 'card', type, x: 0, y: 0, sh: 1, sw: 1, color: T.decorations.types[type].defaultColor, seed: type === 'leaf' ? 11 : 51 };
+    const u = 90; // "water height" for the card
+    let g;
+    if (type === 'leaf') { const h = V.leaf.h * u * 0.95 * 2.3, spread = V.leaf.spread * u * 2.3; g = { bx: 120, by: 84, h: Math.min(h, 76), spread, bw: spread * 0.6 }; }
+    else { g = { bx: 120, by: 84, w: V.stone.w * u * 2.3, h: V.stone.h * u * 2.3 }; g.x0 = g.bx - g.w / 2; g.y0 = g.by - g.h * 0.85; }
+    ctxSwap(c, () => (type === 'leaf' ? drawLeaf(d, g) : drawStone(d, g))); // reuse the tank drawing code
+  }
+  function ctxSwap(c, fn) { const keep = ctx; ctx = c; try { fn(); } finally { ctx = keep; } }
   function renderShop() {
     const list = $('shop-list');
     if (!list.children.length) {
@@ -703,7 +870,7 @@
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
         card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
-          <div class="s">Baby · adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
+          <div class="s">Adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
           <button class="btn buy" data-buy="${sp.id}"><svg><use href="#i-coin"/></svg><span class="price">${sp.price}</span><span class="lbl"></span></button>`;
         list.appendChild(card);
         const c = card.querySelector('canvas').getContext('2d');
@@ -713,25 +880,143 @@
           if (f) { toast(`${sp.name} added. Feed it to start growth!`, 'good'); renderShop(); }
         });
       });
+      T.foodPacks.forEach((p, i) => {
+        const card = document.createElement('div'); card.className = 'card'; card.dataset.pack = i;
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${p.food} food</div><div class="s">${(p.gold / p.food).toFixed(1)} gold per food</div>
+          <button class="btn buy" data-food="${i}"><svg><use href="#i-coin"/></svg><span class="price">${p.gold}</span></button>`;
+        $('shop-food').appendChild(card);
+        drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
+        card.querySelector('button').addEventListener('click', () => { G.buyFood(i); renderShop(); });
+      });
+      ['leaf', 'stone'].forEach((type) => {
+        const card = document.createElement('div'); card.className = 'card'; card.dataset.decor = type;
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${type === 'leaf' ? 'Leaf' : 'Stone'}</div><div class="s">Free · move, size and colour it</div>
+          <button class="btn buy" data-buydecor="${type}"><span class="price">${T.decorations.price ? T.decorations.price + ' gold' : 'Free'}</span><span class="lbl"></span></button>`;
+        $('shop-decor').appendChild(card);
+        drawDecorCard(card.querySelector('canvas').getContext('2d'), type);
+        card.querySelector('button').addEventListener('click', () => {
+          const d = G.buyDecor(type);
+          if (d) { closeShop(); setTool('brush'); selectDecor(d.id); } // bible 27: edit mode opens on the new decoration
+        });
+      });
     }
-    const full = G.state.fish.length >= G.capacity(); // dead fish take a slot until removed
+    const full = G.state.fish.length >= G.capacity();
     list.querySelectorAll('button[data-buy]').forEach((b) => {
       const sp = G.SPECIES[b.dataset.buy];
-      const locked = !G.isUnlocked(sp);
-      const poor = G.state.gold < sp.price;
+      const locked = !G.isUnlocked(sp), poor = G.state.gold < sp.price;
       b.disabled = locked || full || poor;
       b.closest('.card').classList.toggle('locked', locked);
       b.classList.toggle('poor', poor && !full && !locked);
       b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
       b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
     });
-    const ti = G.tankInfo(), dead = G.state.fish.length - G.living();
-    $('shop-tank').textContent = ti.max ? `Tank Lv ${ti.level} · ${ti.xp} XP` : `Tank Lv ${ti.level} · ${ti.xp} / ${ti.next} XP`;
-    $('shop-tankbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
-    $('shop-note').textContent = `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: tap to remove)` : ''}. Tank level ${T.tank.maxLevel}: room for ${T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : T.tankCapacity} fish. Numbers: Designer v${T.version || 2} (config.js ← tuning.json).`;
+    $('shop-food').querySelectorAll('button[data-food]').forEach((b) => {
+      const p = T.foodPacks[+b.dataset.food], poor = G.state.gold < p.gold;
+      b.disabled = poor; b.classList.toggle('poor', poor);
+    });
+    const dfull = G.decorFull();
+    $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
+      b.disabled = dfull; b.querySelector('.price').hidden = dfull;
+      b.querySelector('.lbl').textContent = dfull ? 'Tank is full of decorations' : '';
+    });
+    const dead = G.state.fish.length - G.living();
+    $('shop-note').textContent = shopTab === 'fish'
+      ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. Tank level ${T.tank.maxLevel}: room for ${T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : T.tankCapacity} fish.`
+      : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds what it cost.`;
   }
 
-  // ------------------------------------------------------------ input on tank
+  // ------------------------------------------------------------ decoration edit mode (AD v4 7)
+  let editing = false, selDecor = null;
+  function enterEdit() {
+    if (editing) return;
+    editing = true; selDecor = null;
+    $('deco-menu').hidden = true; $('deco-done').hidden = false; $('deco-done').classList.remove('left');
+    toast('Tap a decoration to change it', '', { restart: true });
+  }
+  function exitEdit() {
+    if (!editing) return;
+    editing = false; selDecor = null; stopRepeat();
+    $('deco-menu').hidden = true; $('deco-done').hidden = true;
+    const t = [...$('toasts').children].find((e) => e.dataset.base === 'Tap a decoration to change it'); if (t) t.remove();
+  }
+  $('deco-done').addEventListener('click', () => setTool('hand'));
+  const decorById = (id) => G.state.decor.find((d) => d.id === id);
+  function selectDecor(id) {
+    if (!editing) setTool('brush');
+    selDecor = id;
+    const d = decorById(id); if (!d) { deselectDecor(); return; }
+    $('deco-menu').hidden = false;
+    renderMenu(); placeMenu();
+  }
+  function deselectDecor() { selDecor = null; stopRepeat(); $('deco-menu').hidden = true; $('deco-done').classList.remove('left'); }
+  /** dock on the side away from the decoration (centre x > 50% -> left), 8px from the tank edges and top.
+   *  While the menu is docked right, the Done button moves to the top-left corner so they don't overlap. */
+  function placeMenu() {
+    const d = decorById(selDecor); if (!d) return;
+    const left = d.x * W > W / 2, m = $('deco-menu');
+    m.classList.toggle('dock-left', left); m.classList.toggle('dock-right', !left);
+    $('deco-done').classList.toggle('left', !left);
+  }
+  function renderMenu() {
+    const d = decorById(selDecor); if (!d) return;
+    const S = T.decorations.scale, eps = 1e-6;
+    $('dm-title').textContent = d.type === 'leaf' ? 'Leaf' : 'Stone';
+    $('dm-scale').textContent = `H ${d.sh.toFixed(1)}x  W ${d.sw.toFixed(1)}x`;
+    const cap = { taller: d.sh >= S.heightMax - eps, shorter: d.sh <= S.heightMin + eps, wider: d.sw >= S.widthMax - eps, narrower: d.sw <= S.widthMin + eps };
+    document.querySelectorAll('#deco-menu [data-size]').forEach((b) => b.classList.toggle('capped', cap[b.dataset.size]));
+    const c = $('dm-color'); if (document.activeElement !== c) c.value = d.color;
+    c.style.setProperty('--track', decorGradientCss(d.type)); c.style.setProperty('--thumb', decorColorCss(d));
+    $('dm-sell').textContent = `Sell · refund ${d.paid || 0} gold`;
+  }
+  function clampDecor(d) {
+    const g = decorGeom(d), half = g.half, lo = (INSET + half) / W, hi = (W - INSET - half) / W;
+    d.x = lo > hi ? 0.5 : Math.max(lo, Math.min(hi, d.x));
+    d.y = Math.max(0, Math.min(1, d.y));
+  }
+  function moveDecor(dir) {
+    const d = decorById(selDecor); if (!d) return;
+    const step = T.decorations.move.stepPxPerTap, band = (H - SAND) * V.decorFloorBand;
+    if (dir === 'left') d.x -= step / W; else if (dir === 'right') d.x += step / W;
+    else if (dir === 'up') d.y -= step / band; else if (dir === 'down') d.y += step / band;
+    clampDecor(d); placeMenu(); G.save();
+  }
+  function sizeDecor(kind) {
+    const d = decorById(selDecor); if (!d) return;
+    const S = T.decorations.scale, st = S.stepPerTap, q = (v) => Math.round(v * 10) / 10;
+    if (kind === 'taller') d.sh = q(Math.min(S.heightMax, d.sh + st)); else if (kind === 'shorter') d.sh = q(Math.max(S.heightMin, d.sh - st));
+    else if (kind === 'wider') d.sw = q(Math.min(S.widthMax, d.sw + st)); else if (kind === 'narrower') d.sw = q(Math.max(S.widthMin, d.sw - st));
+    clampDecor(d); renderMenu(); placeMenu(); G.save();
+  }
+  let repT = 0, repI = 0;
+  function stopRepeat() { clearTimeout(repT); clearInterval(repI); document.querySelectorAll('#deco-menu .rb.pressed').forEach((b) => b.classList.remove('pressed')); }
+  document.querySelectorAll('#deco-menu [data-move]').forEach((b) => {
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); stopRepeat(); b.classList.add('pressed');
+      moveDecor(b.dataset.move); // one step per tap; holding repeats every 80 ms after 300 ms
+      repT = setTimeout(() => { repI = setInterval(() => moveDecor(b.dataset.move), V.decorMoveRepeatMs); }, V.decorMoveDelayMs);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, stopRepeat));
+  });
+  document.querySelectorAll('#deco-menu [data-size]').forEach((b) => b.addEventListener('click', () => sizeDecor(b.dataset.size)));
+  $('dm-color').addEventListener('input', (e) => { const d = decorById(selDecor); if (!d) return; d.color = +e.target.value; renderMenu(); });
+  $('dm-color').addEventListener('change', () => G.save());
+  $('dm-close').addEventListener('click', deselectDecor);
+  $('dm-sell').addEventListener('click', () => {
+    const d = decorById(selDecor); if (!d) return;
+    const noun = d.type === 'leaf' ? 'leaf' : 'stone';
+    confirmBox(`Sell this ${noun}? You get ${d.paid || 0} gold back.`, 'Sell', () => { G.sellDecor(d.id); deselectDecor(); G.save(); },
+      (pc) => { const c = pc.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pc.width, pc.height); drawDecorCard(c, d.type); }, 'danger');
+  });
+  function hitDecor(x, y) {
+    const list = G.state.decor.slice().sort((a, b) => b.y - a.y); // front first
+    for (const d of list) {
+      const g = decorGeom(d), padX = Math.max(0, (44 - (g.x1 - g.x0)) / 2), padY = Math.max(0, (44 - (g.y1 - g.y0)) / 2);
+      if (x >= g.x0 - padX && x <= g.x1 + padX && y >= g.y0 - padY && y <= g.y1 + padY) return d;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------ input on the tank
   const pointer = { x: 0, y: 0, down: false, inside: false, id: null, lx: 0, ly: 0 };
   function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitFish(x, y) {
@@ -739,11 +1024,10 @@
     for (let i = fish.length - 1; i >= 0; i--) {
       const m = anim.get(fish[i].id); if (!m) continue;
       const L = fishLen(fish[i]);
-      const dx = (x - m.x) / (L * 0.7 + 10), dy = (y - m.y) / (L * 0.35 + 12);
+      const dx = (x - m.x) / Math.max(22, L * 0.7 + 10), dy = (y - m.y) / Math.max(22, L * 0.35 + 12); // tap target >= 44 x 44
       if (dx * dx + dy * dy <= 1) return fish[i];
     }
-    // forgiving tap: nearest fish centre within 44px (moving fish are hard to hit; Playtester pass 1 note 2)
-    let best = null, bestD = 44;
+    let best = null, bestD = 44; // forgiving tap: nearest fish centre within 44px
     for (const f of fish) { const m = anim.get(f.id); if (!m) continue; const d = Math.hypot(x - m.x, y - m.y); if (d < bestD) { bestD = d; best = f; } }
     return best;
   }
@@ -751,25 +1035,22 @@
     e.preventDefault();
     const p = local(e);
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
-    Object.assign(pointer, { touch, x: p.x, y: p.y, lx: p.x, ly: p.y - (touch && tool === 'sponge' ? W * V.spongeRadiusFrac * V.spongeTouchLiftFrac : 0), down: true, inside: true, id: e.pointerId });
+    Object.assign(pointer, { touch, x: p.x, y: p.y, lx: p.x, ly: p.y - (touch && tool === 'sponge' ? spongeR() * V.spongeTouchLiftFrac : 0), down: true, inside: true, id: e.pointerId });
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-    if (!$('shop').hidden) closeShop();
-    if (tool === 'hand') {
-      const f = hitFish(p.x, p.y);
-      if (f) openPanel(f.id); else closePanel();
-    } else if (tool === 'food') {
-      const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the nearest fish that still needs food
-      if (r.ok) flakeShower(p.x, p.y, r); // blocked taps (dirty / nobody hungry / no food) show no flakes
-    } else if (tool === 'sponge') {
-      rubTo(p.x, p.y - spongeLift());
-    }
+    if (!$('shop').hidden) { closeShop(); return; }
+    if (editing) { const d = hitDecor(p.x, p.y); if (d) selectDecor(d.id); else deselectDecor(); return; } // fish can't be tapped
+    if (tool === 'hand') { const f = hitFish(p.x, p.y); if (f) openPanel(f.id); else closePanel(); }
+    else if (tool === 'food') {
+      const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the hungry fish nearest the tap
+      if (r.ok) flakeShower(p.x, p.y, r);
+    } else if (tool === 'sponge') rubTo(p.x, p.y - spongeLift());
+    else if (tool === 'net') { const f = hitFish(p.x, p.y); if (f) netFish(f); }
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = local(e);
     pointer.inside = true;
     if (!pointer.down) pointer.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     if (pointer.down && e.pointerId === pointer.id && tool === 'sponge') {
-      // use coalesced events for smooth fast rubbing
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y - spongeLift()); });
     }
@@ -780,10 +1061,11 @@
   canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener('pointerleave', () => { if (!pointer.down) pointer.inside = false; });
   function rubTo(x, y) {
-    const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, W * V.spongeRadiusFrac);
+    const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, spongeR(), WATER_H);
     pointer.lx = x; pointer.ly = y;
     if (r.cleaned) floatClean(r.gold, x, y, r.food);
   }
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closePanel(); closeShop(); if (editing) deselectDecor(); } });
 
   // ------------------------------------------------------------ game events
   G.on((type, d) => {
@@ -799,35 +1081,34 @@
         toast(d.unlocks.length ? `Tank level ${d.level}! ${d.unlocks.map((id) => G.SPECIES[id].name).join(', ')} unlocked`
           : d.extraSlots ? `Tank level ${d.level}: room for ${d.extraSlots} more fish` : `Tank level ${d.level}!`, 'good');
         break;
-      case 'hungry': toast(`${name} is hungry!`, 'bad'); break; // mid-level meal, and the start meal right after a level-up
-      case 'death': toast(`${name} died`, 'bad'); break; // stays in the tank belly-up until removed
-      case 'removed': anim.delete(d.fish.id); toast(`Removed ${name} (${d.gold} gold)`); break;
-      case 'feedblocked': dirtyCallout(); break; // Maksims: ONLY the message by the dirt bar, no centre toast
+      case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
+      case 'death': toast(`${name} died`, 'bad'); break;
+      case 'removed': anim.delete(d.fish.id); toast(`Removed ${name} (${d.gold} gold)`); if (selectedId === d.fish.id) closePanel(); break;
+      case 'feedblocked': blockedFeed(); break;
       case 'feedfail': toast(d.reason === 'nofood' ? 'Out of food' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : ''); break;
       case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.food ? ` · +${d.food} food` : ''}${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
       case 'sold':
-        anim.delete(d.fish.id);
-        toast(d.gold ? `Sold ${name} for ${d.gold} gold` : `Released ${name} (0 gold)`, d.gold ? 'good' : '');
-        if (d.xp) floatText(`+${d.xp} XP`, fx, fy, '#9fdcff', true); // v4 5: sell XP float next to the sell toast
+        anim.delete(d.fish.id); if (selectedId === d.fish.id) closePanel();
+        toast(d.gold ? `Sold ${name} for ${d.gold} gold` : `Released ${name}`, d.gold ? 'good' : '');
+        if (d.xp) floatText(`+${d.xp} XP`, fx, fy, '#9fdcff', true);
         break;
       case 'foodbought': toast(`+${d.food} food (−${d.gold} gold)`); break;
+      case 'decorsold': toast(`Sold the ${d.decor.type} (+${d.gold} gold)`); break;
       case 'grant': toast(`Starter grant: gold topped up to ${d.gold}`, 'good'); break;
       case 'msg': toast(d.text, 'bad'); break;
-      case 'reset': anim.clear(); pellets.length = 0; closePanel(); closeShop(); $('away').hidden = true; break;
+      case 'reset': anim.clear(); pellets.length = 0; closePanel(); closeShop(); exitEdit(); setTool('hand'); $('away').hidden = true; break;
       default: break;
     }
     if (!$('shop').hidden) renderShop();
   });
 
-  // ------------------------------------------------------------ debug bar
+  // ------------------------------------------------------------ debug row
   T.debugSpeeds.forEach((s) => {
     const b = document.createElement('button'); b.className = 'dbg'; b.dataset.speed = s; b.textContent = `×${s}`;
     b.addEventListener('click', () => { G.state.speed = s; G.save(); });
     $('speed-btns').appendChild(b);
   });
-  // "Your tank is empty" modal: Start new tank = G.reset() (a brand-new save; only the debug speed is kept). Line built
-  // from the same numbers newState() uses, so it can't drift from what actually resets.
-  (() => {
+  (() => { // "Your tank is empty" modal line, built from the same numbers newState() uses
     const locked = T.species.filter((sp) => (sp.unlockTankLevel || 1) > 1).map((sp) => sp.name);
     const list = locked.length > 1 ? `${locked.slice(0, -1).join(', ')} and ${locked[locked.length - 1]}` : locked.join('');
     const fc = T.newTank && T.newTank.firstCleanReward;
@@ -839,90 +1120,104 @@
     const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save();
     $('tankover').hidden = true; closePanel(); clearToasts(); toast('New tank started', 'good');
   });
-  $('dbg-gold').textContent = '+100g';
   $('dbg-gold').addEventListener('click', () => { G.state.gold += 100; toast('Debug: +100 gold'); });
-  // +50 XP (NUMBERS.md 9.13): normal XP path -> tank level-ups, unlock toasts and saving as in real play; no gold
   $('dbg-xp').addEventListener('click', () => { G.debugAddXp(50); if (!$('shop').hidden) renderShop(); });
   $('dbg-reset').addEventListener('click', () => {
     confirmBox('Reset the save and start over?', 'Reset', () => {
       const keep = G.state.speed; G.reset(); G.state.speed = keep; G.save(); clearToasts(); toast('Save reset');
-    });
+    }, null, 'danger');
   });
+
+  // ------------------------------------------------------------ rotate screen (AD v4 1)
+  let portrait = false;
+  function checkOrientation() {
+    const p = window.innerHeight > window.innerWidth;
+    document.body.classList.toggle('portrait', p);
+    $('rotate').hidden = !p;
+    $('rotate').classList.toggle('large', Math.min(window.innerWidth, window.innerHeight) >= 600);
+    if (p !== portrait) { portrait = p; if (p) { pointer.down = false; stopRepeat(); } }
+  }
 
   // ------------------------------------------------------------ main loop
   let last = performance.now();
-  let panelAcc = 0;
+  let panelAcc = 0, frames = 0;
   function frame(now) {
     let dtReal = (now - last) / 1000; last = now;
     if (dtReal < 0) dtReal = 0;
-    // Hidden tab: rAF stops; on return we catch up the real elapsed time (NUMBERS.md §8.9).
     if (dtReal > 5) { // tab was hidden / device asleep: replay like offline time and summarise
       const r = G.catchUp(dtReal * G.state.speed);
       if (r.sec >= 60) showAway(r);
-    } else G.tick(dtReal * G.state.speed);
+    } else G.tick(dtReal * G.state.speed); // the game clock runs even while the rotate screen is up
+    if (portrait) { requestAnimationFrame(frame); return; } // upright: input and drawing pause
     const dtAnim = Math.min(dtReal, 0.05);
-    realTime += dtAnim;
+    realTime += dtAnim; frames++;
+    const p = pulseAmt();
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     drawWater();
-    drawBack();
+    drawSand();
+    drawGlassLines();
+    drawDecor();        // behind the fish, sorted by base y
     drawBubbles(dtAnim);
-    decor.plants.forEach((p, i) => { if (i % 2) drawPlant(p, 0.9); });
     drawPellets(dtAnim);
     drawFishAll(dtAnim);
     drawGlass();
-    drawDirtLayer(); // in front of the fish (dead ones too), behind the spots
-    drawSpots();
+    drawDirtLayer(p);   // in front of the fish, behind the spots
+    drawSpots(p);
     drawSponge();
     drawFloaters(dtAnim);
 
     updateHUD();
+    if (selDecor && !$('deco-menu').hidden) renderMenu();
     panelAcc += dtReal;
     if (panelAcc > 0.2) { panelAcc = 0; renderPanel(); }
     requestAnimationFrame(frame);
   }
 
-  // save loop: periodic + on hide/unload. Offline time is NOT simulated (pause while closed).
   setInterval(() => G.save(), V.saveEveryMs);
   document.addEventListener('visibilitychange', () => { if (document.hidden) G.save(); });
   window.addEventListener('pagehide', () => G.save());
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', () => { checkOrientation(); resize(); });
   if (window.ResizeObserver) new ResizeObserver(resize).observe(wrap);
 
-  // ------------------------------------------------------------ "while you were away" summary (NUMBERS.md 9.2)
+  // ------------------------------------------------------------ "while you were away" (NUMBERS v4 11.1): no window when nothing to report
   function showAway(r) {
-    if (!r) return;
+    if (!r || !r.lines || !r.lines.length) return false;
     $('away-time').textContent = `(${fmt(r.sec)}${r.realSec != null && G.state.speed !== 1 && r.realSec !== r.sec ? ' game time' : ''})`;
     const ul = $('away-list'); ul.innerHTML = '';
     r.lines.forEach((t) => { const li = document.createElement('li'); li.textContent = t[0].toUpperCase() + t.slice(1); ul.appendChild(li); });
     $('away').hidden = false;
+    return true;
   }
   $('away-ok').addEventListener('click', () => { $('away').hidden = true; });
 
+  checkOrientation();
   resize();
   setTool('hand');
   if (awaySummary && awaySummary.sec >= 60) showAway(awaySummary);
   G.save();
   requestAnimationFrame((t) => { last = t; frame(t); });
 
-  // Test/debug hook (read-mostly): used by tests/verify.py
+  // ------------------------------------------------------------ test/debug hook (read-mostly): tests/verify.py
+  const rect = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
   window.AQ = {
     game: G,
     fishScreen(id) { const m = anim.get(id); return m ? { x: m.x, y: m.y } : null; },
     showAway,
-    pinFish(id, nx, ny) { // screenshot/test hook: park a living fish at (nx, ny) of the tank
+    toast, // test hook
+    pinFish(id, nx, ny) {
       const f = G.state.fish.find((x) => x.id === id); if (!f) return false;
       const m = motion(f); m.x = nx * W; m.y = ny * H; m.tx = m.x; m.ty = m.y; m.vx = 0; m.vy = 0; m.pause = 1e9; m.retarget = 1e9;
       f.x = nx; f.y = ny; return true;
     },
-    filmInfo() { // test hook: last drawn film grid (alpha per cell, guard cap, middle-zone flag)
+    filmInfo() {
       if (!film.strength || !film.a) return { strength: film.strength, max: 0 };
       let max = 0, midMax = 0; for (let i = 0; i < film.a.length; i++) { max = Math.max(max, film.a[i]); if (film.mid[i]) midMax = Math.max(midMax, film.a[i]); }
       return { strength: film.strength, max, midMax, cols: film.cols, rows: film.rows };
     },
-    guardCheck() { // worst "film + one spot" combined opacity in the middle zone, using each spot's own fill alpha
+    guardCheck() {
       if (!film.strength || !film.a) return { worst: 0 };
-      let worst = 0; const spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W * 1.25, a: spotFillAlpha(s) }));
+      let worst = 0; const spots = G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: spotR(s) * 1.25, a: spotFillAlpha(s) }));
       for (let j = 0; j < film.rows; j++) for (let i = 0; i < film.cols; i++) {
         const idx = j * film.cols + i; if (!film.mid[idx]) continue;
         const px = (i + 0.5) * W / film.cols, py = (j + 0.5) * H / film.rows;
@@ -931,16 +1226,30 @@
       }
       return { worst: +worst.toFixed(4) };
     },
-    spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: s.r * W, grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
-    size() { return { W, H }; },
-    floatBoxes() { return floaters.filter((f) => f.box).map((f) => ({ text: f.text, grp: f.grp, ...f.box })); }, // drawn float bounds (tank px)
-    testFloat(kind, x, y) { // spawn a float through the real helper (tests)
+    spotsScreen() { return G.state.dirt.spots.map((s) => ({ x: s.x * W, y: s.y * H, r: spotR(s), grime: s.grime, stage: s.stage, look: V.dirtStages[s.stage - 1].look, over: s.over })); },
+    size() { return { W, H, waterH: WATER_H }; },
+    geom() { return { W, H, surf: SURF, waterH: WATER_H, sand: SAND, inset: INSET, spongeR: spongeR() }; },
+    glassLine,
+    layout() { // screen boxes (CSS px) of the AD v4 frame parts
+      const tools = [...document.querySelectorAll('#tools .tool')].map((b) => ({ label: b.querySelector('span:last-child').textContent, ...rect(b),
+        icon: rect(b.querySelector('svg')), pressed: b.getAttribute('aria-pressed') }));
+      return { vw: innerWidth, vh: innerHeight, tools, column: rect($('tools')), hud: rect($('hud')), tank: rect(wrap), debug: rect($('debug')),
+        dirt: rect($('dirt-win')), badge: rect($('food-badge')), foodIcon: rect($('food-icon')),
+        scrollW: document.documentElement.scrollWidth, scrollH: document.documentElement.scrollHeight };
+    },
+    fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L) }; },
+    decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
+    edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
+    selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
+    pulseAt(t) { return pulseAmt(pulseT0 + t); },
+    frames() { return frames; },
+    floatBoxes() { return floaters.filter((f) => f.box).map((f) => ({ text: f.text, grp: f.grp, ...f.box })); },
+    testFloat(kind, x, y) {
       if (kind === 'clean') floatClean(6, x, y); else if (kind === 'levelup') floatLevelUp(200, 200, x, y); else if (kind === 'feed') floatFeedGold(1, x, y);
     },
-    flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, t: p.t, fishId: p.fishId })) }; }, // test hook
-    fishLen(sp, level) { return fishLen({ sp, level }); }, // tank render length (CSS px) of a fish
-    floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; }, // test hook: float texts shown since the last clear
-
-    setTool,
+    flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, y0: p.y0, t: p.t, fishId: p.fishId })) }; },
+    fishLen(sp, level) { return fishLen({ sp, level }); },
+    floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; },
+    setTool, openShop, setShopTab,
   };
 })();

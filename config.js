@@ -3,8 +3,8 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 4)
- *  with the rules/proofs in NUMBERS.md (v4) in the same folder. To retune: run
+ *    /workspace/studio/briefs/aquarium/design/v4_archive/tuning.json   (version 4)
+ *  with the rules/proofs in NUMBERS.md (v4) in the same folder (v5.1 comes later). To retune: run
  *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
  *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
@@ -424,13 +424,20 @@ window.AQUARIUM_CONFIG = {
     levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
     flakesPerTap: 16,                       // food flakes in one tap's shower (visual only; still 1 food per tap)
     speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
-    spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
+    // Landscape tank geometry (Art Director LANDSCAPE_LAYOUT_V4.md 4)
+    airFrac: 0.07, airMinPx: 16,          // top 7% of the tank (min 16 px) is air; the water surface is under it
+    sandFrac: 0.86, sandMinPx: 36,        // sand top edge at 86% of tank height (sand band at least 36 px)
+    glassInsetFrac: 0.035,                // sand back corners inset 3.5% of tank width (both sides)
+    glassLineSide: 'right',               // the ONE glass back line + side-glass strip: 'right' | 'left' (waiting on Maksims; AD v4 4)
+    fishSizeFrac: 0.30,                   // fish length = min(W, waterH*0.8) * 0.30 * speciesSize * levelSize
+    spongeRadiusFrac: 0.16, spongeMinPx: 40, spongeMaxPx: 72, // sponge radius = 0.16 x water height, clamped 40-72 px (AD v4 6)
     spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
     // Dirt look per stage (Art Director DIRT_AND_FISH_GROWTH.md "v2 dirt look", replaces the s.1 table; shapes as s.1).
-    // r = radius range as a fraction of tank width (stage 3: the long radius of its 2.2:1 drip).
+    // r = radius range as a fraction of the WATER HEIGHT (AD v4 6; was tank width) (stage 3: the long radius of its 2.2:1 drip).
+    // Stage 1 = AD v4 item 21 look: bigger, more solid smudges with a darker rim and 3-5 speckles.
     // A spot keeps the look of the stage it spawned at.
     dirtStages: [
-      { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.14 }, // soft round film, no speckles
+      { look: 'smudge', r: [0.10, 0.14], color: '#7A8A4A', alpha: 0.22, rim: 0.06, speckles: [3, 5], speckleR: [1.5, 2.5], speckleAlpha: 0.35 },
       { look: 'dots',   r: [0.11, 0.14],  color: '#6B8F3A', alpha: 0.22 }, // 5-8 small algae dots
       { look: 'drip',   r: [0.16, 0.20],  color: '#5E7A2E', alpha: 0.32 }, // 2.2:1 streak, darker bottom (+0.08); reads like old stage 5
       { look: 'hair',   r: [0.20, 0.25],  color: '#4A6B24', alpha: 0.40, strandAlpha: 0.5, // patch + wavy strands at ~50% (AD ruling 3)
@@ -440,7 +447,7 @@ window.AQUARIUM_CONFIG = {
     // Tank-wide layer per stage, drawn in front of the fish and behind the spots. null = none,
     // { wash: css colour } = flat tint, { film: true } = the stage 5 film below.
     dirtLayer: [
-      null,
+      { wash: 'rgba(95,110,40,0.03)' }, // AD v4 21: stage 1 wash (was none)
       { wash: 'rgba(95,110,40,0.04)' },
       { wash: 'rgba(95,110,40,0.08)' },
       { wash: 'rgba(108,116,38,0.12)' }, // slight yellow-green
@@ -466,6 +473,18 @@ window.AQUARIUM_CONFIG = {
       // Multipliers on the platy's own fin alpha 0.85: 0.65/0.85 and 0.85/0.85.
       finAlphaBySpecies: { platy: [0, 0.65 / 0.85, 1.00, 1.00] },
     },
+    // Decorations (AD LANDSCAPE_LAYOUT_V4.md 7). Default tank: 3 leaves + 1 stone. x = fraction of tank width,
+    // y = fraction of the floor band (0 = sand top edge .. 1 = 60% down the sand band; engineer-chosen depths).
+    defaultDecorations: [
+      { type: 'leaf', x: 0.16, y: 0.25, color: 25, seed: 11 },
+      { type: 'leaf', x: 0.24, y: 0.55, color: 55, seed: 23 },
+      { type: 'leaf', x: 0.82, y: 0.35, color: 40, seed: 37 },
+      { type: 'stone', x: 0.60, y: 0.50, color: 50, seed: 51 },
+    ],
+    decorFloorBand: 0.60,   // base y stays within the top 60% of the sand band
+    leaf: { h: 0.30, spread: 0.07, light: [98, 68, 65], dark: [135, 50, 23], swayDeg: 6, swaySec: 4, topGapFrac: 0.04 },
+    stone: { w: 0.20, h: 0.11, light: '#b8bec4', dark: '#3c4550', sink: 0.15 },
+    decorMoveRepeatMs: 80, decorMoveDelayMs: 300, // AD v4 7: hold repeats every 80 ms after 300 ms (tuning's holdRepeatMs 100 is not used)
     saveKey: 'aquarium.save.v4', // v4 rules: older saves are not loaded (fresh start)
     saveEveryMs: 2000,
   },

@@ -108,10 +108,17 @@
       dirt: { t: nt.dirtClockStartSec || 0, spots: [], spawned: 0, grime5: 0, rubStage: 0 }, // t = game s since new tank start / last full clean; rubStage = stage when rubbing started (0 = not started)
       tank: { xp: 0 },
       firstCleanPending: !!nt.firstCleanReward, // the first full clean pays firstCleanReward instead of the stage pay
-      decor: null,        // decorations [{ id, type, x, y, sx, sy, color, paid }]; null = defaults not placed yet (main.js)
+      decor: defaultDecor(), // decorations (NUMBERS v4 7, AD LANDSCAPE_LAYOUT_V4 7): [{ id, type, x, y, sh, sw, color, paid, seed }]
       starterGrantUsed: false,
       stats: { cleans: 0, feeds: 0, taps: 0, meals: 0, levelUps: 0, deaths: 0, sold: 0, removed: 0 },
     };
+  }
+
+  /** default decorations of a new tank: 3 leaves + 1 stone at the Art Director's positions (config VISUAL.defaultDecorations).
+   *  x = base point as a fraction of tank width, y = base point as a fraction of the floor band (0 = sand top edge,
+   *  1 = 60% down the sand band); sh / sw = height / width scale; color 0..100 (light..dark); paid = gold paid (0). */
+  function defaultDecor() {
+    return (CFG.VISUAL.defaultDecorations || []).map((d, i) => ({ id: 'd' + (i + 1), type: d.type, x: d.x, y: d.y, sh: 1, sw: 1, color: d.color, paid: 0, seed: d.seed != null ? d.seed : i * 37 + 11 }));
   }
 
   let S = newState();
@@ -237,11 +244,11 @@
     if (stage >= 2 && older.length && Math.random() < V.dirtOverlapChance) {
       // overlap an older spot: centre within dirtOverlapEdgeFrac x its radius of its edge (px, aspect-correct)
       const o = older[Math.floor(Math.random() * older.length)];
-      const asp = (root.AQ && root.AQ.size) ? root.AQ.size() : { W: 1, H: 1.4 };
+      const sz = (root.AQ && root.AQ.size) ? root.AQ.size() : { W: 752, H: 302, waterH: 281 };
       for (let i = 0; i < 12; i++) {
         const th = Math.random() * Math.PI * 2;
-        const d = o.r * rnd(1 - V.dirtOverlapEdgeFrac, 1 + V.dirtOverlapEdgeFrac); // in tank widths
-        x = o.x + Math.cos(th) * d; y = o.y + Math.sin(th) * d * asp.W / asp.H;
+        const d = o.r * rnd(1 - V.dirtOverlapEdgeFrac, 1 + V.dirtOverlapEdgeFrac); // in water heights
+        x = o.x + Math.cos(th) * d * sz.waterH / sz.W; y = o.y + Math.sin(th) * d * sz.waterH / sz.H;
         if (x > 0.08 && x < 0.92 && y > 0.08 && y < 0.8) { over = o.id; break; }
       }
     }
@@ -249,7 +256,7 @@
       let tries = 0;
       do {
         x = rnd(0.14, 0.86); y = rnd(0.14, 0.78); tries++;
-      } while (tries < 20 && older.some((s) => Math.hypot(s.x - x, (s.y - y) * 1.3) < 0.2));
+      } while (tries < 20 && older.some((s) => Math.hypot((s.x - x) * 2.5, s.y - y) < 0.3)); // landscape tank (about 2.5:1)
     }
     S.dirt.spots.push({ id: S.nextId++, x, y, r, grime, grime0: grime, stage, seed: Math.random() * 1000, over });
     S.dirt.spawned++;
@@ -296,7 +303,7 @@
     const hungry = S.fish.filter((f) => f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY');
     if (hungry.length) lines.push(`${hungry.map((f) => SPECIES[f.sp].name).join(', ')} ${hungry.length > 1 ? 'are' : 'is'} hungry`);
     const st = dirtStage(S.dirt.t);
-    lines.push(st > 0 ? `tank is at dirt stage ${st}` : 'tank is clean');
+    if (st > 0) lines.push(`tank is at dirt stage ${st}`); // v4 11.1: dirt only when dirty, never "clean"; no lines = no window
     const gold = S.gold - ev.gold0;
     if (gold > 0) lines.push(`+${gold} gold`);
     return { sec, lines, text: 'While you were away: ' + lines.join(', '), died: ev.died.length, stage: st };
@@ -397,8 +404,8 @@
   }
 
   /** Sponge rub along a segment in tank-normalized coords (x by width, y by height).
-   *  W,H = tank size in CSS px (grime is measured in px of sponge travel). */
-  function rub(x0, y0, x1, y1, W, H, spongeR) {
+   *  W,H = tank size in CSS px (grime is measured in px of sponge travel); rBase = px per unit of spot radius (water height). */
+  function rub(x0, y0, x1, y1, W, H, spongeR, rBase) {
     const stage = dirtStage(S.dirt.t);
     if (!S.dirt.spots.length) return { cleaned: false };
     const ax = x0 * W, ay = y0 * H, bx = x1 * W, by = y1 * H;
@@ -407,7 +414,7 @@
     let touched = false;
     const rubStage0 = S.dirt.rubStage;
     for (const s of S.dirt.spots) {
-      const cx = s.x * W, cy = s.y * H, R = s.r * W;
+      const cx = s.x * W, cy = s.y * H, R = s.r * (rBase || W); // AD v4 6: spot radii are fractions of the water height (rBase)
       // distance from spot centre to segment
       const t = Math.max(0, Math.min(1, ((cx - ax) * (bx - ax) + (cy - ay) * (by - ay)) / (len * len)));
       const px = ax + t * (bx - ax), py = ay + t * (by - ay);
@@ -433,6 +440,36 @@
       return { cleaned: true, gold, food, first: !!fc, xp, stage: payStage, stageNow: stage };
     }
     return { cleaned: false, touched };
+  }
+
+  // ---- decorations (NUMBERS v4 7): free leaf and stone, max 12 counting the defaults, selling refunds the price paid
+  function decorFull() { return S.decor.length >= T.decorations.maxInTank; }
+  /** buy a decoration: base at the floor centre, or the nearest free x (no other base within 0.06 of the width) */
+  function buyDecor(type) {
+    const D = T.decorations;
+    if (!D.types[type]) return null;
+    if (decorFull()) { emit('msg', { text: 'Tank is full of decorations' }); return null; }
+    const price = D.price || 0;
+    if (S.gold < price) { emit('msg', { text: 'Not enough gold' }); return null; }
+    let x = 0.5;
+    for (let k = 0; k <= 16; k++) {
+      const c = 0.5 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.05;
+      if (c < 0.1 || c > 0.9) continue;
+      if (S.decor.every((d) => Math.abs(d.x - c) >= 0.06)) { x = c; break; }
+    }
+    S.gold -= price;
+    const d = { id: 'd' + S.nextId++, type, x, y: 0.5, sh: D.scale.default, sw: D.scale.default, color: D.types[type].defaultColor, paid: price, seed: Math.floor(Math.random() * 1000) };
+    S.decor.push(d);
+    emit('decorbought', { decor: d });
+    return d;
+  }
+  function sellDecor(id) {
+    const d = S.decor.find((x) => x.id === id);
+    if (!d) return null;
+    S.decor = S.decor.filter((x) => x !== d);
+    S.gold += d.paid || 0;
+    emit('decorsold', { decor: d, gold: d.paid || 0 });
+    return d.paid || 0;
   }
 
   function sell(fishId) {
@@ -499,6 +536,7 @@
       S.tank = Object.assign(newState().tank, d.tank || {});
       S.stats = Object.assign(newState().stats, d.stats || {});
       S.fish = (d.fish || []).filter((f) => SPECIES[f.sp]).map((f) => Object.assign({ fed: 0 }, f));
+      S.decor = Array.isArray(d.decor) ? d.decor.filter((x) => T.decorations.types[x.type]) : defaultDecor();
       return true;
     } catch (e) { return false; }
   }
@@ -542,7 +580,7 @@
     CFG, T, SPECIES,
     get state() { return S; },
     on(fn) { listeners.push(fn); },
-    tick, catchUp, resume, buyFish, buyFood, feedTap, rub, sell, removeDead, canBuy, isUnlocked,
+    tick, catchUp, resume, buyFish, buyFood, feedTap, rub, sell, removeDead, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
     fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,

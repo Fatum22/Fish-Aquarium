@@ -1,21 +1,27 @@
-"""Headless end-to-end check of the Aquarium prototype (Designer v4 numbers).
+"""Headless end-to-end check of the Aquarium prototype (Designer v4 numbers, Art Director landscape layout v4).
 
-Run (server must be up on 8766):
-  /workspace/tools/venv-aq/bin/python /workspace/aquarium/tests/verify.py
+Run (dev server must be up on 8767):
+  /workspace/tools/venv-aq/bin/python /workspace/aquarium/tests/verify.py            # 844x390 + 1180x820 + portrait
+  AQ_VIEWS=844x390 /workspace/tools/venv-aq/bin/python /workspace/aquarium/tests/verify.py   # one size only
+The whole suite runs once per landscape size (compact 844x390, large 1180x820); check names carry the size.
+Then a portrait pass checks the rotate screen at 390x844 and 820x1180.
 Timing rules are checked by stepping the game in the page (AQ.game.tick), so hours-long timers run in
-milliseconds; UI checks use real mouse/touch input. Writes a few screenshots to ../screenshots/
-(the art/look screenshots come from tests/art_shots.py). Resets the save at the end.
+milliseconds; UI checks use real mouse/touch input. Writes screenshots to ../screenshots/v4/<name>_<size>.png.
+Resets the save at the end.
 """
 import json, os, struct, sys, time, zlib
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("AQ_URL", "http://127.0.0.1:8766/")
+BASE = os.environ.get("AQ_URL", "http://127.0.0.1:8767/")
 HERE = os.path.dirname(os.path.abspath(__file__))
-SHOTS = os.path.join(HERE, "..", "screenshots")
-TUNING = "/workspace/studio/briefs/aquarium/design/tuning.json"
+SHOTS = os.path.join(HERE, "..", "screenshots", "v4")
+# The v4 build is pinned to Designer v4 (design/v4_archive/tuning.json). v5.1 (tank levels 6-10, ten new species) lands after
+# the v4 rebuild (bible change 19:48 item 4), so the live design/tuning.json is not compared yet.
+TUNING = os.environ.get("AQ_TUNING", "/workspace/studio/briefs/aquarium/design/v4_archive/tuning.json")
 os.makedirs(SHOTS, exist_ok=True)
 
 results = []
+VIEW = [""]  # current viewport label, prefixed to every check name
 def png_rgb(data):
     """Minimal PNG decoder (8-bit RGB/RGBA, non-interlaced) -> (w, h, px(x, y) -> (r, g, b)). No PIL in the test venv."""
     pos, idat, w, h, ct = 8, b"", 0, 0, 6
@@ -39,6 +45,7 @@ def png_rgb(data):
 
 
 def check(name, cond, detail=""):
+    name = f"[{VIEW[0]}] {name}" if VIEW[0] else name
     results.append((name, bool(cond), detail))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{detail}]" if detail else ""), flush=True)
     return cond
@@ -57,12 +64,14 @@ JS = """const G = AQ.game, T = G.T, H = 3600;
   const halfGrime = () => { for (const s of G.state.dirt.spots) s.grime = s.grime0 / 2; }; // exact half (rub segments also hit overlapping spots)
 """
 
-def main():
+def main(VW, VH):
     errors = []
     tj = json.load(open(TUNING))
+    VIEW[0] = f"{VW}x{VH}"; LARGE = VH >= 600
+    def shot(name): return os.path.join(SHOTS, f"{name}_{VIEW[0]}.png")
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2)
+        ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
         page = ctx.new_page()
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
@@ -78,13 +87,16 @@ def main():
             b = box(); page.mouse.click(b["x"] + x, b["y"] + y)
         def fish(fid): return next((f for f in S()["fish"] if f["id"] == fid), None)
         def tool(name): page.click(f'.tool[data-tool="{name}"]')
-        def click_fish(fid):
+        def click_fish(fid, until="#panel"):
             for _ in range(6):
                 pos = page.evaluate(f"AQ.fishScreen({fid})")
                 if pos: tank_click(pos["x"], pos["y"])
                 page.wait_for_timeout(120)
-                if page.locator("#panel").is_visible(): return True
+                if page.locator(until).is_visible(): return True
             return False
+        def net_text(fid):  # Net tool on a fish -> confirm text (then Cancel)
+            tool("net"); ok = click_fish(fid, "#confirm"); t = page.inner_text("#confirm-text") if ok else ""
+            return t
         def clear_toasts(): page.evaluate("document.getElementById('toasts').innerHTML = ''")
         def rub_clean(timeout=40):
             tool("sponge"); b = box(); t0 = time.time()
@@ -228,18 +240,19 @@ def main():
         n_new = fl1["spawned"] - fl0["spawned"]
         check("feed tap: a shower of >= 8 flakes, still exactly 1 food and one meter step on the nearest hungry fish",
               n_new >= 8 and fl1["showers"] == fl0["showers"] + 1 and food1 == food0 - 1 and pf["fed"] == 1 and all(x["fishId"] == fid for x in fl1["live"]), f"flakes={n_new} food {food0}->{food1} fed={pf['fed']}")
-        clear_toasts(); page.wait_for_timeout(450)
-        page.screenshot(path=os.path.join(SHOTS, "feeding_flakes.png"))
-        page.wait_for_timeout(250)
+        clear_toasts(); page.wait_for_timeout(350)
+        page.screenshot(path=shot("feeding_flakes"))
         live = page.evaluate("AQ.flakes().live")
-        dr = sum(x["x"] - x["x0"] for x in live) / max(1, len(live))
-        ev(f"AQ.pinFish({fid}, 0.15, 0.55);"); page.wait_for_timeout(1500)   # let the first shower finish / be eaten
+        sink = [(x["y"] - x["y0"]) / x["t"] for x in live if x["t"] > 0.2]
+        fx0 = b_["width"] * 0.82
+        eaten_at, trail = None, []
+        for k_ in range(40):   # the fed fish rushes over and eats every flake of the tap (none left falling)
+            page.wait_for_timeout(200); fl_ = page.evaluate("AQ.flakes()"); pos_ = page.evaluate(f"AQ.fishScreen({fid})"); trail.append(round(pos_["x"]))
+            if not [x for x in fl_["live"] if x["fishId"] == fid]: eaten_at = (k_ + 1) * 0.2; break
         fl2 = page.evaluate("AQ.flakes()")
-        tank_click(b_["width"] * 0.85, b_["height"] * 0.25); page.wait_for_timeout(700)
-        fl3 = page.evaluate("AQ.flakes()"); live2 = [x for x in fl3["live"] if x["t"] < 1.0]
-        dl = sum(x["x"] - x["x0"] for x in live2) / max(1, len(live2))
-        check("flakes drift sideways toward the fed fish (fish right -> drift right, fish left -> drift left)",
-              len(live) >= 4 and dr > 15 and fl3["spawned"] - fl2["spawned"] >= 8 and len(live2) >= 4 and dl < -15, f"right: {len(live)} flakes mean dx={dr:.1f}px; left: {len(live2)} flakes mean dx={dl:.1f}px")
+        check("flakes fall slowly (< 25 px/s) and the fed fish rushes to them and eats every one: none left, all counted eaten, within 8 s",
+              sink and max(sink) < 25 and eaten_at is not None and fl2["eaten"] - fl0["eaten"] >= n_new and trail[-1] < fx0 - 40,
+              f"sink px/s max={max(sink) if sink else None:.1f} eaten after {eaten_at}s; eaten {fl2['eaten'] - fl0['eaten']}/{n_new}; fish x {fx0:.0f} -> {trail[-3:]}")
         blocked = {}
         for why, setup in [("nobody hungry", "fresh(); feedFull(G.buyFish('guppy'));"),
                            ("out of food", "G.buyFish('guppy'); G.state.food = 0;"),
@@ -253,9 +266,12 @@ def main():
         # hungry panel text
         gid = ev("fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); G.tick(90); AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
         page.wait_for_timeout(2500); clear_toasts(); tool("hand"); click_fish(gid); page.wait_for_timeout(250)
-        ht, gt = page.inner_text("#p-hunger"), page.inner_text("#p-growth")
-        check("panel: 'Hungry! 0/1 fed · Growth paused · dies in 6h 00m'", any(ht.startswith("Hungry! 0/1 fed · Growth paused · dies in " + t) for t in ("6h 00m", "5h 59m")) and "Growth paused" in gt, f"{ht} | {gt}")
-        page.screenshot(path=os.path.join(SHOTS, "panel_hungry.png"))
+        ht, gt, mt, wt = page.inner_text("#p-hunger"), page.inner_text("#p-growth"), page.inner_text("#p-meal"), page.inner_text("#p-worth")
+        segs = page.evaluate("[...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on'))")
+        check("fish info: 'Hungry! Growth paused · dies in 6h 00m', 'Meal 2 of 2 · needs 1 food' with a 1-segment bar, 'Worth 0 gold'; no tap counts",
+              any(ht.startswith("Hungry! Growth paused · dies in " + t) for t in ("6h 00m", "5h 59m")) and "Growth paused" in gt and mt == "Meal 2 of 2 · needs 1 food"
+              and segs == [False] and wt == "Worth 0 gold" and "tap" not in (ht + mt + gt).lower(), f"{ht} | {gt} | {mt} | {segs} | {wt}")
+        page.screenshot(path=shot("panel_hungry"))
         page.keyboard.press("Escape")
 
         # ================================================================ C. tank XP / shop gating
@@ -296,26 +312,33 @@ def main():
         check("shop prices 20/50/90/150 and 'sells up to' adult price match tuning.json",
               [int(shop[s_["id"]][0]) for s_ in tj["species"]] == [s_["price"] for s_ in tj["species"]] == [20, 50, 90, 150]
               and all(f'sells up to {s_["sell"][3]}g' in shop[s_["id"]][1] for s_ in tj["species"]), json.dumps({k: v[0] for k, v in shop.items()}))
-        page.screenshot(path=os.path.join(SHOTS, "shop.png"))
+        page.screenshot(path=shot("shop"))
         page.click('[data-close="shop"]')
         sp_tab = ev("return T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.sellPrice(sp, lv)));")
         lg_tab = ev("return T.species.map((sp) => [2, 3, 4].map((lv) => G.levelUpGold(sp, lv)));")
         check("sell prices at every level (Guppy 0/8/18/40 ...) and level-up gold (Guppy 1/2/4 ...) follow tuning.json v3",
               sp_tab == [s_["sell"] for s_ in tj["species"]] and sp_tab[0] == [0, 8, 18, 40] and lg_tab == [s_["levelUpGold"] for s_ in tj["species"]] and lg_tab[0] == [1, 2, 4], json.dumps([sp_tab, lg_tab]))
-        btns = []
+        btns, worth, panel_btns = [], [], []
         for lv in (1, 2, 3, 4):
             fid = ev(f"fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); f.level = {lv}; f.state = {lv} === 4 ? 'ADULT' : 'GROWING'; AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
             page.wait_for_timeout(150); tool("hand"); click_fish(fid); page.wait_for_timeout(150)
-            btns.append(page.inner_text("#p-sell"))
-            if lv == 4: page.screenshot(path=os.path.join(SHOTS, "panel_adult_sell.png"))
+            worth.append(page.inner_text("#p-worth"))
+            panel_btns.append(page.evaluate("[...document.querySelectorAll('#panel button')].filter((b) => !b.classList.contains('close') && b.offsetParent).length"))
+            if lv == 4: page.screenshot(path=shot("fish_info"))
             page.keyboard.press("Escape")
-        check("fish panel sell button per level: Release (0 gold) / Sell for 8 / 18 / 40 gold", btns == ["Release (0 gold)", "Sell for 8 gold", "Sell for 18 gold", "Sell for 40 gold"], str(btns))
+            btns.append(net_text(fid))
+            if lv == 3: page.screenshot(path=shot("net_sell_confirm"))
+            page.click("#confirm-no"); page.wait_for_timeout(80)
+        check("fish info has no sell button and shows 'Worth 0 / 8 / 18 / 40 gold' by level", panel_btns == [0, 0, 0, 0] and worth == ["Worth 0 gold", "Worth 8 gold", "Worth 18 gold", "Worth 40 gold"], json.dumps([worth, panel_btns]))
+        check("Net confirms: 'Release Guppy? You get nothing.' / 'Sell Guppy (L2) for 8 gold and 10 XP?' / L3 18 + 25 XP / L4 40 + 80 XP",
+              btns == ["Release Guppy? You get nothing.", "Sell Guppy (L2) for 8 gold and 10 XP?", "Sell Guppy (L3) for 18 gold and 25 XP?", "Sell Guppy (L4) for 40 gold and 80 XP?"], str(btns))
+        tool("hand")
 
         # debug +50 XP button (NUMBERS.md 9.13): normal XP path, tank level-ups + unlock toasts, no gold, persists
         ev("fresh(); G.state.gold = 1000; G.state.speed = 1;"); page.wait_for_timeout(100)
         check("debug row has '+50 XP' next to the speed buttons, +100g and Reset save",
               page.locator("#debug #dbg-xp").inner_text() == "+50 XP" and page.locator("#debug #dbg-gold").is_visible() and page.locator("#debug #dbg-reset").is_visible())
-        page.locator("#debug").screenshot(path=os.path.join(SHOTS, "debug_row.png"))
+        page.locator("#debug").screenshot(path=shot("debug_row"))
         seen, clicks, xp_trace = {}, 0, []
         for target, lvl, sp_name in [(60, 2, "Zebra Danio"), (400, 3, "Neon Tetra"), (1200, 4, "Platy")]:
             while page.evaluate("AQ.game.state.tank.xp") < target:
@@ -344,7 +367,7 @@ def main():
               stage() == 5 and a and a["state"] == "DEAD" and abs(a["diedAt"] - ids["t0"] - 21690) <= 5 and b["state"] == "WAITING",
               f"stage={stage()} a={a and a['state']} diedAt-t0={a and a['diedAt'] - ids['t0']:.0f} b={b and b['state']}")
         aw = page.locator("#away").is_visible(); at_ = page.inner_text("#away-time") if aw else ""; al = page.inner_text("#away-list") if aw else ""
-        check("'While you were away' summary: 49h, Guppy died, dirt stage 5", aw and "49h 00m" in at_ and "Guppy died" in al and "dirt stage 5" in al, f"{at_} | {al}")
+        check("'While you were away' summary: 49h, Guppy died, 'Tank is at dirt stage 5'", aw and "49h 00m" in at_ and "Guppy died" in al and "Tank is at dirt stage 5" in al and "clean" not in al.lower(), f"{at_} | {al}")
         page.click("#away-ok")
         r = ev("""const t0 = G.state.gameTime; G.state.lastSeen = Date.now(); const back = G.resume(Date.now() - H * 1000); const d1 = G.state.gameTime - t0;
           const s = G.newState(); return { back, d1 };""")
@@ -356,12 +379,15 @@ def main():
 
         # dead fish: top band, tappable at the top, panel, slot, feeding, remove
         page.wait_for_timeout(300)
-        dy = page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {ids['a']}).y")
-        check("dead fish floats in the top band (y about 6-10% of the tank)", 0.05 <= dy <= 0.11, f"y={dy:.3f}")
+        gm = page.evaluate("AQ.geom()")
+        wy = lambda fy: (fy * gm["H"] - gm["surf"]) / gm["waterH"]   # depth below the surface, in water heights
+        dy = wy(page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {ids['a']}).y"))
+        check("dead fish floats in the dead-fish band (6-10% of the water height below the surface)", 0.055 <= dy <= 0.105, f"depth={dy:.3f}")
         page.keyboard.press("Escape"); tool("hand")
         opened = click_fish(ids["a"]); page.wait_for_timeout(200)
-        lvl, btn = page.inner_text("#p-level") if opened else "", page.inner_text("#p-sell") if opened else ""
-        check("tapping the dead fish at the top opens its panel: 'Dead' + 'Remove (0 gold)'", opened and lvl == "Dead" and btn == "Remove (0 gold)" and page.locator("#p-dead").is_visible(), f"{lvl} | {btn}")
+        lvl = page.inner_text("#p-level") if opened else ""
+        check("tapping the dead fish at the top opens its info: 'Dead', no buttons (removal is done with the Net)", opened and lvl == "Dead" and page.locator("#p-dead").is_visible()
+              and page.evaluate("[...document.querySelectorAll('#panel button')].filter((b) => !b.classList.contains('close') && b.offsetParent).length") == 0, lvl)
         page.keyboard.press("Escape")
         full = ev(f"""clean(); G.state.gold = 1000; for (let i = 0; i < 4; i++) G.buyFish('guppy');
           const n = G.state.fish.length, c = G.canBuy('guppy'); const dead = G.state.fish.find((f) => f.id === {ids['a']});
@@ -371,15 +397,17 @@ def main():
         page.click("#btn-shop"); page.wait_for_timeout(200)
         check("shop disables buying while the tank is full with a dead fish in it", page.locator('button[data-buy="guppy"]').is_disabled())
         page.click('[data-close="shop"]'); tool("hand")
-        gold_b = S()["gold"]; click_fish(ids["a"]); page.click("#p-sell"); page.wait_for_timeout(200)
-        check("Remove (0 gold): no confirm, pays 0, frees the slot", fish(ids["a"]) is None and S()["gold"] == gold_b and not page.locator("#confirm").is_visible() and ev("return G.canBuy('guppy').ok;"))
+        gold_b = S()["gold"]; rt = net_text(ids["a"]); page.click("#confirm-yes"); page.wait_for_timeout(200)
+        check("Net on a dead fish asks first ('Remove the dead Guppy? You get nothing.'), then pays 0 and frees the slot",
+              rt == "Remove the dead Guppy? You get nothing." and fish(ids["a"]) is None and S()["gold"] == gold_b and not page.locator("#confirm").is_visible() and ev("return G.canBuy('guppy').ok;"), rt)
+        tool("hand")
         check("dead fish can't be sold", ev("const f = G.buyFish('guppy'); f.state = 'DEAD'; return G.sell(f.id) === null;"))
 
         # a fish dying now rises to the top over ~20 game-seconds
         did = ev("fresh(); G.state.gold = 100; const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, 0.5, 0.6); f.state = 'HUNGRY'; f.deathLeft = 0.5; G.tick(1); G.state.speed = 20; return f.id;")
         page.wait_for_timeout(300); y_mid = page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y")
         page.wait_for_timeout(1700); y_top = page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y")
-        check("a fish that just died rises to the top band over ~20 game s", y_mid > 0.2 and 0.05 <= y_top <= 0.11, f"y after ~6 game s {y_mid:.2f}, after ~40 {y_top:.3f}")
+        check("a fish that just died rises to the dead-fish band over ~20 game s", wy(y_mid) > 0.2 and 0.055 <= wy(y_top) <= 0.105, f"depth after ~6 game s {wy(y_mid):.2f}, after ~40 {wy(y_top):.3f}")
         sg = ev("""G.state.speed = 1; const g = G.state.gold; G.state.gold = 0; G.tick(1);
           return { gold: G.state.gold, used: G.state.starterGrantUsed, living: G.living(), n: G.state.fish.length };""")
         check("starter grant counts living fish only (dead fish in tank, 0 gold -> top-up to 20)", sg["gold"] == 20 and sg["used"] and sg["living"] == 0 and sg["n"] == 1, json.dumps(sg))
@@ -391,56 +419,75 @@ def main():
 
         # ================================================================ E. UI: dirty feed, rub clean, sell/release, reload
         gid = ev("fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.45); toStage(3); return f.id;")
-        page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(250)  # let earlier toasts/floats/callouts expire
-        # visible text outside the dirt bar (#dirt-wrap) must carry no dirt message (NUMBERS.md 3 rule 1)
-        DIRT_TXT = """() => { const out = []; const walk = (el) => { if (el.id === 'dirt-wrap' || el.id === 'dirt-callout' || el.id === 'debug') return;
-            const cs = getComputedStyle(el); if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') return;
-            for (const n of el.childNodes) { if (n.nodeType === 3 && /dirt|dirty|clean the tank|pick the sponge|rub the/i.test(n.textContent)) out.push(n.textContent.trim()); else if (n.nodeType === 1) walk(n); } };
-          walk(document.getElementById('app')); return out; }"""
+        page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(250)  # let earlier toasts/floats expire
         def ui_state():
-            return page.evaluate("""() => ({ callout: !document.getElementById('dirt-callout').hidden, calloutText: document.getElementById('dirt-callout').textContent,
-              count: +(document.getElementById('dirt-callout').dataset.count || 0), toasts: document.getElementById('toasts').children.length,
-              hint: document.getElementById('hint').textContent, floats: AQ.floats(true), flakes: AQ.flakes().spawned, food: AQ.game.state.food })""")
-        pre = ui_state(); pre_txt = page.evaluate(DIRT_TXT)
-        check("dirty tank + Food selected, before tapping: no dirt hint anywhere except the dirt bar (hint empty, no callout, no toast)",
-              stage() == 3 and pre["hint"] == "" and not pre["callout"] and pre["toasts"] == 0 and pre_txt == [], json.dumps({"state": pre, "dirtText": pre_txt}))
+            return page.evaluate("""() => ({ toasts: [...document.getElementById('toasts').children].map((e) => ({ text: e.textContent, kind: e.className })),
+              hint: document.getElementById('hint').textContent, floats: AQ.floats(true), flakes: AQ.flakes().spawned, food: AQ.game.state.food,
+              flash: document.getElementById('dirt-win').classList.contains('flash'), pulse: AQ.pulse(),
+              old: !!(document.getElementById('dirt-callout') || document.getElementById('dirt-arrow')) })""")
+        pre = ui_state()
+        check("dirty tank + Food selected, before tapping: no hint, no toast, no flash; the old callout and arrow are gone from the page",
+              stage() == 3 and pre["hint"] == "" and pre["toasts"] == [] and not pre["flash"] and not pre["old"], json.dumps(pre))
         taps = []
-        for k, wait_before in enumerate([0, 2800, 1000]):   # tap 2 after the callout expired (re-show), tap 3 while still up (restart)
+        for k, wait_before in enumerate([0, 2800, 1000]):   # tap 2 after the toast expired, tap 3 while it is still up (restart)
             if wait_before: page.wait_for_timeout(wait_before)
             before = ui_state()
-            tank_click(box()["width"] * (0.3 + 0.2 * k), box()["height"] * 0.35); page.wait_for_timeout(250)
-            after = ui_state(); txt = page.evaluate(DIRT_TXT)
-            taps.append({"hiddenBefore": not before["callout"], "shown": after["callout"], "text": after["calloutText"], "count": after["count"] - before["count"],
-                         "toasts": after["toasts"], "hint": after["hint"], "floats": after["floats"], "food": after["food"] - before["food"], "flakes": after["flakes"] - before["flakes"], "otherDirtText": txt})
-        page.wait_for_timeout(2000); still = ui_state()["callout"]   # 2.25 s after tap 3 = 3.25 s after tap 2 -> only up if tap 3 restarted it
-        page.wait_for_timeout(700); gone = not ui_state()["callout"]
-        check("each of 3 blocked feed taps shows the dirt-bar callout 'Clean the tank first' (re-shown after expiring, restarted while up, ~2.5 s)",
-              all(t["shown"] and t["text"] == "Clean the tank first" and t["count"] == 1 for t in taps) and taps[1]["hiddenBefore"] and not taps[2]["hiddenBefore"] and still and gone, json.dumps(taps))
-        check("blocked taps: no toast, no bottom hint, no centre message, no other dirt text", all(t["toasts"] == 0 and t["hint"] == "" and t["floats"] == [] and t["otherDirtText"] == [] for t in taps))
-        check("blocked taps: no food spent, no flakes", all(t["food"] == 0 and t["flakes"] == 0 for t in taps))
+            tank_click(box()["width"] * (0.3 + 0.2 * k), box()["height"] * 0.35); page.wait_for_timeout(120)
+            after = ui_state()
+            taps.append({"toasts": after["toasts"], "count": after["pulse"]["count"] - before["pulse"]["count"], "flash": after["flash"], "pulse": after["pulse"]["p"],
+                         "hint": after["hint"], "floats": after["floats"], "food": after["food"] - before["food"], "flakes": after["flakes"] - before["flakes"]})
+            if k == 0:
+                page.wait_for_timeout(230)   # ~0.35 s after the tap: spots at their most solid, dirt window red
+                mid_p = page.evaluate("AQ.pulse()")
+                # read the two red peaks (0.25 s and 0.75 s) by seeking the running CSS animation, then put it back
+                bgs = page.evaluate("""(() => { const el = document.getElementById('dirt-win'), a = el.getAnimations()[0]; if (!a) return ['none', 'none'];
+                    const t = a.currentTime, out = []; for (const ms of [250, 750]) { a.currentTime = ms; out.push(getComputedStyle(el).backgroundColor); } a.currentTime = t; return out; })()""")
+                bg = bgs[0]
+                page.screenshot(path=shot("dirty_feed_flash"))
+                tb_ = page.evaluate("(() => { const t = document.querySelector('#toasts .toast').getBoundingClientRect(), k = document.getElementById('tank-wrap').getBoundingClientRect(); return { cx: (t.left + t.right) / 2 - k.left, top: t.top - k.top, W: k.width }; })()")
+                page.wait_for_timeout(750)   # > 1.0 s after the tap: back to normal
+                end_p = page.evaluate("AQ.pulse()"); bg_end = page.evaluate("getComputedStyle(document.getElementById('dirt-win')).backgroundColor")
+        page.wait_for_timeout(2000); still = [t["text"] for t in ui_state()["toasts"]]   # 2.1 s after tap 3 = 3.1 s after tap 2 -> only up if tap 3 restarted it
+        page.wait_for_timeout(700); gone = ui_state()["toasts"]
+        check("each blocked feed tap shows 'Clean the tank first' as a red toast at the top middle (one line, restarted, never stacked or counted), ~2.5 s",
+              all([t_["text"] for t_ in t["toasts"]] == ["Clean the tank first"] and "bad" in t["toasts"][0]["kind"] for t in taps) and still == ["Clean the tank first"] and gone == []
+              and abs(tb_["cx"] - tb_["W"] / 2) < 3 and tb_["top"] < 0.3 * box()["height"], json.dumps({"taps": taps, "still": still, "gone": gone, "toast": tb_}))
+        rise = [(q["alpha"] - q["base"]) for q in mid_p["spots"]]
+        check("blocked tap: every spot pulses more solid (alpha -> min(a + 0.35, 0.85)) around 0.35 s and is back to normal after 1.0 s; restarts on each tap",
+              all(t["count"] == 1 and t["pulse"] > 0 for t in taps) and rise and min(rise) > 0.25 and all(abs(q["alpha"] - q["base"]) < 1e-3 for q in end_p["spots"]) and end_p["p"] == 0
+              and abs(page.evaluate("AQ.pulseAt(0.35)") - 1) < 1e-6 and page.evaluate("AQ.pulseAt(0.5)") == 1 and page.evaluate("AQ.pulseAt(1.0)") == 0,
+              json.dumps({"mid": mid_p["spots"][:3], "end": end_p["spots"][:2]}))
+        red_ = lambda c: [int(v) for v in c[c.index("(") + 1:c.index(")")].split(",")[:3]]
+        check("blocked tap: the dirt window flashes red (#c43c3c at the peak) and returns to --panel after 1 s, no shake",
+              all(t["flash"] for t in taps) and all(red_(c)[0] > 180 and red_(c)[1] < 80 and red_(c)[2] < 80 for c in bgs) and red_(bg_end) == [15, 45, 68]
+              and page.evaluate("getComputedStyle(document.getElementById('dirt-win')).animationName") in ("dirtFlash", "none"), json.dumps({"peaks 0.25 s / 0.75 s": bgs, "end": bg_end}))
+        check("blocked taps: no food spent, no flakes, no floats, no bottom hint", all(t["food"] == 0 and t["flakes"] == 0 and t["floats"] == [] and t["hint"] == "" for t in taps))
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]
         ok = rub_clean(); s = S()
         fl = page.evaluate("AQ.floats(true)")
         check("sponge mouse rub cleans stage 3: +4 gold, +5 XP, 'Sparkling! +4 gold' float", ok and s["gold"] == gold_b + 4 and s["tank"]["xp"] == xp_b + 5 and "Sparkling! +4 gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
         tool("hand"); page.wait_for_timeout(400)
-        page.screenshot(path=os.path.join(SHOTS, "after_clean.png"))
-        # L1 release (confirm) and L2 sell
-        tool("hand"); click_fish(gid)
-        check("L1 button reads 'Release (0 gold)'", page.inner_text("#p-sell") == "Release (0 gold)", page.inner_text("#p-sell"))
-        page.click("#p-sell"); page.wait_for_timeout(150)
-        check("confirm dialog shown for release", page.locator("#confirm").is_visible())
-        page.screenshot(path=os.path.join(SHOTS, "release_confirm.png"))
+        page.screenshot(path=shot("after_clean"))
+        # L1 release and L2 sell with the Net (both confirmed)
+        rt = net_text(gid)
+        cb_ = page.evaluate("(() => { const b = document.querySelector('#confirm .modal-box').getBoundingClientRect(), k = document.getElementById('tank-wrap').getBoundingClientRect(), n = document.getElementById('confirm-no').getBoundingClientRect(), y = document.getElementById('confirm-yes').getBoundingClientRect(), pc = document.getElementById('confirm-portrait'); return { w: b.width, cx: (b.left + b.right) / 2 - (k.left + k.right) / 2, cy: (b.top + b.bottom) / 2 - (k.top + k.bottom) / 2, cancelLeft: n.right <= y.left, portrait: pc.offsetParent !== null, no: document.getElementById('confirm-no').textContent }; })()")
+        page.screenshot(path=shot("release_confirm"))
+        check("Net on an L1 fish: centred confirm (320 / 400 wide) with the fish portrait, 'Release Guppy? You get nothing.', Cancel left of Release",
+              rt == "Release Guppy? You get nothing." and abs(cb_["w"] - (400 if LARGE else 320)) < 1 and abs(cb_["cx"]) < 2 and abs(cb_["cy"]) < 2 and cb_["cancelLeft"] and cb_["portrait"]
+              and page.inner_text("#confirm-yes") == "Release" and cb_["no"] == "Cancel", json.dumps([rt, cb_]))
         gb = S()["gold"]; page.click("#confirm-yes"); page.wait_for_timeout(150)
         check("released L1 for 0 gold", S()["gold"] == gb and fish(gid) is None)
         sid = ev("G.state.gold = 100; const f = G.buyFish('guppy'); f.level = 2; f.state = 'GROWING'; AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
-        page.wait_for_timeout(200); click_fish(sid); st = page.inner_text("#p-sell"); gb = S()["gold"]
-        page.click("#p-sell"); page.wait_for_timeout(150)
+        page.wait_for_timeout(200); st = net_text(sid); gb = S()["gold"]; xb = S()["tank"]["xp"]
+        page.click("#confirm-no"); page.wait_for_timeout(100); kept = fish(sid) is not None
+        net_text(sid); page.click("#confirm-yes"); page.wait_for_timeout(150)
         l2 = next(s_ for s_ in tj["species"] if s_["id"] == "guppy")["sell"][1]
-        check(f"sold L2 Guppy for {l2} gold (no confirm)", st == f"Sell for {l2} gold" and S()["gold"] == gb + l2 and fish(sid) is None, st)
+        check(f"Net sells an L2 Guppy only after confirming: Cancel keeps it, Sell pays {l2} gold + 10 XP", kept and st == f"Sell Guppy (L2) for {l2} gold and 10 XP?" and S()["gold"] == gb + l2 and S()["tank"]["xp"] == xb + 10 and fish(sid) is None, st)
+        tool("hand")
         # full tank screenshot + reload keeps state
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; ['guppy','danio','neon','platy'].forEach((id) => { const f = G.buyFish(id); feedFull(f); });")
         tool("hand"); page.wait_for_timeout(2500)
-        page.screenshot(path=os.path.join(SHOTS, "tank_with_fish.png"))
+        page.screenshot(path=shot("tank_with_fish"))
         check("fish stay inside the tank", all(0 < f_["x"] < 1 and 0 < f_["y"] < 1 for f_ in S()["fish"]))
         page.evaluate("AQ.game.save()"); before = S()
         boot("?speed=5"); after = S()
@@ -448,33 +495,25 @@ def main():
               f"fish {len(after['fish'])} gold {before['gold']}->{after['gold']} speed {after['speed']}")
         ev("fresh(); G.state.gold = 500; G.state.tank.xp = 1200; ['guppy','danio','neon','platy','guppy','danio'].forEach((id, i) => { const f = G.buyFish(id); f.level = [4,3,2,4,1,2][i]; f.state = f.level === 4 ? 'ADULT' : 'GROWING'; }); G.state.speed = 1;")
         page.wait_for_timeout(2500)
-        page.screenshot(path=os.path.join(SHOTS, "tank_mixed_levels_staged.png"))
+        page.screenshot(path=shot("tank_mixed_levels_staged"))
 
         # ================================================================ E2. Playtester pass 6 fixes (N1-N3, N6, D1)
         R = lambda sel: page.evaluate(f"(() => {{ const r = document.querySelector('{sel}').getBoundingClientRect(); return {{ l: r.left, t: r.top, r: r.right, b: r.bottom }}; }})()")
         hit = lambda a, b: a["l"] < b["r"] and b["l"] < a["r"] and a["t"] < b["b"] and b["t"] < a["b"]
-        # N1: dirt-bar callout never covers the tank XP bar, still under / pointing at the dirt bar
-        ev("fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.4, 0.5); toStage(2);")
-        page.wait_for_timeout(200); tool("food"); tank_click(box()["width"] * 0.4, box()["height"] * 0.6); page.wait_for_timeout(300)
-        co, xpb, xprow, tk, db = R("#dirt-callout"), R("#tank-xpbar"), R("#tankbar"), R("#tank"), R("#dirt-bar")
-        check("N1: dirt callout visible, doesn't intersect the tank XP bar/row, sits in the tank's top corner under the dirt bar",
-              page.locator("#dirt-callout").is_visible() and not hit(co, xpb) and not hit(co, xprow) and co["t"] >= xprow["b"] and co["l"] < db["r"] and co["r"] > db["l"]
-              and co["t"] >= tk["t"] and co["b"] - tk["t"] <= 0.08 * (tk["b"] - tk["t"]), json.dumps({"callout": co, "xpRow": xprow, "tank": tk, "dirtBar": db}))
-        page.wait_for_timeout(2700); tool("hand"); ev("clean();")
-        # N2: toasts stay out of the top 12% of the tank, where dead fish float
+        # N2: toasts stay out of the dead-fish band (surface .. 10% of the water height below it)
         did = ev("fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, 0.3, 0.5); f.state = 'HUNGRY'; f.deathLeft = 0.5; G.tick(1); G.state.gameTime += 25; G.debugAddXp(60); return f.id;")
         page.wait_for_timeout(700)
-        tk = R("#tank"); band = {"l": tk["l"], "t": tk["t"], "r": tk["r"], "b": tk["t"] + 0.12 * (tk["b"] - tk["t"])}
+        tk = R("#tank"); gm = page.evaluate("AQ.geom()"); band = {"l": tk["l"], "t": tk["t"], "r": tk["r"], "b": tk["t"] + gm["surf"] + 0.10 * gm["waterH"]}
         toasts = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom }; })")
-        dy = page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y")
-        page.screenshot(path=os.path.join(SHOTS, "dead_fish_with_toast.png"))
-        check("N2: toasts ('Guppy died', tank level-up) never intersect the top 12% of the tank; dead fish stays in its 6-10% band",
-              len(toasts) >= 2 and any("died" in t_["text"] for t_ in toasts) and any("Tank level 2" in t_["text"] for t_ in toasts) and not any(hit(t_, band) for t_ in toasts) and 0.05 <= dy <= 0.11,
+        dy = (page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y") * gm["H"] - gm["surf"]) / gm["waterH"]
+        page.screenshot(path=shot("dead_fish_with_toast"))
+        check("N2: toasts ('Guppy died', tank level-up) never intersect the air gap + dead-fish band; the dead fish stays in its band (6-10% of water below the surface)",
+              len(toasts) >= 2 and any("died" in t_["text"] for t_ in toasts) and any("Tank level 2" in t_["text"] for t_ in toasts) and not any(hit(t_, band) for t_ in toasts) and 0.055 <= dy <= 0.105,
               json.dumps({"band": band, "toasts": toasts, "deadY": round(dy, 3)}))
         # N3: only dead fish -> no hint; back once a living fish is there
         page.wait_for_timeout(2800)
         h_dead = page.inner_text("#hint").strip() if page.locator("#hint").is_visible() else ""
-        page.screenshot(path=os.path.join(SHOTS, "only_dead_fish.png"))
+        page.screenshot(path=shot("only_dead_fish"))
         ev("const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.5);"); page.wait_for_timeout(200); h_wait = page.inner_text("#hint")
         ev("const f = G.state.fish.find((x) => x.state === 'WAITING'); clean(); feedFull(f);"); page.wait_for_timeout(200); h_live = page.inner_text("#hint")
         check("N3: only dead fish -> hint empty; a living fish brings hints back ('Tap a fish to see its details' once fed)",
@@ -483,7 +522,7 @@ def main():
         ev("fresh(); G.state.speed = 1; G.state.tank.xp = 1500; G.state.food = 3; G.state.starterGrantUsed = true; const f = G.buyFish('guppy') || null; G.state.gold = 3; if (f) { f.state = 'DEAD'; f.diedAt = G.state.gameTime - 30; } G.tick(1);")
         page.wait_for_timeout(400)
         line = page.inner_text("#newtank-reset") if page.locator("#tankover").is_visible() else ""
-        page.screenshot(path=os.path.join(SHOTS, "start_new_tank_modal.png"))
+        page.screenshot(path=shot("start_new_tank_modal"))
         exp_line = "Everything resets: 0 gold, 0 food, 0 diamonds, no fish, tank level 1 (0 XP), Zebra Danio, Neon Tetra and Platy lock again, only the default decorations, and the tank starts dirty (stage 3). The first clean pays 20 gold and 10 food again."
         page.click("#btn-newtank"); page.wait_for_timeout(250)
         after = ev("return { gold: G.state.gold, food: G.state.food, diamonds: G.state.diamonds, fish: G.state.fish.length, xp: G.state.tank.xp, lvl: G.tankInfo().level, locked: ['danio', 'neon', 'platy'].map((id) => !!G.canBuy(id).locked), grant: G.state.starterGrantUsed, speed: G.state.speed, stage: G.dirtStage(), fc: G.state.firstCleanPending };")
@@ -526,57 +565,24 @@ def main():
                 page.mouse.move(b_["x"] + b_["width"] - 3, b_["y"] + sp["y"], steps=4); page.mouse.up()
         page.wait_for_timeout(250)
         cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
-        page.screenshot(path=os.path.join(SHOTS, "float_edge_clamp.png"))
+        page.screenshot(path=shot("float_edge_clamp"))
         check("N6: a real clean finished at the far right edge: 'Sparkling! +2 gold' fully inside the tank (>= 8 px)",
               stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps(cb))
         tool("hand")
 
-        # ================================================================ E3. Playtester pass 7 polish (M1 arrow, M2 multi level-up, N4, N5)
-        # M1 (Art Director spec): callout box unchanged; 12px-wide red triangle from its top edge, tip 4px under the dirt bar's
-        # bottom, centred on the dirt bar; may cross the XP row, drawn above it (not clipped by the tank or the HUD)
-        ev("fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.4, 0.5); toStage(3);")
-        page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(200)
-        tank_click(box()["width"] * 0.4, box()["height"] * 0.6); page.wait_for_timeout(500)   # after the pop and the dirt-bar shake
-        co, ar, db, xprow, tkw = R("#dirt-callout"), R("#dirt-arrow"), R("#dirt-bar"), R("#tankbar"), R("#tank-wrap")
-        tip_x, tip_y, base_w = (ar["l"] + ar["r"]) / 2, ar["t"], ar["r"] - ar["l"]
-        base_y = ar["b"] - 2   # 2px strip under the base overlaps the box (no seam)
-        dbc = (db["l"] + db["r"]) / 2
-        # pixels down the arrow's centre line: between tip and dirt bar (no arrow), just under the tip, across the XP row,
-        # in the gap between XP row and tank, and just above the box: arrow red wherever it should be
-        page.screenshot(path=os.path.join(SHOTS, "dirty_feed.png"))
-        cx0 = int(round(tip_x)) - 4
-        png = page.screenshot(clip={"x": cx0, "y": 0, "width": 8, "height": int(co["t"]) + 2})
-        _w, _h, px = png_rgb(png); dpr = _w / 8
-        red = lambda c: c[0] > 200 and c[1] < 140 and c[2] < 140
-        at = lambda y: px(int((tip_x - cx0) * dpr), int(y * dpr))
-        samples = {"aboveTip": at(tip_y - 2), "underTip": at(tip_y + 9), "xpRowMid": at((xprow["t"] + xprow["b"]) / 2),
-                   "gapXpTank": at((xprow["b"] + tkw["t"]) / 2), "aboveBox": at(co["t"] - 3)}
-        arrow_pos = page.evaluate("(() => { const a = document.getElementById('dirt-arrow'); return { inTank: !!a.closest('#tank-wrap'), inHud: !!a.closest('#hud'), z: +getComputedStyle(a).zIndex, pos: getComputedStyle(a).position, hudZ: +getComputedStyle(document.getElementById('hud')).zIndex }; })()")
-        geo = {"tipX": round(tip_x, 2), "dirtBarCentreX": round(dbc, 2), "tipY": round(tip_y, 2), "dirtBarBottom": round(db["b"], 2), "tipGap": round(tip_y - db["b"], 2),
-               "baseW": round(base_w, 2), "baseY": round(base_y, 2), "box": co, "xpRow": xprow, "dirtBar": db, "arrow": ar, "pixels": samples, "el": arrow_pos}
-        print("   M1 geometry:", json.dumps(geo))
-        check("M1: callout arrow tip at the dirt bar's centre x (<= 2px) and 4px (+-1) below its bottom; 12px base on the box's top edge",
-              page.locator("#dirt-arrow").is_visible() and abs(tip_x - dbc) <= 2 and 3 <= tip_y - db["b"] <= 5 and abs(base_w - 12) <= 0.5 and abs(base_y - co["t"]) <= 1, json.dumps(geo))
-        check("M1: callout box stays clear of the XP row, in the tank's top-right corner (unchanged); arrow drawn above the XP row, not clipped (red pixels along its length)",
-              not hit(co, xprow) and co["t"] >= xprow["b"] and co["t"] >= tkw["t"] and abs(co["r"] - (tkw["r"] - 10)) <= 1 and abs(co["t"] - (tkw["t"] + 10)) <= 1
-              and not red(samples["aboveTip"]) and all(red(samples[k_]) for k_ in ("underTip", "xpRowMid", "gapXpTank", "aboveBox"))
-              and not arrow_pos["inTank"] and not arrow_pos["inHud"] and arrow_pos["z"] > arrow_pos["hudZ"], json.dumps({"pixels": samples, "el": arrow_pos}))
-        page.wait_for_timeout(2600)
-        check("M1: arrow hides together with the callout (2.5 s)", not page.locator("#dirt-callout").is_visible() and not page.locator("#dirt-arrow").is_visible())
-        tool("hand"); ev("clean();")
-
+        # ================================================================ E3. Playtester pass 7 polish (M2 multi level-up, N4); the M1 callout arrow is gone (v4)
         # M2: 4 Guppies level up in the same tick (3 bunched in the middle, 1 at the right wall): staggered float pairs never
         # overlap, all >= 8px inside the tank; identical toasts merge into one line with a count
         page.wait_for_timeout(1900); clear_toasts(); page.evaluate("AQ.floats(true)")
         ev("""fresh(); G.state.gold = 500; G.state.speed = 1;
-              [[0.5, 0.45], [0.52, 0.46], [0.48, 0.44], [0.97, 0.3]].forEach(([x, y]) => { const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, x, y); });""")
+              [[0.5, 0.45], [0.52, 0.46], [0.48, 0.44], [0.93, 0.3]].forEach(([x, y]) => { const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, x, y); });""")
         page.wait_for_timeout(300); clear_toasts()
         ev("G.state.fish.forEach((f) => { f.progress = G.growSec(G.SPECIES.guppy, f.level) - 0.5; f.hungerDone = true; }); G.tick(1);")
         m2, snaps = [], []
         for wait in (80, 250, 700, 1100):
             page.wait_for_timeout(wait)
             bxs = page.evaluate("AQ.floatBoxes()"); snaps.append(len(bxs))
-            if wait == 250: page.screenshot(path=os.path.join(SHOTS, "multi_levelup.png"))
+            if wait == 250: page.screenshot(path=shot("multi_levelup"))
             for i_, a_ in enumerate(bxs):
                 if not (a_["x0"] >= 8 - 0.01 and a_["y0"] >= 8 - 0.01 and a_["x1"] <= Wt - 8 + 0.01 and a_["y1"] <= Ht - 8 + 0.01): m2.append({"out": a_})
                 for b_ in bxs[i_ + 1:]:
@@ -611,18 +617,269 @@ def main():
               over_nt and any("Guppy died" in t_ for t_ in before_nt) and now_nt == ["New tank started"] and later_nt == ["New tank started"],
               json.dumps({"modal": over_nt, "before": before_nt, "after60ms": now_nt, "after1s": later_nt}))
 
-        # N5: "Reset save" fits on one line at 390x844, on the same row as the other debug buttons, fully on screen
-        page.wait_for_timeout(2800)
+        # debug row (AD v4 1): under the tank only, one line, 11px (Large 13px), clock right-aligned; Reset save on the same row
+        page.wait_for_timeout(300)
         n5 = page.evaluate("""(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const e = document.getElementById('dbg-reset');
             const rg = document.createRange(); rg.selectNodeContents(e); const lines = new Set([...rg.getClientRects()].map((q) => Math.round(q.top))).size;
-            const x = r('dbg-reset'), xp = r('dbg-xp'), g = r('dbg-gold'), dbg = r('debug');
-            return { text: e.textContent, visible: e.offsetParent !== null, textLines: lines, h: x.height, xpH: xp.height, top: x.top, xpTop: xp.top, goldTop: g.top,
-                     left: x.left, right: x.right, footerRight: dbg.right, vw: innerWidth, lh: parseFloat(getComputedStyle(e).fontSize) }; })()""")
-        page.screenshot(path=os.path.join(SHOTS, "footer_reset_save.png"))
-        print("   N5 geometry:", json.dumps(n5))
-        check("N5: 'Reset save' visible on one line (1 text line, same height as '+50 XP'), same row as +100g/+50 XP, inside the footer",
-              n5["visible"] and n5["text"] == "Reset save" and n5["textLines"] == 1 and abs(n5["h"] - n5["xpH"]) < 0.5 and abs(n5["top"] - n5["xpTop"]) < 0.5
-              and abs(n5["top"] - n5["goldTop"]) < 0.5 and n5["right"] <= n5["footerRight"] and n5["right"] <= n5["vw"], json.dumps(n5))
+            const x = r('dbg-reset'), xp = r('dbg-xp'), c = r('dbg-clock'), dbg = r('debug'), t = r('tank-wrap');
+            return { textLines: lines, sameRow: Math.abs(x.top - xp.top) < 0.5, resetRight: x.right, clockRight: c.right, clockTop: c.top, dbgRight: dbg.right, dbgL: dbg.left, tankL: t.left, tankR: t.right,
+                     clockOneLine: c.height < 20, fs: parseFloat(getComputedStyle(document.getElementById('debug')).fontSize), h: dbg.height, overflow: document.getElementById('debug').scrollWidth > document.getElementById('debug').clientWidth + 0.5 }; })()""")
+        page.locator("#debug").screenshot(path=shot("debug_row"))
+        check("debug row: one line under the tank only, 11px / 13px, h 24 / 32, Reset save on the button row, clock right-aligned, nothing clipped",
+              n5["textLines"] == 1 and n5["sameRow"] and abs(n5["clockRight"] - n5["dbgRight"]) < 1 and n5["clockOneLine"] and n5["fs"] == (13 if LARGE else 11) and abs(n5["h"] - (32 if LARGE else 24)) < 0.5
+              and abs(n5["dbgL"] - n5["tankL"]) < 0.5 and abs(n5["dbgRight"] - n5["tankR"]) < 0.5 and not n5["overflow"] and n5["resetRight"] < n5["clockRight"], json.dumps(n5))
+
+        # ================================================================ L. landscape layout v4 (Art Director LANDSCAPE_LAYOUT_V4.md)
+        boot("?speed=1"); ev("fresh(); G.state.food = 0; G.state.speed = 1;"); tool("hand"); page.wait_for_timeout(300)
+        lay = page.evaluate("AQ.layout()")
+        spec = {False: {"column": (8, 8, 68, 374), "hud": (84, 8, 752, 36), "tank": (84, 50, 752, 302), "debug": (84, 358, 752, 24)},
+                True: {"column": (12, 12, 96, 796), "hud": (120, 12, 1048, 48), "tank": (120, 68, 1048, 700), "debug": (120, 776, 1048, 32)}}[LARGE]
+        off = {k: max(abs(lay[k]["x"] - v[0]), abs(lay[k]["y"] - v[1]), abs(lay[k]["w"] - v[2]), abs(lay[k]["h"] - v[3])) for k, v in spec.items()}
+        check("AD v4 1: tool column, top bar, tank and debug row match the spec boxes within 4px; nothing scrolls",
+              max(off.values()) <= 4 and lay["scrollW"] <= VW and lay["scrollH"] <= VH, json.dumps({"off": off, "got": {k: lay[k] for k in spec}}))
+        tl = lay["tools"]; bw, bh, ic, gap = (96, 88, 52, 8) if LARGE else (68, 54, 36, 4)
+        check("AD v4 2: tools top-down Look, Food, Clean, Net, Decorate, Shop; buttons 68x54 / 96x88, icons 36 / 52 px, 6px extra gap above Shop, none overlapping the tank",
+              [t["label"] for t in tl] == ["Look", "Food", "Clean", "Net", "Decorate", "Shop"] and all(abs(t["w"] - bw) < 0.5 and abs(t["h"] - bh) < 0.5 and abs(t["icon"]["w"] - ic) < 0.5 and abs(t["icon"]["h"] - ic) < 0.5 for t in tl)
+              and all(abs(tl[i + 1]["y"] - tl[i]["y"] - bh - gap) < 0.5 for i in range(4)) and abs(tl[5]["y"] - tl[4]["y"] - bh - gap - 6) < 0.5
+              and all(t["x"] + t["w"] <= lay["tank"]["x"] - 5 for t in tl), json.dumps([(t["label"], t["y"], t["w"], t["h"], t["icon"]["w"]) for t in tl]))
+        sel = page.evaluate("""(() => { const cs = (el) => getComputedStyle(el); const on = document.querySelector('.tool[data-tool="hand"]'), off = document.querySelector('.tool[data-tool="food"]');
+            return { onBg: cs(on).backgroundColor, onBorder: cs(on).borderTopColor, onBw: cs(on).borderTopWidth, onLbl: cs(on).color, offBg: cs(off).backgroundColor, offLbl: cs(off).color }; })()""")
+        check("AD v4 2: selected tool = --panel2 fill, 2px --accent border, white label; idle = --panel fill, --muted label",
+              sel == {"onBg": "rgb(20, 58, 87)", "onBorder": "rgb(55, 195, 255)", "onBw": "2px", "onLbl": "rgb(255, 255, 255)", "offBg": "rgb(15, 45, 68)", "offLbl": "rgb(156, 192, 216)"}, json.dumps(sel))
+        def bottle():
+            return page.evaluate("""(() => { const b = document.getElementById('food-badge'), cs = getComputedStyle(b), i = document.getElementById('food-icon');
+              const br = b.getBoundingClientRect(), ir = i.getBoundingClientRect(), btn = b.closest('.tool').getBoundingClientRect();
+              return { text: b.textContent, border: cs.borderTopColor, color: cs.color, fill: +i.dataset.fill, empty: !document.getElementById('food-empty').hasAttribute('hidden'),
+                       partial: !document.getElementById('food-partial').hasAttribute('hidden'), clipH: +document.getElementById('food-clip-rect').getAttribute('height'),
+                       overlapX: ir.right - br.left, h: br.height, top: br.top - ir.top, inside: br.right <= btn.right + 0.5 && br.left >= btn.left }; })()""")
+        b0 = bottle()
+        check("AD v4 2: at 0 food the badge reads 0 with --danger border and text, and the bottle is the empty i-food-empty (no orange body)",
+              b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
+        fills = {}
+        for n in (1, 4, 5, 9, 10, 19, 20, 250, 1000):
+            ev(f"G.state.food = {n};"); page.wait_for_timeout(60); q = bottle(); fills[n] = (q["fill"], q["text"], q["clipH"], q["border"])
+        check("AD v4 2: bottle fill steps 1-4 quarter, 5-9 half, 10-19 three quarters, 20+ full (body clipped from the bottom); badge '999+' above 999, orange border when > 0",
+              [fills[n][0] for n in (1, 4, 5, 9, 10, 19, 20, 250)] == [0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1] and fills[1000][1] == "999+" and fills[250][1] == "250"
+              and abs(fills[5][2] - 7.5) < 1e-6 and all(fills[n][3] == "rgb(255, 138, 61)" for n in (1, 250)), json.dumps(fills))
+        check("AD v4 2: food badge at the icon's top-right, overlapping it by >= 6px, height 18 / 22, inside the button",
+              b0["overlapX"] >= 5.5 and abs(b0["h"] - (22 if LARGE else 18)) < 0.6 and b0["top"] <= 0 and b0["inside"], json.dumps(b0))
+        # top bar
+        hud = page.evaluate("""(() => { const q = (s) => document.querySelector(s); const r = (s) => q(s).getBoundingClientRect();
+            return { order: [...q('#hud').children].map((e) => e.id), food: !!q('#res-food'), gold: r('#res-gold'), gem: r('#res-gem'), lvl: r('#tanklvl'), dirt: r('#dirt-win'), hud: r('#hud'),
+                     gems: q('#gems').textContent, label: q('#tank-label').textContent, xp: q('#tank-xp').textContent, pillFs: getComputedStyle(q('#res-gold')).fontSize, tab: getComputedStyle(q('#gold')).fontVariantNumeric }; })()""")
+        check("AD v4 3: top bar = gold pill, diamond pill (no food pill; 0 diamonds), 'Tank Lv 1' block with '0 / 60', dirt window 240x36 / 320x48 right-aligned; pills 32 / 42 high",
+              hud["order"] == ["res-gold", "res-gem", "tanklvl", "dirt-win"] and not hud["food"] and hud["gems"] == "0" and hud["label"] == "Tank Lv 1" and hud["xp"] == "0 / 60"
+              and abs(hud["dirt"]["width"] - (320 if LARGE else 240)) < 0.5 and abs(hud["dirt"]["height"] - (48 if LARGE else 36)) < 0.5 and abs(hud["dirt"]["right"] - hud["hud"]["right"]) < 0.5
+              and abs(hud["gold"]["height"] - (42 if LARGE else 32)) < 0.5 and hud["lvl"]["width"] >= 160 and hud["pillFs"] == ("20px" if LARGE else "16px") and "tabular-nums" in hud["tab"], json.dumps(hud))
+        def dirt_txt():
+            return page.evaluate("""(() => { const l = document.getElementById('dirt-label'), n = document.getElementById('dirt-next'), h = document.getElementById('hud');
+              const w = document.getElementById('dirt-win'), a = l.getBoundingClientRect(), b = n.getBoundingClientRect();
+              return { label: l.textContent, next: n.textContent, clip: l.scrollWidth > l.clientWidth + 0.5 || n.scrollWidth > n.clientWidth + 0.5 || a.right > b.left || b.right > w.getBoundingClientRect().right,
+                       oneLine: Math.abs(a.top - b.top) < 1 && h.scrollHeight <= h.clientHeight + 0.5 }; })()""")
+        dt = {}
+        for key, js in [("clean", "clean(); G.state.dirt.t = T.dirt.stageAtSec[0] - (2 * H + 12 * 60) - 30;"), ("s4", "toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"),
+                        ("m42", "toStage(2); G.state.dirt.t = T.dirt.stageAtSec[2] - 42 * 60 - 10;"), ("lt1", "toStage(2); G.state.dirt.t = T.dirt.stageAtSec[2] - 30;"), ("max", "toStage(5);")]:
+            ev(js); page.wait_for_timeout(80); dt[key] = dirt_txt()
+        ev("toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"); page.wait_for_timeout(80); page.locator("#hud").screenshot(path=shot("topbar_23h59m"))
+        check("AD v4 3: dirt window 'Dirt: clean' / 'Stage 1 in 2h 12m', 'Dirt: stage 4 of 5' / 'Stage 5 in 23h 59m' (one line, no clipping), '42m', '<1m', 'Max dirt'",
+              dt["clean"]["label"] == "Dirt: clean" and dt["clean"]["next"] == "Stage 1 in 2h 12m" and dt["s4"]["label"] == "Dirt: stage 4 of 5" and dt["s4"]["next"] == "Stage 5 in 23h 59m"
+              and not dt["s4"]["clip"] and dt["s4"]["oneLine"] and dt["m42"]["next"] == "Stage 3 in 42m" and dt["lt1"]["next"] == "Stage 3 in <1m" and dt["max"]["next"] == "Max dirt"
+              and dt["max"]["label"] == "Dirt: stage 5 of 5", json.dumps(dt))
+        jm = ev("""clean(); G.state.dirt.t = 3600 - 30; G.state.food = 20; const f = G.buyFish('guppy'); return 0;""")
+        page.wait_for_timeout(80); t_before = dirt_txt()["next"]
+        ev("const f = G.state.fish[G.state.fish.length - 1]; feedFull(f);"); page.wait_for_timeout(80); t_after = dirt_txt()["next"]
+        check("AD v4 3: the dirt timer jumps 5 minutes at once when a meal moves the clock", t_before == "Stage 1 in 2h 00m" and t_after == "Stage 1 in 1h 55m", f"{t_before} -> {t_after}")
+        # tank drawing geometry + pixels
+        ev("fresh(); G.state.speed = 1;"); page.wait_for_timeout(350)
+        gm = page.evaluate("AQ.geom()"); tb = box()
+        exp_surf = max(16, 0.07 * gm["H"])
+        png = page.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); pw, ph, px = png_rgb(png); k_ = pw / tb["width"]
+        P = lambda x, y: px(int(x * k_), int(y * k_))
+        air = P(gm["W"] * 0.33, gm["surf"] * 0.45); water = P(gm["W"] * 0.33, gm["surf"] + 30)
+        xr = gm["W"] - gm["inset"]; yl = (gm["surf"] + gm["sand"]) / 2
+        line_px, beside = P(xr, yl), P(xr - 9, yl)
+        surf_px = max((P(gm["W"] * 0.66, gm["surf"] + d) for d in (-1, 0, 1)), key=sum)
+        check("AD v4 4: air gap = top 7% (min 16px: 21 / 49px) filled darker than the water; sand top at 86%; glass lines inset 3.5% of W",
+              abs(gm["surf"] - exp_surf) < 0.01 and round(gm["surf"]) == (49 if LARGE else 21) and abs(gm["sand"] - min(0.86 * gm["H"], gm["H"] - 36)) < 0.01 and abs(gm["inset"] - 0.035 * gm["W"]) < 0.01
+              and sum(air) < sum(water) - 150 and air[2] < 110, json.dumps({"geom": gm, "air": air, "water": water}))
+        check("AD v4 4: water surface line is visible (lighter than the water under it)", sum(surf_px) > sum(water) + 40, json.dumps({"surface": surf_px, "water": water}))
+        # square tank corners (Maksims 19:57, AD v4 4 updated 19:58): radius 0 on frame, canvas, water and sand
+        rad = page.evaluate("['tank-wrap', 'tank'].map((id) => { const c = getComputedStyle(document.getElementById(id)); return [c.borderTopLeftRadius, c.borderTopRightRadius, c.borderBottomRightRadius, c.borderBottomLeftRadius]; })")
+        dif = lambda p, q: sum(abs(u - v) for u, v in zip(p, q))
+        Wt, Ht = gm["W"], gm["H"]
+        corners = {"tl": dif(P(0.3, 0.3), P(4, 4)), "tr": dif(P(Wt - 0.7, 0.3), P(Wt - 4, 4)), "bl": dif(P(0.3, Ht - 0.7), P(3, Ht - 3)), "br": dif(P(Wt - 0.7, Ht - 0.7), P(Wt - 3, Ht - 3))}
+        check("Maksims / AD v4 4: tank corners are SQUARE: border-radius 0 on the tank frame and canvas, and the very corner pixels are tank (air / sand), not frame",
+              all(r == "0px" for rr in rad for r in rr) and all(v < 30 for v in corners.values()), json.dumps({"radius": rad, "cornerDiff": corners}))
+        def glass_probe():
+            gl = page.evaluate("AQ.glassLine()"); x = gl["x"]; xo = gm["inset"] if gl["side"] == "right" else Wt - gm["inset"]; inward = -1 if gl["side"] == "right" else 1
+            top, top_b = P(x, 0.6), P(x + 9 * inward, 0.6)
+            bot, bot_b = P(x, gm["sand"] - 1.2), P(x + 9 * inward, gm["sand"] - 1.2)
+            below, below_b = P(x + 0.5 * inward, gm["sand"] + 3), P(x + 6 * inward, gm["sand"] + 3)
+            oth = P(xo, yl); oth_n = [(a + b) / 2 for a, b in zip(P(xo - 5, yl), P(xo + 5, yl))]
+            return gl, {"top": sum(top) - sum(top_b), "bottom": sum(bot) - sum(bot_b), "belowCorner": dif(below, below_b), "otherSide": sum(oth) - sum(oth_n)}
+        gl, pr = glass_probe()
+        check("AD v4 4: exactly ONE glass back line, on VISUAL.glassLineSide = 'right': it runs from the frame's inner top edge (y 0) straight down to the sand's back corner "
+              "(the sand edge is exactly at the corner), visible at both ends, no overshoot into the sand, no line on the left",
+              gl["side"] == "right" and abs(gl["x"] - (Wt - gm["inset"])) < 1e-6 and gl["y0"] == 0 and abs(gl["y1"] - gm["sand"]) < 1e-6 and abs(gl["cornerY"] - gm["sand"]) < 1e-6
+              and pr["top"] > 20 and pr["bottom"] > 20 and pr["belowCorner"] < 15 and pr["otherSide"] < 20, json.dumps({"line": gl, "px": pr}))
+        tbq = box()
+        page.screenshot(path=shot("tank_corners_right"), clip={"x": tbq["x"] + tbq["width"] * 0.72, "y": tbq["y"] - 10, "width": tbq["width"] * 0.28 + 10, "height": tbq["height"] + 20})
+        ev("window.AQUARIUM_CONFIG.VISUAL.glassLineSide = 'left';"); page.wait_for_timeout(150)
+        png = page.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); pw, ph, px = png_rgb(png)
+        gl2, pr2 = glass_probe()
+        page.screenshot(path=shot("tank_glass_left_setting"))
+        ev("window.AQUARIUM_CONFIG.VISUAL.glassLineSide = 'right';"); page.wait_for_timeout(150)
+        check("AD v4 4: one setting flips it: glassLineSide = 'left' draws the single line at the left sand corner (frame top to corner) and none on the right",
+              gl2["side"] == "left" and abs(gl2["x"] - gm["inset"]) < 1e-6 and gl2["y0"] == 0 and abs(gl2["cornerY"] - gm["sand"]) < 1e-6
+              and pr2["top"] > 20 and pr2["bottom"] > 20 and pr2["belowCorner"] < 15 and pr2["otherSide"] < 20, json.dumps({"line": gl2, "px": pr2}))
+        page.screenshot(path=shot("main_screen"))
+        L4 = page.evaluate("AQ.fishLen('guppy', 4)"); L1n = page.evaluate("AQ.fishLen('neon', 1)")
+        tgt = ev("fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('neon'); AQ.pinFish(f.id, 0.5, 0.5); return f.id;")
+        page.wait_for_timeout(200); c_ = page.evaluate(f"AQ.fishScreen({tgt})"); taps_ok = []
+        for dx_, dy_ in ((21, 0), (-21, 0), (0, 21), (0, -21)):
+            page.keyboard.press("Escape"); page.wait_for_timeout(60); tank_click(c_["x"] + dx_, c_["y"] + dy_); page.wait_for_timeout(120)
+            taps_ok.append(page.locator("#panel").is_visible())
+        page.keyboard.press("Escape")
+        check("AD v4 4: fish length = min(W, waterH*0.8) * 0.30 * species * level (adult guppy ~0.82 x 67px compact); the smallest fish is tappable 21px off-centre in every direction (>= 44x44)",
+              abs(L4 - min(gm["W"], gm["waterH"] * 0.8) * 0.30 * 0.82) < 0.01 and all(taps_ok), json.dumps({"L4guppy": L4, "L1neon": L1n, "taps": taps_ok}))
+        ic_ = ev("fresh(); const f = G.buyFish('guppy'); feedFull(f); G.tick(90); AQ.pinFish(f.id, 0.5, 0.5); return f.id;"); page.wait_for_timeout(200)
+        fi_ = page.evaluate(f"AQ.fishIcon({ic_})"); c2 = page.evaluate(f"AQ.fishScreen({ic_})")
+        check("AD v4 5: hunger icon centred at y = -(body half-depth) - 12, x = +0.25 L toward the head (no feed meter, no selection ring)",
+              abs(fi_["y"] - (c2["y"] - fi_["halfDepth"] - 12)) < 0.01 and abs(fi_["x"] - (c2["x"] + fi_["face"] * 0.25 * fi_["L"])) < 0.01, json.dumps([fi_, c2]))
+        # stage 1 readability (AD v4 21): 3 spots, alpha 0.22, colour #7A8A4A, big enough to see
+        ev("fresh(); toStage(1);"); page.wait_for_timeout(300)
+        sp1 = page.evaluate("AQ.spotsScreen()"); gm = page.evaluate("AQ.geom()")
+        png = page.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); pw, ph, px = png_rgb(png); k_ = pw / tb["width"]
+        ev("clean();"); page.wait_for_timeout(250)
+        png0 = page.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); _w0, _h0, px0 = png_rgb(png0)
+        diffs = [sum(abs(a_ - b_) for a_, b_ in zip(px(int(q["x"] * k_), int(q["y"] * k_)), px0(int(q["x"] * k_), int(q["y"] * k_)))) for q in sp1]
+        check("AD v4 21: stage 1 = 3 spots (dirt.spots[0]), radius 0.10-0.14 of the water height, each clearly visible against clean water (colour change > 40 at its centre)",
+              len(sp1) == tj["dirt"]["spots"][0] == 3 and all(0.10 * gm["waterH"] - 0.01 <= q["r"] <= 0.14 * gm["waterH"] + 0.01 for q in sp1) and min(diffs) > 40, json.dumps({"r": [round(q["r"], 1) for q in sp1], "diff": diffs}))
+        ev("toStage(1);"); page.wait_for_timeout(250); page.screenshot(path=shot("stage1_dirt")); ev("clean();")
+        check("AD v4 6: sponge radius = 0.16 x water height clamped 40-72px", abs(gm["spongeR"] - max(40, min(72, 0.16 * gm["waterH"]))) < 0.01, str(gm["spongeR"]))
+        # shop: centred panel, tabs, close pill, food packs, decorations
+        ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 5000; G.state.speed = 1;"); page.wait_for_timeout(100)
+        page.click("#btn-shop"); page.wait_for_timeout(300)
+        sh = page.evaluate("""(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); const k = r('#tank-wrap'), s = r('#shop'), c = r('#shop-close');
+            const cols = getComputedStyle(document.getElementById('shop-list')).gridTemplateColumns.split(' ').length;
+            return { w: s.width, h: s.height, cx: (s.left + s.right) / 2 - (k.left + k.right) / 2, top: s.top - k.top, tankW: k.width, tankH: k.height, closeW: c.width, closeH: c.height,
+                     closeCx: (c.left + c.right) / 2 - (s.left + s.right) / 2, closeBottom: s.bottom - parseFloat(getComputedStyle(document.getElementById('shop')).borderBottomWidth) - c.bottom, cols, tabs: [...document.querySelectorAll('#shop .tab')].map((t) => t.textContent),
+                     title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
+                     pad: parseFloat(getComputedStyle(document.getElementById('shop-scroll')).paddingBottom) }; })()""")
+        check("AD v4 8 / bible 7-8: shop = centred panel min(680, tankW-32) x tankH-16, header 'Shop' + tabs Fish / Food / Decorations, no tank level / XP, 4 / 5 columns",
+              abs(sh["w"] - min(680, sh["tankW"] - 32)) < 1 and abs(sh["h"] - (sh["tankH"] - 16)) < 1 and abs(sh["cx"]) < 1 and abs(sh["top"] - 8) < 1 and sh["title"] == "Shop"
+              and sh["tabs"] == ["Fish", "Food", "Decorations"] and not sh["xp"] and sh["cols"] == (5 if LARGE else 4), json.dumps(sh))
+        page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)
+        vis = page.evaluate("(() => { const c = document.getElementById('shop-close').getBoundingClientRect(), s = document.getElementById('shop').getBoundingClientRect(); const e = document.elementFromPoint((c.left + c.right) / 2, (c.top + c.bottom) / 2); return { onTop: e && e.id === 'shop-close', inside: c.bottom <= s.bottom && c.top >= s.top }; })()")
+        page.screenshot(path=shot("shop_scrolled"))
+        check("bible 7 / AD v4 8: 'Close' pill fixed at the shop's bottom middle 8px up, 120x36 / 160x44, still on top after scrolling to the end; grid has 52 / 60px bottom padding",
+              sh["closeText"] == "Close" and abs(sh["closeW"] - (160 if LARGE else 120)) < 0.5 and abs(sh["closeH"] - (44 if LARGE else 36)) < 0.5 and abs(sh["closeCx"]) < 1 and abs(sh["closeBottom"] - 8) < 1
+              and vis["onTop"] and vis["inside"] and sh["pad"] == (60 if LARGE else 52), json.dumps([sh, vis]))
+        page.click("#shop-close"); page.wait_for_timeout(150)
+        closed = not page.locator("#shop").is_visible()
+        page.click("#btn-shop"); page.wait_for_timeout(200); page.click('#shop .tab[data-tab="food"]'); page.wait_for_timeout(150)
+        packs = page.evaluate("[...document.querySelectorAll('#shop-food .card')].map((c) => [c.querySelector('.n').textContent, c.querySelector('.price').textContent])")
+        g0, f0 = S()["gold"], S()["food"]; page.click('#shop-food button[data-food="0"]'); page.wait_for_timeout(100); g1, f1 = S()["gold"], S()["food"]
+        page.click('#shop-food button[data-food="1"]'); page.wait_for_timeout(100); g2, f2 = S()["gold"], S()["food"]
+        page.screenshot(path=shot("shop_food"))
+        check("bible 9: Food tab sells 10 food for 5 gold and 50 food for 25 gold; the Close pill closes the shop",
+              closed and packs == [["10 food", "5"], ["50 food", "25"]] and (g0 - g1, f1 - f0, g1 - g2, f2 - f1) == (5, 10, 25, 50), json.dumps([packs, g0, g1, g2, f0, f1, f2]))
+        page.click('#shop .tab[data-tab="decor"]'); page.wait_for_timeout(150)
+        dec = page.evaluate("[...document.querySelectorAll('#shop-decor .card')].map((c) => [c.querySelector('.n').textContent, c.querySelector('.price').textContent])")
+        page.screenshot(path=shot("shop_decorations"))
+        # decorations: defaults, buying opens edit mode on the new one
+        d0 = page.evaluate("AQ.decorScreen()")
+        check("bible 24 / AD v4 7: default tank = leaves at x 0.16 / 0.24 / 0.82 (colours 25 / 55 / 40) and a stone at 0.60 (colour 50), all 1.0x, inside the glass lines",
+              [(q["type"], q["x"], q["color"], q["sh"], q["sw"]) for q in d0] == [("leaf", 0.16, 25, 1, 1), ("leaf", 0.24, 55, 1, 1), ("leaf", 0.82, 40, 1, 1), ("stone", 0.6, 50, 1, 1)]
+              and all(q["x0"] >= gm["inset"] and q["x1"] <= gm["W"] - gm["inset"] for q in d0), json.dumps([(q["type"], q["x"], round(q["x0"]), round(q["x1"])) for q in d0]))
+        page.click('#shop-decor button[data-buydecor="leaf"]'); page.wait_for_timeout(250)
+        ed = page.evaluate("AQ.edit()"); dn = page.evaluate("AQ.decorScreen()")[-1]
+        toasts_ = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        check("bible 25 / 27: Decorations tab offers Leaf and Stone for free; buying places it at the floor centre, opens edit mode, selects it and opens its menu",
+              dec == [["Leaf", "Free"], ["Stone", "Free"]] and not page.locator("#shop").is_visible() and ed["editing"] and ed["selDecor"] == dn["id"] and ed["menu"] and abs(dn["x"] - 0.5) < 1e-9
+              and "Tap a decoration to change it" in toasts_ and page.locator('.tool[data-tool="brush"]').get_attribute("aria-pressed") == "true", json.dumps([dec, ed, dn["x"], toasts_]))
+        page.screenshot(path=shot("edit_mode_menu"))
+        mr = ed["menu"]; tk_ = ed["tank"]; dnb = ed["done"]
+        check("AD v4 7: side menu 296x248 / 392x330 docked 8px from the tank top and side; Done button 72x32 / 96x40 in a top corner 8px in, not covered by the menu",
+              abs(mr["w"] - (392 if LARGE else 296)) < 0.5 and abs(mr["h"] - (330 if LARGE else 248)) < 0.5 and abs(mr["y"] - tk_["y"] - 8) < 0.5
+              and (abs(mr["x"] - tk_["x"] - 8) < 0.5 or abs(tk_["x"] + tk_["w"] - mr["x"] - mr["w"] - 8) < 0.5) and dnb and abs(dnb["w"] - (96 if LARGE else 72)) < 0.5 and abs(dnb["h"] - (40 if LARGE else 32)) < 0.5
+              and abs(dnb["y"] - tk_["y"] - 8) < 0.5 and (dnb["x"] + dnb["w"] <= mr["x"] or dnb["x"] >= mr["x"] + mr["w"]), json.dumps([mr, dnb, tk_]))
+        # the menu never covers the decoration it edits: every decoration, at 1.0x and at 2.0 x 2.0
+        cover = []
+        for scale in (1.0, 2.0):
+            for q in page.evaluate("AQ.decorScreen()"):
+                ev(f"const d = G.state.decor.find((x) => x.id === '{q['id']}'); d.sh = {scale}; d.sw = {scale}; AQ.selectDecor(d.id);"); page.wait_for_timeout(40)
+                e_ = page.evaluate("AQ.edit()"); g_ = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == q["id"]); m_ = e_["menu"]
+                mx0, my0 = m_["x"] - e_["tank"]["x"], m_["y"] - e_["tank"]["y"]
+                if not (g_["x1"] <= mx0 or g_["x0"] >= mx0 + m_["w"] or g_["y1"] <= my0 or g_["y0"] >= my0 + m_["h"]): cover.append([q["id"], scale])
+        ev("G.state.decor.forEach((d) => { d.sh = 1; d.sw = 1; });")
+        check("AD v4 7: the side menu docks away from the decoration (centre x > 50% -> left) and never covers it (all decorations at 1.0x and 2.0x)", not cover, json.dumps(cover))
+        # move / size / colour / sell
+        did_ = dn["id"]; ev(f"AQ.selectDecor('{did_}');"); page.wait_for_timeout(60)
+        x_a = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
+        page.click('#deco-menu [data-move="right"]'); page.wait_for_timeout(60)
+        x_b = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
+        rb = page.locator('#deco-menu [data-move="left"]').bounding_box()
+        page.mouse.move(rb["x"] + rb["width"] / 2, rb["y"] + rb["height"] / 2); page.mouse.down(); page.wait_for_timeout(700); page.mouse.up(); page.wait_for_timeout(60)
+        x_c = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
+        steps_held = round((x_b - x_c) / 8)
+        check("AD v4 7: a Move tap moves 8px; holding repeats every 80ms after 300ms (0.7 s hold = about 6 steps)", abs(x_b - x_a - 8) < 0.01 and 4 <= steps_held <= 7, f"tap {x_b - x_a:.2f}px, held {steps_held} steps")
+        for _ in range(10): page.click('#deco-menu [data-size="taller"]')
+        for _ in range(5): page.click('#deco-menu [data-size="narrower"]')
+        page.wait_for_timeout(80)
+        szs = page.evaluate(f"(() => {{ const d = AQ.game.state.decor.find((x) => x.id === '{did_}'); return {{ sh: d.sh, sw: d.sw, label: document.getElementById('dm-scale').textContent,"
+                            " capT: document.querySelector('[data-size=\"taller\"]').classList.contains('capped'), op: getComputedStyle(document.querySelector('[data-size=\"taller\"]')).opacity,"
+                            " capN: document.querySelector('[data-size=\"narrower\"]').classList.contains('capped'), capS: document.querySelector('[data-size=\"shorter\"]').classList.contains('capped') }; })()")
+        lg_ = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)
+        check("v4 7 sizes: 0.1x per tap, capped at 2.0x tall / 0.5x narrow (the capped button drops to 40%), label 'H 2.0x  W 0.5x'; the leaf's top stays >= 4% of the water below the surface",
+              szs["sh"] == 2.0 and szs["sw"] == 0.5 and szs["label"] == "H 2.0x  W 0.5x" and szs["capT"] and szs["capN"] and not szs["capS"] and szs["op"] == "0.4"
+              and lg_["y0"] >= gm["surf"] + 0.04 * gm["waterH"] - 0.01, json.dumps([szs, lg_["y0"]]))
+        page.evaluate("(() => { const c = document.getElementById('dm-color'); c.value = 80; c.dispatchEvent(new Event('input', { bubbles: true })); c.dispatchEvent(new Event('change', { bubbles: true })); })()")
+        page.wait_for_timeout(60)
+        col = page.evaluate(f"(() => {{ const c = document.getElementById('dm-color'); return {{ color: AQ.game.state.decor.find((x) => x.id === '{did_}').color, track: c.style.getPropertyValue('--track'), thumb: c.style.getPropertyValue('--thumb') }}; }})()")
+        check("AD v4 7: colour slider 0-100 updates the decoration live; track = the leaf gradient light hsl(98,68%,65%) -> dark hsl(135,50%,23%), thumb = current colour",
+              col["color"] == 80 and "hsl(98.0,68.0%,65.0%)" in col["track"] and "hsl(135.0,50.0%,23.0%)" in col["track"] and col["thumb"].startswith("hsl("), json.dumps(col))
+        page.click("#dm-sell"); page.wait_for_timeout(100)
+        sell_t = page.inner_text("#confirm-text"); sell_btn = page.inner_text("#dm-sell") if page.locator("#dm-sell").is_visible() else ""
+        n_before = len(S()["decor"]); gd = S()["gold"]; page.click("#confirm-yes"); page.wait_for_timeout(100)
+        check("AD v4 7: 'Sell · refund 0 gold' asks 'Sell this leaf? You get 0 gold back.', then removes it (refunds the 0 paid)",
+              sell_t == "Sell this leaf? You get 0 gold back." and sell_btn == "Sell · refund 0 gold" and len(S()["decor"]) == n_before - 1 and S()["gold"] == gd and not page.locator("#deco-menu").is_visible(), json.dumps([sell_t, sell_btn]))
+        # edit mode: fish can't be tapped; Done exits; another tool exits
+        fe = ev("const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.45, 0.4); return f.id;"); page.wait_for_timeout(150)
+        pos_ = page.evaluate(f"AQ.fishScreen({fe})"); tank_click(pos_["x"], pos_["y"]); page.wait_for_timeout(150)
+        no_panel = not page.locator("#panel").is_visible()
+        page.click("#deco-done"); page.wait_for_timeout(100); ex1 = page.evaluate("AQ.edit()")
+        tool("brush"); page.wait_for_timeout(60); tool("food"); page.wait_for_timeout(60); ex2 = page.evaluate("AQ.edit()")
+        check("bible 26 / AD v4 7: in edit mode fish can't be tapped; Done leaves edit mode (back to Look); choosing another tool also leaves it",
+              no_panel and not ex1["editing"] and ex1["done"] is None and page.locator('.tool[data-tool="food"]').get_attribute("aria-pressed") == "true" and not ex2["editing"], json.dumps([ex1, ex2]))
+        # max 12 decorations, persistence
+        ev("while (G.state.decor.length < 12) G.buyDecor('stone'); G.state.decor[0].x = 0.3; G.state.decor[0].sh = 1.4; G.state.decor[0].color = 70; G.save();")
+        page.click("#btn-shop"); page.wait_for_timeout(150); page.click('#shop .tab[data-tab="decor"]'); page.wait_for_timeout(120)
+        full_d = page.evaluate("[...document.querySelectorAll('#shop-decor button')].map((b) => [b.disabled, b.innerText.trim()])"); refused = ev("return G.buyDecor('leaf') === null && G.state.decor.length === 12;")
+        page.click("#shop-close"); snap_d = S()["decor"]
+        boot("?speed=1"); after_d = S()["decor"]
+        check("v4 7: max 12 decorations (Buy disabled with 'Tank is full of decorations'); decorations keep position, size and colour across a reload",
+              all(d_ and t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
+        # fish info side panel geometry + meal bar
+        fp = ev("fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('platy'); AQ.pinFish(f.id, 0.3, 0.5); G.feedTap(f.x, f.y); return f.id;")
+        page.wait_for_timeout(150); tool("hand"); click_fish(fp); page.wait_for_timeout(250)
+        pn = page.evaluate("""(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); const k = r('#tank-wrap'), p = r('#panel');
+            return { w: p.width, h: p.height, right: k.right - p.right, top: p.top - k.top, tankH: k.height, overflowY: getComputedStyle(document.getElementById('panel')).overflowY,
+                     meal: document.getElementById('p-meal').textContent, segs: [...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on')),
+                     segH: document.querySelector('#p-mealbar i') ? document.querySelector('#p-mealbar i').getBoundingClientRect().height : 0, worth: document.getElementById('p-worth').textContent }; })()""")
+        page.screenshot(path=shot("fish_info_meal"))
+        check("AD v4 8 / bible 18: fish info docks right (300 / 380 wide, tank height - 16, scrolls); 'Meal 1 of 2 · needs 2 food' with a 3-segment 10px bar (1 filled), 'Worth 0 gold'",
+              abs(pn["w"] - (380 if LARGE else 300)) < 0.5 and abs(pn["h"] - (pn["tankH"] - 16)) < 0.5 and abs(pn["right"] - 8) < 0.5 and abs(pn["top"] - 8) < 0.5 and pn["overflowY"] == "auto"
+              and pn["meal"] == "Meal 1 of 2 · needs 2 food" and pn["segs"] == [True, False, False] and abs(pn["segH"] - 10) < 0.5 and pn["worth"] == "Worth 0 gold", json.dumps(pn))
+        page.keyboard.press("Escape")
+        # away window (NUMBERS v4 11.1)
+        aw_ = ev("""fresh(); const quiet = G.catchUp(600); const shownQuiet = AQ.showAway(quiet); const vis1 = !document.getElementById('away').hidden;
+          G.state.dirt.t = T.dirt.stageAtSec[1] - 100; const dirty = G.catchUp(200); const shown = AQ.showAway(dirty); const txt = document.getElementById('away-list').innerText;
+          document.getElementById('away').hidden = true; return { quiet: quiet.lines, shownQuiet, vis1, dirty: dirty.lines, shown, txt };""")
+        check("bible 23: the away window never says the tank is clean; it names the dirt stage only when dirty ('Tank is at dirt stage 2') and doesn't open when there's nothing to report",
+              aw_["quiet"] == [] and aw_["shownQuiet"] is False and not aw_["vis1"] and aw_["dirty"] == ["tank is at dirt stage 2"] and aw_["shown"] is True and aw_["txt"].strip() == "Tank is at dirt stage 2", json.dumps(aw_))
+        # new-tank start screenshot (0 / 0, dirt stage 3, defaults)
+        ev("G.reset(); G.state.speed = 1;"); page.wait_for_timeout(400); page.screenshot(path=shot("new_tank_start"))
 
         # ================================================================ F. balance
         bc = page.evaluate("AQ.game.balanceChecks()")
@@ -665,7 +922,7 @@ def main():
             for (let i = 0; i < 5; i++) { G.state.dirt.t = T.dirt.stageAtSec[i] - 0.5; G.tick(1); counts.push(G.state.dirt.spots.length === T.dirt.spots[i]); }
             spots = spots.concat(G.state.dirt.spots.map((s) => {
               const o = G.state.dirt.spots.find((x) => x.id === s.over);
-              const d = o ? Math.hypot((s.x - o.x) * sz.W, (s.y - o.y) * sz.H) / (o.r * sz.W) : null;
+              const d = o ? Math.hypot((s.x - o.x) * sz.W, (s.y - o.y) * sz.H) / (o.r * sz.waterH) : null;
               return { stage: s.stage, r: s.r, over: s.over, d, olderOk: o ? o.id < s.id : true };
             }));
           }
@@ -701,10 +958,10 @@ def main():
           fresh(); return res;""")
         rr = a["radii"]
         check("dirt v2: 5 distinct looks, spots drawn in their own stage's style and radius", len(set(a["looks"])) == 5 and a["everyStageStyled"] and a["radiusInRange"] and a["countsOk"], json.dumps(rr))
-        check("dirt v2: alphas 0.14/0.22/0.32/0.40/0.46, radii 0.075-0.11 ... 0.24-0.30 (AD v2 table)",
-              a["alphas"] == [0.14, 0.22, 0.32, 0.40, 0.46] and rr == [[0.075, 0.11], [0.11, 0.14], [0.16, 0.20], [0.20, 0.25], [0.24, 0.30]], f"{a['alphas']} {rr}")
-        check("dirt v2: stage 2-4 wash 0.04/0.08/0.12, stage 5 film rgb(70,110,40) 0.28 -> 0.42, scum top 8% at 0.45, stage 4 brown tint on half",
-              a["layer"][0] is None and [l and l.get("wash") for l in a["layer"][1:4]] == ["rgba(95,110,40,0.04)", "rgba(95,110,40,0.08)", "rgba(108,116,38,0.12)"] and a["layer"][4] == {"film": True}
+        check("dirt v4: stage 1 alpha 0.22 r 0.10-0.14 (AD v4 21), stages 2-5 keep the v2 table (0.22/0.32/0.40/0.46, 0.11-0.14 ... 0.24-0.30); radii in water heights",
+              a["alphas"] == [0.22, 0.22, 0.32, 0.40, 0.46] and rr == [[0.10, 0.14], [0.11, 0.14], [0.16, 0.20], [0.20, 0.25], [0.24, 0.30]], f"{a['alphas']} {rr}")
+        check("dirt v4: stage 1 wash 0.03 (new), stage 2-4 wash 0.04/0.08/0.12, stage 5 film rgb(70,110,40) 0.28 -> 0.42, scum top 8% at 0.45, stage 4 brown tint on half",
+              a["layer"][0] == {"wash": "rgba(95,110,40,0.03)"} and [l and l.get("wash") for l in a["layer"][1:4]] == ["rgba(95,110,40,0.04)", "rgba(95,110,40,0.08)", "rgba(108,116,38,0.12)"] and a["layer"][4] == {"film": True}
               and a["film"] == {"rgb": [70, 110, 40], "centre": 0.28, "edge": 0.42, "scum": [0.08, 0.45]} and a["tint"] == ["#5A5228", 0.6], json.dumps([a["layer"], a["film"], a["tint"]]))
         check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
         dl1, dof, dl3 = a["danioL1"], a["danioL1off"], a["danioL3"]
@@ -742,7 +999,7 @@ def main():
         check("film is already faint before the last spot clears and gone right after", 0 <= pre <= 0.3 and gone["s"] == 0 and gone["fi"]["max"] == 0 and gone["st"] == 0, json.dumps({"beforeLast": pre, "after": gone}))
 
         # ================================================================ H. touch: rub-clean with real touch drags (CDP, phone emulation)
-        tctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, has_touch=True, is_mobile=True)
+        tctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2, has_touch=True, is_mobile=True)
         tp = tctx.new_page()
         tp.on("pageerror", lambda e: errors.append(f"pageerror(touch): {e}"))
         tp.goto(BASE + "?speed=1"); tp.wait_for_function("window.AQ && window.AQ.game")
@@ -752,7 +1009,7 @@ def main():
         cdp = tctx.new_cdp_session(tp)
         tb = tp.locator("#tank").bounding_box()
         st0 = tp.evaluate("AQ.game.dirtStage()"); gold0 = tp.evaluate("AQ.game.state.gold")
-        lift = tp.evaluate("(() => { const c = document.querySelector('#tank canvas') || document.querySelector('canvas'); return c.getBoundingClientRect().width * AQ.game.CFG.VISUAL.spongeRadiusFrac * AQ.game.CFG.VISUAL.spongeTouchLiftFrac; })()")
+        lift = tp.evaluate("AQ.geom().spongeR * AQ.game.CFG.VISUAL.spongeTouchLiftFrac")
         for _ in range(20):
             if tp.evaluate("AQ.game.dirtStage()") == 0: break
             for sp in tp.evaluate("AQ.spotsScreen()"):
@@ -766,7 +1023,7 @@ def main():
                         x_ = ax + (bx - ax) * t / 6; y_ = ay + (by - ay) * t / 6
                         cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tb["x"] + x_, "y": tb["y"] + y_}]})
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        check("touch drags rub the tank clean (phone emulation), stage 1 pays +2 gold", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
+        check("touch drags rub the tank clean (touch emulation), stage 1 pays +2 gold", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
               f"stage {st0}->{tp.evaluate('AQ.game.dirtStage()')}")
         tp.evaluate("AQ.game.reset(); AQ.game.save()")
         tctx.close()
@@ -775,9 +1032,107 @@ def main():
         check("no console errors / page errors", not errors, "; ".join(errors[:5]))
         browser.close()
 
+
+
+def portrait():
+    """AD v4 1: held upright the rotate screen covers everything; the game clock keeps running; turning back resumes with no reload."""
+    VIEW[0] = "portrait"
+    errors = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (w, h, icon) in ((390, 844, 120), (820, 1180, 160)):
+            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=2)
+            page = ctx.new_page()
+            page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(400)
+            page.evaluate("window.__boot = Math.random()")
+            info = page.evaluate("""(() => { const r = document.getElementById('rotate'), i = document.getElementById('rotate-icon').getBoundingClientRect(), t = document.getElementById('rotate-text');
+                const e = document.elementFromPoint(innerWidth / 2, innerHeight * 0.9), app = getComputedStyle(document.getElementById('app')).display;
+                return { shown: !r.hidden && getComputedStyle(r).display !== 'none', bg: getComputedStyle(r).backgroundColor, iw: i.width, cx: (i.left + i.right) / 2 - innerWidth / 2,
+                         text: t.textContent, fs: getComputedStyle(t).fontSize, fw: getComputedStyle(t).fontWeight, top: e && e.closest('#rotate') !== null, app,
+                         anim: getComputedStyle(document.querySelector('#rotate-icon .phone')).animationDuration }; })()""")
+            vis = page.evaluate("""(() => { const out = {}; for (const id of ['tank', 'tools', 'hud', 'debug']) { const el = document.getElementById(id), cs = getComputedStyle(el);
+                out[id] = { rects: el.getClientRects().length, vis: cs.visibility, hidden: el.getClientRects().length === 0 || cs.visibility === 'hidden' || !el.checkVisibility({ visibilityProperty: true }) }; }
+                out.rotateVisible = document.getElementById('rotate').checkVisibility({ visibilityProperty: true }); return out; })()""")
+            check(f"{w}x{h} upright: ONLY the rotate screen is visible; tank canvas, tool column, top bar and debug row are hidden (display none / no boxes), not just covered",
+                  vis["rotateVisible"] and all(vis[k]["hidden"] and vis[k]["rects"] == 0 for k in ("tank", "tools", "hud", "debug")), json.dumps(vis))
+            g0 = page.evaluate("AQ.game.state.gameTime"); f0 = page.evaluate("AQ.frames()")
+            page.wait_for_timeout(1200)
+            g1 = page.evaluate("AQ.game.state.gameTime"); f1 = page.evaluate("AQ.frames()")
+            page.screenshot(path=os.path.join(SHOTS, f"portrait_rotate_{w}x{h}.png"))
+            check(f"{w}x{h} upright: rotate screen covers everything (#07192a), {icon}px icon centred, 'Turn your device sideways' 18px/800, animation 1.0 s turn + 0.8 s hold",
+                  info["shown"] and info["bg"] == "rgb(7, 25, 42)" and abs(info["iw"] - icon) < 0.5 and abs(info["cx"]) < 1 and info["text"] == "Turn your device sideways"
+                  and info["fs"] == "18px" and info["fw"] == "800" and info["top"] and info["app"] == "none" and info["anim"] == "1.8s", json.dumps(info))
+            check(f"{w}x{h} upright: the game clock keeps running while drawing pauses", 0.8 < g1 - g0 < 2.5 and f1 == f0, f"game +{g1 - g0:.2f}s, frames {f0}->{f1}")
+            page.set_viewport_size({"width": h, "height": w}); page.wait_for_timeout(500)
+            back = page.evaluate("({ rot: document.getElementById('rotate').hidden, boot: window.__boot !== undefined, frames: AQ.frames(), tank: document.getElementById('tank-wrap').getBoundingClientRect().width })")
+            page.wait_for_timeout(300)
+            check(f"{w}x{h}: turning sideways hides the rotate screen and resumes drawing with no reload", back["rot"] and back["boot"] and page.evaluate("AQ.frames()") > f1 and back["tank"] > 300, json.dumps(back))
+            ctx.close()
+        # AD addition: open shop + confirm dialog + toast in landscape, then turn upright -> none of them shows; background fully opaque
+        ctx = browser.new_context(viewport={"width": 844, "height": 390}, device_scale_factor=1)
+        page = ctx.new_page()
+        page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+        page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(400)
+        page.evaluate("AQ.openShop(); document.getElementById('dbg-reset').click(); AQ.toast('Guppy is hungry!', '', { ms: 60000 })")
+        page.wait_for_timeout(300)
+        ids = ("shop", "confirm", "toasts", "tank", "tools", "hud", "debug")
+        before = page.evaluate("(ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).checkVisibility({ visibilityProperty: true })]))", list(ids))
+        page.set_viewport_size({"width": 390, "height": 844}); page.wait_for_timeout(1400)
+        after = page.evaluate("""(ids) => { const o = {}; for (const id of ids) { const el = document.getElementById(id);
+            o[id] = { visible: el.checkVisibility({ visibilityProperty: true }), rects: el.getClientRects().length }; }
+            const t = document.querySelector('#toasts .toast'); o.toastInDom = !!t; o.toastVisible = t ? t.checkVisibility({ visibilityProperty: true }) : false;
+            const hits = []; for (let y = 10; y < innerHeight; y += 60) for (let x = 10; x < innerWidth; x += 60) { const e = document.elementFromPoint(x, y); hits.push(!!(e && e.closest('#rotate'))); }
+            o.allHitsRotate = hits.every(Boolean); return o; }""", list(ids))
+        path = os.path.join(SHOTS, "portrait_rotate_over_open_ui_390x844.png"); page.screenshot(path=path)
+        w_, h_, px = png_rgb(open(path, "rb").read())
+        bad, n = [], 0
+        for y in range(0, h_, 6):
+            for x in range(0, w_, 6):
+                if abs(x - w_ / 2) < 145 and -75 < y - h_ / 2 < 95: continue  # centred icon + text block (text is ~230 px wide)
+                n += 1; c = px(x, y)
+                if max(abs(c[0] - 7), abs(c[1] - 25), abs(c[2] - 42)) > 1: bad.append((x, y, c))
+        check("390x844 upright over an open shop + confirm dialog + toast: none of them (nor tank, tool column, top bar, debug row) is visible; every tap point hits the rotate screen",
+              all(before[k] for k in ("shop", "confirm", "toasts")) and not any(after[k]["visible"] for k in ids) and not after["toastVisible"] and after["allHitsRotate"],
+              json.dumps({"before": before, "after": after}))
+        check(f"390x844 rotate screen background fully opaque: {n} sampled pixels outside the icon/text block are exactly #07192a (no tank colours through)",
+              not bad and n > 5000, f"{len(bad)} off-colour, e.g. {bad[:4]}")
+        info = page.evaluate("""(() => { const i = document.getElementById('rotate-icon'), svg = i.querySelector('svg') || i;
+            return { phone: !!i.querySelector('.phone'), arrow: !!i.querySelector('.arrow, [class*=arrow]'), text: document.getElementById('rotate-text').textContent, w: i.getBoundingClientRect().width }; })()""")
+        check("390x844 rotate screen per AD: 120px phone icon with curved arrow, 'Turn your device sideways'",
+              info["phone"] and info["arrow"] and info["text"] == "Turn your device sideways" and abs(info["w"] - 120) < 0.5, json.dumps(info))
+        page.set_viewport_size({"width": 844, "height": 390}); page.wait_for_timeout(500)
+        back = page.evaluate("(ids) => Object.fromEntries(ids.map((id) => [id, document.getElementById(id).checkVisibility({ visibilityProperty: true })]))", ["shop", "confirm", "tank", "tools", "hud", "debug"])
+        check("turning back sideways: the shop and confirm dialog are still open where they were (nothing lost)", all(back.values()), json.dumps(back))
+        page.evaluate("document.querySelector('#confirm button').click()")
+        ctx.close()
+        browser.close()
+    check("portrait pass: no page errors", not errors, "; ".join(errors[:3]))
+
+def cache_bust():
+    """Producer: every local script/CSS tag carries the same ?v=<build> so phones never run stale files after an update."""
+    import re
+    html = open(os.path.join(HERE, "..", "index.html")).read()
+    tags = re.findall(r'(?:src|href)="((?!https?:|//)[^"]+\.(?:js|css)(?:\?[^"]*)?)"', html)
+    vers = {re.search(r"\?v=([0-9A-Za-z._-]+)$", t).group(1) if re.search(r"\?v=([0-9A-Za-z._-]+)$", t) else None for t in tags}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(); page = browser.new_page(viewport={"width": 844, "height": 390})
+        page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game")
+        loaded = page.evaluate("performance.getEntriesByType('resource').map((e) => e.name).filter((n) => /\\.(js|css)(\\?|$)/.test(n))")
+        browser.close()
+    v = next(iter(vers)) if len(vers) == 1 else None
+    check(f"cache busting: all {len(tags)} script/CSS tags in index.html carry the same ?v= build id and the page loads them with it",
+          len(tags) == 5 and v is not None and len(loaded) >= 5 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
+
+if __name__ == "__main__":
+    views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",")]
+    for vw, vh in views:
+        print(f"\n======== {vw}x{vh}", flush=True)
+        main(vw, vh)
+    if os.environ.get("AQ_PORTRAIT", "1") == "1":
+        print("\n======== portrait", flush=True)
+        portrait()
+    cache_bust()
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
     sys.exit(1 if failed else 0)
-
-if __name__ == "__main__":
-    main()

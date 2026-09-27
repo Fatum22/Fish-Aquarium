@@ -1,5 +1,5 @@
 """Review screenshots (phone 390x844 @2x) for Art Director's DIRT_AND_FISH_GROWTH.md and the v2 rules UI.
-Run (server on 8766): /workspace/tools/venv-aq/bin/python tests/art_shots.py
+Run (dev server on 8767): /workspace/tools/venv-aq/bin/python tests/art_shots.py
 Writes screenshots/: dirt_stage1..5.png (adult neon mid-tank), dirt_stage5_midrub.png, dead_fish_panel.png,
 dead_fish_stage5.png, fish_{guppy,neon,danio,platy}_L1-L4.png, tank_neon_L2_closeup.png, fish_all_L1-L4.png, tank_{guppy,neon}_L1-L4.png,
 shop_locked.png, feeding_meter.png, away_summary.png (dirty_feed.png comes from verify.py). Resets the save at the end.
@@ -7,7 +7,7 @@ shop_locked.png, feeding_meter.png, away_summary.png (dirty_feed.png comes from 
 import os
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("AQ_URL", "http://127.0.0.1:8766/")
+BASE = os.environ.get("AQ_URL", "http://127.0.0.1:8767/")
 SHOTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots")
 SPECIES = ["guppy", "neon", "danio", "platy"]
 

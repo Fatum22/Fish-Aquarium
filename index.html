@@ -3,48 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#0b2a3f">
+  <meta name="theme-color" content="#07192a">
+  <meta name="screen-orientation" content="landscape">
   <title>Aquarium (prototype)</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=202609271856">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f5c542"/><circle cx="12" cy="12" r="7" fill="none" stroke="#c9961a" stroke-width="2"/><path d="M9 8.5h4.5a2 2 0 0 1 0 4H10.5a2 2 0 0 0 0 4H15" fill="none" stroke="#a87808" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-gem" viewBox="0 0 24 24"><path d="M7 4h10l4 5-9 12L3 9z" fill="#2ba8d8"/><path d="M3 9h18L12 21z" fill="#2ba8d8"/><path d="M3 9l9 12L8 9z" fill="#5fe3ff"/><path d="M7 4l1 5H3z" fill="#5fe3ff"/><path d="M7 4h10l-1 5H8z" fill="#e6fbff"/><path d="M8 9h8l-4 12z" fill="#5fe3ff" opacity=".55"/><path d="M7 4h10l4 5-9 12L3 9z" fill="none" stroke="#0b2233" stroke-width="1" stroke-linejoin="round"/></symbol>
       <symbol id="i-food" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="15" rx="3" fill="#ff8a3d"/><rect x="7" y="3" width="10" height="4" rx="1.5" fill="#d9d9d9"/><circle cx="10" cy="12" r="1.3" fill="#fff4"/><circle cx="14" cy="15" r="1.3" fill="#fff4"/><circle cx="11" cy="17.5" r="1.1" fill="#fff4"/></symbol>
+      <symbol id="i-food-empty" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="15" rx="3" fill="rgba(255,255,255,0.08)" stroke="#ff8a3d" stroke-opacity=".6" stroke-width="1.2"/><rect x="7" y="3" width="10" height="4" rx="1.5" fill="#d9d9d9"/></symbol>
       <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11V4a1.5 1.5 0 0 1 3 0v7V5.5a1.5 1.5 0 0 1 3 0V13v-3a1.5 1.5 0 0 1 3 0v4.5c0 4-3 7.5-7 7.5h-1c-2.5 0-4-1.2-5.2-3L4.5 14a1.6 1.6 0 0 1 2.6-1.8z" fill="#ffe0bf" stroke="#8a5a3a" stroke-width="1.2" stroke-linejoin="round"/></symbol>
       <symbol id="i-sponge" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="11" rx="3" fill="#ffd84a" stroke="#c8a21a" stroke-width="1.2"/><rect x="3" y="14" width="18" height="4" rx="1.5" fill="#3aa35a"/><circle cx="8" cy="10.5" r="1.1" fill="#c8a21a"/><circle cx="13" cy="11.5" r="1.3" fill="#c8a21a"/><circle cx="17" cy="10" r="0.9" fill="#c8a21a"/></symbol>
+      <symbol id="i-net" viewBox="0 0 24 24"><path d="M10.2 13.8L3 21" stroke="#c98a4b" stroke-width="3" stroke-linecap="round"/><g stroke="#9fd8ff" stroke-opacity=".7" stroke-width="1"><path d="M11.2 5.6L18.4 12.8M12.2 4.6l6.2 3.2M10.6 8.2l8 1.6M12.4 3.9l1.6 8M10.3 6.8l3.2 6.2M15.4 3.3l-4.9 8.3M17.6 4.4l-6.9 7.6M19.7 7.3l-8.4 5.3"/></g><circle cx="15" cy="9" r="6.6" fill="none" stroke="#d9e3ea" stroke-width="2.5"/></symbol>
+      <symbol id="i-brush" viewBox="0 0 24 24"><path d="M20.5 3.5L12 12" stroke="#c98a4b" stroke-width="3" stroke-linecap="round"/><path d="M13.6 9.2l1.9 1.9-2.6 2.6-1.9-1.9z" fill="#cfd8dc" stroke="#8fa0a8" stroke-width=".6"/><path d="M11 11.9l1.8 1.8c-.3 3.2-2.6 5.8-6.6 7.3-1.2.4-2.4-.2-1.9-1.3 1.6-3.5 3.9-6.9 6.7-7.8z" fill="#3ddc84"/><path d="M4.3 19.7c.4-1.1 1-2.2 1.6-3.2 1 .2 1.8 1 2 2-1.1.7-2.3 1.3-3.6 1.2z" fill="#23a35f"/></symbol>
       <symbol id="i-shop" viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2z" fill="#6fd3ff" stroke="#1f7fb0" stroke-width="1.2" stroke-linejoin="round"/><path d="M9 9V6.5a3 3 0 0 1 6 0V9" fill="none" stroke="#1f7fb0" stroke-width="1.6" stroke-linecap="round"/><path d="M8.5 15c1.2-1.4 3.5-1.6 5 0l1.5-1v2l-1.5-1c-1.5 1.6-3.8 1.4-5 0z" fill="#ff7a3d"/></symbol>
-      <symbol id="i-buyfood" viewBox="0 0 24 24"><rect x="4" y="7" width="11" height="14" rx="3" fill="#ff8a3d"/><rect x="5" y="4" width="9" height="4" rx="1.5" fill="#d9d9d9"/><circle cx="18" cy="8" r="5" fill="#2ecc71"/><path d="M18 5.5v5M15.5 8h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <clipPath id="food-clip" clipPathUnits="userSpaceOnUse"><rect id="food-clip-rect" x="0" y="6" width="24" height="15"/></clipPath>
     </defs>
   </svg>
 
   <div id="app">
+    <nav id="tools" aria-label="Tools">
+      <button class="tool" data-tool="hand" aria-pressed="true"><svg><use href="#i-hand"/></svg><span>Look</span></button>
+      <button class="tool" data-tool="food"><span class="ico">
+          <svg id="food-icon" viewBox="0 0 24 24"><g id="food-partial"><use href="#i-food-empty"/><g clip-path="url(#food-clip)"><use href="#i-food"/></g></g><use id="food-empty" href="#i-food-empty" hidden/></svg>
+          <b id="food-badge" class="badge">0</b></span><span>Food</span></button>
+      <button class="tool" data-tool="sponge"><svg><use href="#i-sponge"/></svg><span>Clean</span></button>
+      <button class="tool" data-tool="net"><svg><use href="#i-net"/></svg><span>Net</span></button>
+      <button class="tool" data-tool="brush"><svg><use href="#i-brush"/></svg><span>Decorate</span></button>
+      <button class="tool action" id="btn-shop"><svg><use href="#i-shop"/></svg><span>Shop</span></button>
+    </nav>
+
     <header id="hud">
       <div class="res" id="res-gold" title="Gold"><svg><use href="#i-coin"/></svg><span id="gold">0</span></div>
-      <div class="res" id="res-food" title="Food"><svg><use href="#i-food"/></svg><span id="food">0</span></div>
-      <div id="dirt-wrap" title="Dirt">
-        <div id="dirt-label">Clean</div>
-        <div id="dirt-bar" aria-label="Dirt stage">
-          <i></i><i></i><i></i><i></i><i></i>
-        </div>
+      <div class="res" id="res-gem" title="Diamonds"><svg><use href="#i-gem"/></svg><span id="gems">0</span></div>
+      <div id="tanklvl" title="Tank level: feeding, level-ups, selling and cleaning earn XP">
+        <div id="tank-label">Tank Lv 1</div>
+        <div class="xprow"><div class="bar"><div id="tank-xpbar"></div></div><span id="tank-xp">0 / 60</span></div>
+      </div>
+      <div id="dirt-win" title="Dirt">
+        <div class="l1"><span id="dirt-label">Dirt: clean</span><span id="dirt-next"></span></div>
+        <div id="dirt-bar" aria-label="Dirt stage"><i></i><i></i><i></i><i></i><i></i></div>
       </div>
     </header>
-    <div id="tankbar" title="Tank level: level-ups and cleans earn XP; tank levels unlock species">
-      <span id="tank-label">Tank Lv 1</span>
-      <div class="bar"><div id="tank-xpbar"></div></div>
-    </div>
 
     <main id="tank-wrap">
       <canvas id="tank" aria-label="Aquarium tank"></canvas>
-      <div id="dirt-callout" hidden>Clean the tank first</div>
       <div id="toasts"></div>
       <div id="hint"></div>
+      <button id="deco-done" class="btn primary" hidden>Done</button>
 
-      <section id="panel" class="sheet" hidden>
+      <section id="panel" class="side" hidden>
         <button class="close" data-close="panel" aria-label="Close">&times;</button>
         <div class="panel-head">
-          <canvas id="panel-portrait" width="160" height="96"></canvas>
+          <canvas id="panel-portrait" width="200" height="120"></canvas>
           <div>
             <div class="p-name" id="p-name"></div>
             <div class="p-latin" id="p-latin"></div>
@@ -54,18 +68,55 @@
         <div class="p-row alive"><span class="k">Growth</span><span class="v" id="p-growth"></span></div>
         <div class="bar alive"><div id="p-growbar"></div></div>
         <div class="p-row alive"><span class="k">Hunger</span><span class="v" id="p-hunger"></span></div>
-        <div class="p-row small alive"><span class="k">Food per feed</span><span class="v" id="p-portion"></span></div>
+        <div class="p-row alive"><span class="k">Food</span><span class="v" id="p-meal"></span></div>
+        <div class="meal alive" id="p-mealbar"></div>
+        <div class="p-row"><span class="k">Value</span><span class="v" id="p-worth"></span></div>
         <div class="p-row deadonly"><span class="k">Status</span><span class="v danger" id="p-dead">Dead</span></div>
-        <button id="p-sell" class="btn wide"></button>
+        <p class="note deadonly">Use the Net to remove it.</p>
       </section>
 
-      <section id="shop" class="sheet" hidden>
-        <button class="close" data-close="shop" aria-label="Close">&times;</button>
-        <h2>Fish shop <small>babies only</small></h2>
-        <div id="shop-tankrow"><span id="shop-tank"></span><div class="bar"><div id="shop-tankbar"></div></div></div>
-        <div id="shop-list"></div>
-        <button class="btn wide diamond" disabled title="Diamonds are not available in this prototype">&#9670; Diamonds: coming later</button>
-        <p class="note" id="shop-note"></p>
+      <section id="shop" hidden>
+        <div class="shop-head">
+          <h2>Shop</h2>
+          <div class="tabs" role="tablist">
+            <button class="tab" data-tab="fish" aria-selected="true">Fish</button>
+            <button class="tab" data-tab="food" aria-selected="false">Food</button>
+            <button class="tab" data-tab="decor" aria-selected="false">Decorations</button>
+          </div>
+          <button class="close" data-close="shop" aria-label="Close">&times;</button>
+        </div>
+        <div id="shop-scroll">
+          <div id="shop-list" class="grid" data-tab="fish"></div>
+          <div id="shop-food" class="grid" data-tab="food" hidden></div>
+          <div id="shop-decor" class="grid" data-tab="decor" hidden></div>
+          <p class="note" id="shop-note"></p>
+        </div>
+        <button id="shop-close" class="pill">Close</button>
+      </section>
+
+      <section id="deco-menu" hidden>
+        <div class="dm-head"><span id="dm-title">Leaf</span><button class="close" id="dm-close" aria-label="Close">&times;</button></div>
+        <div class="dm-row">
+          <div class="dm-group"><div class="dm-cap">Move</div>
+            <div class="dpad">
+              <button class="rb" data-move="up" style="grid-area:1/2" aria-label="Move up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+              <button class="rb" data-move="left" style="grid-area:2/1" aria-label="Move left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+              <button class="rb" data-move="right" style="grid-area:2/3" aria-label="Move right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+              <button class="rb" data-move="down" style="grid-area:3/2" aria-label="Move down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+            </div>
+          </div>
+          <div class="dm-group"><div class="dm-cap">Size</div>
+            <div class="sizes">
+              <button class="rb" data-size="taller" aria-label="Taller"><svg viewBox="0 0 24 24"><path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/></svg></button>
+              <button class="rb" data-size="shorter" aria-label="Shorter"><svg viewBox="0 0 24 24"><path d="M12 2v7M12 15v7M8 5l4 4 4-4M8 19l4-4 4 4"/></svg></button>
+              <button class="rb" data-size="wider" aria-label="Wider"><svg viewBox="0 0 24 24"><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg></button>
+              <button class="rb" data-size="narrower" aria-label="Narrower"><svg viewBox="0 0 24 24"><path d="M2 12h7M15 12h7M5 8l4 4-4 4M19 8l-4 4 4 4"/></svg></button>
+            </div>
+            <div class="dm-scale" id="dm-scale">H 1.0x  W 1.0x</div>
+          </div>
+        </div>
+        <input type="range" id="dm-color" min="0" max="100" step="1" value="50" aria-label="Colour">
+        <button class="btn danger" id="dm-sell">Sell · refund 0 gold</button>
       </section>
 
       <div id="tankover" class="modal" hidden>
@@ -86,7 +137,8 @@
         </div>
       </div>
       <div id="confirm" class="modal" hidden>
-        <div class="modal-box">
+        <div class="modal-box confirm-box">
+          <canvas id="confirm-portrait" width="240" height="120"></canvas>
           <p id="confirm-text"></p>
           <div class="modal-actions">
             <button class="btn" id="confirm-no">Cancel</button>
@@ -95,14 +147,6 @@
         </div>
       </div>
     </main>
-
-    <nav id="tools">
-      <button class="tool" data-tool="hand" aria-pressed="true"><svg><use href="#i-hand"/></svg><span>Look</span></button>
-      <button class="tool" data-tool="food"><svg><use href="#i-food"/></svg><span>Food</span></button>
-      <button class="tool" data-tool="sponge"><svg><use href="#i-sponge"/></svg><span>Sponge</span></button>
-      <button class="tool action" id="btn-shop"><svg><use href="#i-shop"/></svg><span>Shop</span></button>
-      <button class="tool action" id="btn-buyfood"><svg><use href="#i-buyfood"/></svg><span id="buyfood-label">Buy food</span></button>
-    </nav>
 
     <footer id="debug">
       <span class="dbg-title">DEBUG</span>
@@ -113,13 +157,20 @@
       <span id="dbg-clock"></span>
     </footer>
   </div>
-  <!-- pointer from the "Clean the tank first" callout up to the dirt bar; outside #tank-wrap (overflow hidden) so it
-       can cross the XP row, drawn above the HUD. Placed by placeDirtArrow() in main.js. -->
-  <div id="dirt-arrow" hidden></div>
 
-  <script src="config.js"></script>
-  <script src="js/fishart.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/main.js"></script>
+  <!-- AD v4 1: held upright, a rotate screen covers everything; the game clock keeps running underneath -->
+  <div id="rotate" hidden>
+    <svg id="rotate-icon" viewBox="0 0 100 100" aria-hidden="true">
+      <g class="phone"><rect x="30" y="14" width="40" height="72" rx="6" fill="none" stroke="#eaf6ff" stroke-width="4"/><circle cx="50" cy="78" r="2.6" fill="#eaf6ff"/></g>
+      <path class="arrow" d="M62 6 A 30 30 0 0 1 90 32" fill="none" stroke="#37c3ff" stroke-width="4" stroke-linecap="round"/>
+      <path class="arrow" d="M69 1 L61 6 L67 13" fill="none" stroke="#37c3ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div id="rotate-text">Turn your device sideways</div>
+  </div>
+
+  <script src="config.js?v=202609271856"></script>
+  <script src="js/fishart.js?v=202609271856"></script>
+  <script src="js/game.js?v=202609271856"></script>
+  <script src="js/main.js?v=202609271856"></script>
 </body>
 </html>
