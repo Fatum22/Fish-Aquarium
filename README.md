@@ -6,13 +6,13 @@
 cd /workspace/aquarium && python3 -m http.server 8766 --bind 127.0.0.1
 ```
 
-Open **http://127.0.0.1:8766/**. The page always opens at **×1** (real time). The debug bar has **×1 / ×5 / ×10 / ×15 / ×20**, **+100g** (a cheat for testing) and **Reset save**.
+Open **http://127.0.0.1:8766/**. The page always opens at **×1** (real time). The debug bar has **×1 / ×5 / ×10 / ×15 / ×20**, **+100g** (a cheat for testing), **+50 XP** and **Reset save**. **+50 XP** (NUMBERS.md §9 edge case 13) adds 50 tank XP through the same XP path real play uses, so tank level-ups, unlock toasts and saving work exactly as in play. It gives no gold. Two taps reach tank level 2, 8 reach level 3 and 24 reach level 4.
 Hidden for testing: **`?speed=N`** sets any speed (for example `?speed=3600` = 1 game hour per real second). `?debug=0` hides the debug bar.
 
 Plain HTML/CSS/JS. There's no build step, no framework and no npm.
 
 Tests (server must be running):
-- `/workspace/tools/venv-aq/bin/python tests/verify.py`: 68 end-to-end checks (Playwright + Chromium). Hours-long timers are checked by stepping the game inside the page; UI checks use real mouse and touch input.
+- `/workspace/tools/venv-aq/bin/python tests/verify.py`: 75 end-to-end checks (Playwright + Chromium). Hours-long timers are checked by stepping the game inside the page; UI checks use real mouse and touch input.
 - `/workspace/tools/venv-aq/bin/python tests/art_shots.py`: review screenshots in `screenshots/`.
 - Both reset the save at the end.
 
@@ -40,7 +40,7 @@ Outside `TUNING`: `OFFLINE_CAP_SEC` (7 days), the drafted rare/epic multipliers 
 
 - **Dirt is time only.** Stages come at 3 / 6 / 12 / 24 / 48 h after a new tank or the last full clean, with 2–6 spots. The clock runs **whatever is in the tank: living fish, dead fish or none, so an empty tank gets dirty too.** Stage 5 adds a green film over the whole tank. The bar shows 5 segments and never a clock.
 - **Cleaning:** rub the spots with the Sponge (mouse or finger). Each spot needs about 150 px of rubbing at stages 1–2 and about 220 px at stages 3–5. A full clean pays **2 / 3 / 4 / 5 / 6 gold by stage** (the stage when rubbing started) **+ 5 XP**. Partial rubbing pays nothing. Any dirt blocks feeding, and the only message is **"Clean the tank first"** next to the dirt bar (no toast in the middle of the tank).
-- **Feeding:** each Food tap gives **1 food** to the nearest fish that still needs food. A fed meter above the fish fills up (portion = `foodBase × level`, so Guppy takes 1–4 taps and Platy 2–8). Feeding pays nothing (v3). A tap with nobody to feed says "Nobody's hungry". With no food left it says "Out of food".
+- **Feeding:** each Food tap gives **1 food** to the nearest fish that still needs food. It shows a shower of small flakes (the v1 look, 16 flakes) falling through the water from the tap point and drifting toward that fish, which eats them. A blocked tap (dirty, nobody hungry, out of food) shows no flakes. A fed meter above the fish fills up (portion = `foodBase × level`, so Guppy takes 1–4 taps and Platy 2–8). Feeding pays nothing (v3). A tap with nobody to feed says "Nobody's hungry". With no food left it says "Out of food".
 - **Growth / hunger / death:** growth is 15× slower than v1 (Guppy is adult after 7 h with prompt feeding, Platy after 17.5 h). A fish gets hungry at 50% of each level and growth pauses. It **dies 16 h after getting hungry** if it isn't fed. An adult gets hungry `adultHungerSec` after reaching L4 and after each full feed. A bought fish waits (it never gets hungry) until its first feed.
 - **Dead fish** stay in the tank, belly-up and pale, and float up to just under the waterline (top 6–10%). They take a tank slot, aren't fed and don't block feeding. Tap one to open its panel: **"Dead"** and **"Remove (0 gold)"** (no confirm, can't be sold). The starter grant and "Start new tank" count living fish only.
 - **Tank level:** 60 / 400 / 1,200 / 3,000 XP for levels 2–5. XP: a fish level-up gives its species' `levelUpXp`, each clean gives 5 XP, and selling and feeding give 0. Locked species show greyed out in the shop with **"🔒 Tank level N"**. Level 5 shows "Decorations coming soon".
