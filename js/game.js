@@ -10,10 +10,11 @@
   T.species.forEach((s) => { SPECIES[s.id] = s; });
 
   // ---------------------------------------------------------------- helpers
-  // v4: rarity food/growth multipliers live in TUNING.rarity (rare/epic are "later"; only common is used now)
-  function rarityFoodMult(r) { return (T.rarity && T.rarity[r] && T.rarity[r].foodMult) || (CFG.RARITY_LATER[r] || { foodMult: 1 }).foodMult; }
-  function rarityGrowthMult(r) { return (T.rarity && T.rarity[r] && T.rarity[r].growMult) || (CFG.RARITY_LATER[r] || { growthMult: 1 }).growthMult; }
-  function rarityGoldMult(r) { return r === 'common' ? 1 : (CFG.RARITY_LATER[r] || { goldMult: 1 }).goldMult; }
+  // v5.1 (NUMBERS 2a): every species' numbers in tuning.json are explicit (rarity multipliers only document how they were
+  // built from the level's common baseline), so the game applies no rarity multiplier.
+  function rarityFoodMult() { return 1; }
+  function rarityGrowthMult() { return 1; }
+  function rarityGoldMult() { return 1; }
 
   /** growth seconds needed to go from `level` to level+1 (null at max) */
   function growSec(sp, level) {
@@ -78,15 +79,20 @@
     emit('xp', { xp: n, why });
     for (let lv = before + 1; lv <= after; lv++) {
       const unlocks = T.species.filter((sp) => sp.unlockTankLevel === lv).map((sp) => sp.id);
-      const cap = lv >= T.tank.maxLevel && T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : null;
-      emit('tanklevel', { level: lv, unlocks, capacity: cap, extraSlots: cap ? cap - T.tankCapacity : 0 });
+      const cap = capacityAt(lv), prev = capacityAt(lv - 1);
+      const packs = T.foodPacks.filter((p) => p.unlockTankLevel === lv);
+      emit('tanklevel', { level: lv, unlocks, capacity: cap !== prev ? cap : null, extraSlots: cap - prev, packs });
     }
   }
-  /** v4 proposal 8: tank level 5 raises capacity from tankCapacity (6) to level5Reward.tankCapacity (8) */
-  function capacity() {
-    const r = T.tank.level5Reward;
-    return r && tankLevelFor(S.tank.xp) >= T.tank.maxLevel ? r.tankCapacity : T.tankCapacity;
+  /** v5.1 (NUMBERS 8): tank.levelRewards { "5": {tankCapacity 8}, "8": {10}, "10": {12} }; below them tankCapacity (6) */
+  function capacityAt(level) {
+    let cap = T.tankCapacity;
+    const r = T.tank.levelRewards || {};
+    Object.keys(r).forEach((k) => { if (/^\d+$/.test(k) && +k <= level && r[k].tankCapacity) cap = Math.max(cap, r[k].tankCapacity); });
+    return cap;
   }
+  function capacity() { return capacityAt(tankLevelFor(S.tank.xp)); }
+  function packUnlocked(p) { return tankLevelFor(S.tank.xp) >= (p.unlockTankLevel || 1); }
   function isUnlocked(sp) { return tankLevelFor(S.tank.xp) >= (sp.unlockTankLevel || 1); }
 
   // ---------------------------------------------------------------- state
@@ -351,6 +357,7 @@
   function buyFood(i) {
     const p = T.foodPacks[i || 0];
     if (!p) return false;
+    if (!packUnlocked(p)) { emit('msg', { text: `Tank level ${p.unlockTankLevel} needed` }); return false; }
     if (S.gold < p.gold) { emit('msg', { text: 'Not enough gold for food' }); return false; }
     S.gold -= p.gold; S.food += p.food;
     emit('foodbought', { food: p.food, gold: p.gold });
@@ -580,7 +587,7 @@
     CFG, T, SPECIES,
     get state() { return S; },
     on(fn) { listeners.push(fn); },
-    tick, catchUp, resume, buyFish, buyFood, feedTap, rub, sell, removeDead, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
+    tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
     fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,

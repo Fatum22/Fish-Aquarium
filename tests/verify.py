@@ -17,7 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SHOTS = os.path.join(HERE, "..", "screenshots", "v4")
 # The v4 build is pinned to Designer v4 (design/v4_archive/tuning.json). v5.1 (tank levels 6-10, ten new species) lands after
 # the v4 rebuild (bible change 19:48 item 4), so the live design/tuning.json is not compared yet.
-TUNING = os.environ.get("AQ_TUNING", "/workspace/studio/briefs/aquarium/design/v4_archive/tuning.json")
+TUNING = os.environ.get("AQ_TUNING", "/workspace/studio/briefs/aquarium/design/tuning.json")
 os.makedirs(SHOTS, exist_ok=True)
 
 results = []
@@ -46,9 +46,7 @@ def png_rgb(data):
 
 def merged_tuning():
     """what config.js TUNING must equal: the v4 archive + the live decorations.move (tools/sync_tuning.py), or AQ_TUNING verbatim"""
-    if os.environ.get("AQ_TUNING"): return json.load(open(TUNING))
-    sys.path.insert(0, os.path.join(HERE, "..", "tools")); import sync_tuning
-    return json.loads(sync_tuning.merged_text())
+    return json.load(open(TUNING))
 
 def check(name, cond, detail=""):
     name = f"[{VIEW[0]}] {name}" if VIEW[0] else name
@@ -118,7 +116,7 @@ def main(VW, VH):
 
         # ================================================================ A. rules / config / speed
         boot(); page.evaluate("AQ.game.reset(); AQ.game.save()"); boot()
-        check("config.js TUNING == Designer v4 tuning.json + live decorations.move (stepPxPerTapX 8 / stepPxPerTapY 4)", page.evaluate("AQ.game.T") == tj)
+        check("config.js TUNING == Designer tuning.json v5.1 (verbatim)", page.evaluate("AQ.game.T") == tj)
         s = S()
         check("page opens at x1 (debugDefaultSpeed)", s["speed"] == 1 == tj["debugDefaultSpeed"], f"speed={s['speed']}")
         btns = page.locator("#speed-btns .dbg").all_inner_texts()

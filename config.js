@@ -3,8 +3,8 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/v4_archive/tuning.json   (version 4)
- *  with the rules/proofs in NUMBERS.md (v4) in the same folder (v5.1 comes later). To retune: run
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 5.1: 14 species, tank levels 1-10)
+ *  with the rules/proofs in NUMBERS.md (v5.1) in the same folder. To retune: run
  *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
  *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
@@ -44,7 +44,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": 4,
+    "version": "5.1",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -196,6 +196,49 @@ window.AQUARIUM_CONFIG = {
         ]
       },
       {
+        "id": "ram",
+        "name": "German Blue Ram",
+        "latin": "Mikrogeophagus ramirezi",
+        "rarity": "rare",
+        "unlockTankLevel": 3,
+        "price": 230,
+        "growSec": [
+          630,
+          1260,
+          2520
+        ],
+        "levelUpGold": [
+          12,
+          23,
+          46
+        ],
+        "sell": [
+          0,
+          92,
+          195,
+          460
+        ],
+        "adultHungerSec": 2520,
+        "levelUpXp": [
+          70,
+          140,
+          280
+        ],
+        "mealFood": [
+          3,
+          5,
+          5,
+          6
+        ],
+        "feedXp": 7,
+        "sellXp": [
+          0,
+          70,
+          175,
+          560
+        ]
+      },
+      {
         "id": "platy",
         "name": "Platy",
         "latin": "Xiphophorus maculatus",
@@ -236,6 +279,393 @@ window.AQUARIUM_CONFIG = {
           50,
           125,
           400
+        ]
+      },
+      {
+        "id": "rasbora",
+        "name": "Harlequin Rasbora",
+        "latin": "Trigonostigma heteromorpha",
+        "rarity": "uncommon",
+        "unlockTankLevel": 4,
+        "price": 240,
+        "growSec": [
+          630,
+          1260,
+          2520
+        ],
+        "levelUpGold": [
+          12,
+          24,
+          48
+        ],
+        "sell": [
+          0,
+          96,
+          204,
+          480
+        ],
+        "adultHungerSec": 2520,
+        "levelUpXp": [
+          75,
+          150,
+          300
+        ],
+        "mealFood": [
+          4,
+          7,
+          8,
+          9
+        ],
+        "feedXp": 7,
+        "sellXp": [
+          0,
+          75,
+          188,
+          600
+        ]
+      },
+      {
+        "id": "dwarfgourami",
+        "name": "Dwarf Gourami",
+        "latin": "Trichogaster lalius",
+        "rarity": "rare",
+        "unlockTankLevel": 5,
+        "price": 500,
+        "growSec": [
+          1035,
+          2070,
+          4140
+        ],
+        "levelUpGold": [
+          25,
+          50,
+          100
+        ],
+        "sell": [
+          0,
+          200,
+          425,
+          1000
+        ],
+        "adultHungerSec": 4140,
+        "levelUpXp": [
+          145,
+          290,
+          580
+        ],
+        "mealFood": [
+          5,
+          8,
+          9,
+          12
+        ],
+        "feedXp": 14,
+        "sellXp": [
+          0,
+          145,
+          363,
+          1160
+        ]
+      },
+      {
+        "id": "swordtail",
+        "name": "Swordtail",
+        "latin": "Xiphophorus hellerii",
+        "rarity": "common",
+        "unlockTankLevel": 6,
+        "price": 250,
+        "growSec": [
+          600,
+          1200,
+          2400
+        ],
+        "levelUpGold": [
+          13,
+          25,
+          50
+        ],
+        "sell": [
+          0,
+          100,
+          212,
+          500
+        ],
+        "adultHungerSec": 2400,
+        "levelUpXp": [
+          80,
+          160,
+          320
+        ],
+        "mealFood": [
+          4,
+          5,
+          6,
+          8
+        ],
+        "feedXp": 8,
+        "sellXp": [
+          0,
+          80,
+          200,
+          640
+        ]
+      },
+      {
+        "id": "cherrybarb",
+        "name": "Cherry Barb",
+        "latin": "Puntius titteya",
+        "rarity": "uncommon",
+        "unlockTankLevel": 6,
+        "price": 400,
+        "growSec": [
+          840,
+          1680,
+          3360
+        ],
+        "levelUpGold": [
+          20,
+          40,
+          80
+        ],
+        "sell": [
+          0,
+          160,
+          340,
+          800
+        ],
+        "adultHungerSec": 3360,
+        "levelUpXp": [
+          120,
+          240,
+          480
+        ],
+        "mealFood": [
+          5,
+          7,
+          8,
+          10
+        ],
+        "feedXp": 12,
+        "sellXp": [
+          0,
+          120,
+          300,
+          960
+        ]
+      },
+      {
+        "id": "angelfish",
+        "name": "Angelfish",
+        "latin": "Pterophyllum scalare",
+        "rarity": "uncommon",
+        "unlockTankLevel": 7,
+        "price": 640,
+        "growSec": [
+          1095,
+          2190,
+          4380
+        ],
+        "levelUpGold": [
+          32,
+          64,
+          128
+        ],
+        "sell": [
+          0,
+          256,
+          544,
+          1280
+        ],
+        "adultHungerSec": 4380,
+        "levelUpXp": [
+          180,
+          360,
+          720
+        ],
+        "mealFood": [
+          7,
+          8,
+          10,
+          13
+        ],
+        "feedXp": 18,
+        "sellXp": [
+          0,
+          180,
+          450,
+          1440
+        ]
+      },
+      {
+        "id": "pearlgourami",
+        "name": "Pearl Gourami",
+        "latin": "Trichopodus leerii",
+        "rarity": "common",
+        "unlockTankLevel": 8,
+        "price": 600,
+        "growSec": [
+          1020,
+          2040,
+          4080
+        ],
+        "levelUpGold": [
+          30,
+          60,
+          120
+        ],
+        "sell": [
+          0,
+          240,
+          510,
+          1200
+        ],
+        "adultHungerSec": 4080,
+        "levelUpXp": [
+          170,
+          340,
+          680
+        ],
+        "mealFood": [
+          6,
+          8,
+          9,
+          12
+        ],
+        "feedXp": 17,
+        "sellXp": [
+          0,
+          170,
+          425,
+          1360
+        ]
+      },
+      {
+        "id": "clownloach",
+        "name": "Clown Loach",
+        "latin": "Chromobotia macracantha",
+        "rarity": "rare",
+        "unlockTankLevel": 8,
+        "price": 1500,
+        "growSec": [
+          2040,
+          4080,
+          8160
+        ],
+        "levelUpGold": [
+          75,
+          150,
+          300
+        ],
+        "sell": [
+          0,
+          600,
+          1275,
+          3000
+        ],
+        "adultHungerSec": 8160,
+        "levelUpXp": [
+          385,
+          770,
+          1540
+        ],
+        "mealFood": [
+          9,
+          12,
+          14,
+          16
+        ],
+        "feedXp": 38,
+        "sellXp": [
+          0,
+          385,
+          963,
+          3080
+        ]
+      },
+      {
+        "id": "rainbowfish",
+        "name": "Boeseman's Rainbowfish",
+        "latin": "Melanotaenia boesemani",
+        "rarity": "uncommon",
+        "unlockTankLevel": 9,
+        "price": 1440,
+        "growSec": [
+          1935,
+          3870,
+          7740
+        ],
+        "levelUpGold": [
+          72,
+          144,
+          288
+        ],
+        "sell": [
+          0,
+          576,
+          1224,
+          2880
+        ],
+        "adultHungerSec": 7740,
+        "levelUpXp": [
+          360,
+          720,
+          1440
+        ],
+        "mealFood": [
+          9,
+          12,
+          14,
+          16
+        ],
+        "feedXp": 36,
+        "sellXp": [
+          0,
+          360,
+          900,
+          2880
+        ]
+      },
+      {
+        "id": "discus",
+        "name": "Discus",
+        "latin": "Symphysodon aequifasciatus",
+        "rarity": "rare",
+        "unlockTankLevel": 10,
+        "price": 3250,
+        "growSec": [
+          3600,
+          7200,
+          14400
+        ],
+        "levelUpGold": [
+          163,
+          325,
+          650
+        ],
+        "sell": [
+          0,
+          1300,
+          2762,
+          6500
+        ],
+        "adultHungerSec": 14400,
+        "levelUpXp": [
+          720,
+          1440,
+          2880
+        ],
+        "mealFood": [
+          12,
+          15,
+          16,
+          16
+        ],
+        "feedXp": 72,
+        "sellXp": [
+          0,
+          720,
+          1800,
+          5760
         ]
       }
     ],
@@ -283,17 +713,31 @@ window.AQUARIUM_CONFIG = {
         60,
         400,
         1200,
-        3000
+        3000,
+        10000,
+        22000,
+        40000,
+        65000,
+        100000
       ],
-      "maxLevel": 5,
+      "maxLevel": 10,
       "xp": {
         "fishLevelUp": "species.levelUpXp",
         "clean": 5,
         "feed": "species.feedXp per full meal",
         "sell": "species.sellXp by level sold"
       },
-      "level5Reward": {
-        "tankCapacity": 8
+      "levelRewards": {
+        "5": {
+          "tankCapacity": 8
+        },
+        "8": {
+          "tankCapacity": 10
+        },
+        "10": {
+          "tankCapacity": 12
+        },
+        "note": "every level 2-10 also unlocks the species whose unlockTankLevel matches"
       }
     },
     "starterGrant": {
@@ -335,6 +779,11 @@ window.AQUARIUM_CONFIG = {
       {
         "food": 50,
         "gold": 25
+      },
+      {
+        "food": 200,
+        "gold": 100,
+        "unlockTankLevel": 6
       }
     ],
     "mealsPerLevel": 2,
@@ -349,19 +798,37 @@ window.AQUARIUM_CONFIG = {
     "timerScale": "v3 divided by 20, dirt unchanged",
     "rarity": {
       "common": {
-        "growMult": 1,
-        "foodMult": 1
+        "vsLevelCommon": {
+          "p": 1,
+          "g": 1,
+          "m": 1,
+          "x": 1
+        },
+        "sellL3Mult": "0.9 for the four v4 fish, 0.85 for new commons"
+      },
+      "uncommon": {
+        "vsLevelCommon": {
+          "p": 1.6,
+          "g": 1.4,
+          "m": 1.25,
+          "x": 1.5
+        },
+        "sellL3Mult": 0.85
       },
       "rare": {
-        "growMult": 2,
-        "foodMult": 3,
-        "later": true
+        "vsLevelCommon": {
+          "p": 2.5,
+          "g": 2,
+          "m": 1.5,
+          "x": 2.25
+        },
+        "sellL3Mult": 0.85
       },
       "epic": {
-        "growMult": 4,
-        "foodMult": 6,
         "later": true
-      }
+      },
+      "mealFoodCap": 16,
+      "note": "rarity is independent of unlock level; each species' numbers are explicit, multipliers only document how they were built from the level's common baseline"
     },
     "decorations": {
       "price": 0,
@@ -401,7 +868,119 @@ window.AQUARIUM_CONFIG = {
       },
       "positionStoredAs": "fractionOfTankWaterArea"
     },
-    "deathSecBy": "fishLevel (index 0 = L1), same for every species in v1"
+    "deathSecBy": "fishLevel (index 0 = L1), same for every species in v1",
+    "levelCommonBaseline": {
+      "1": {
+        "price": 20,
+        "growL1Sec": 180,
+        "mealFood": [
+          1,
+          1,
+          1,
+          2
+        ],
+        "xpBase": 10
+      },
+      "2": {
+        "price": 50,
+        "growL1Sec": 225,
+        "mealFood": [
+          1,
+          2,
+          2,
+          3
+        ],
+        "xpBase": 20
+      },
+      "3": {
+        "price": 90,
+        "growL1Sec": 315,
+        "mealFood": [
+          2,
+          3,
+          3,
+          4
+        ],
+        "xpBase": 30
+      },
+      "4": {
+        "price": 150,
+        "growL1Sec": 450,
+        "mealFood": [
+          3,
+          5,
+          6,
+          7
+        ],
+        "xpBase": 50
+      },
+      "5": {
+        "price": 200,
+        "growL1Sec": 520,
+        "mealFood": [
+          3,
+          5,
+          6,
+          8
+        ],
+        "xpBase": 65
+      },
+      "6": {
+        "price": 250,
+        "growL1Sec": 600,
+        "mealFood": [
+          4,
+          5,
+          6,
+          8
+        ],
+        "xpBase": 80
+      },
+      "7": {
+        "price": 400,
+        "growL1Sec": 780,
+        "mealFood": [
+          5,
+          6,
+          8,
+          10
+        ],
+        "xpBase": 120
+      },
+      "8": {
+        "price": 600,
+        "growL1Sec": 1020,
+        "mealFood": [
+          6,
+          8,
+          9,
+          12
+        ],
+        "xpBase": 170
+      },
+      "9": {
+        "price": 900,
+        "growL1Sec": 1380,
+        "mealFood": [
+          7,
+          9,
+          11,
+          14
+        ],
+        "xpBase": 240
+      },
+      "10": {
+        "price": 1300,
+        "growL1Sec": 1800,
+        "mealFood": [
+          8,
+          10,
+          12,
+          16
+        ],
+        "xpBase": 320
+      }
+    }
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 
@@ -424,7 +1003,8 @@ window.AQUARIUM_CONFIG = {
   VISUAL: {
     levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
     flakesPerTap: 16,                       // food flakes in one tap's shower (visual only; still 1 food per tap)
-    speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
+    speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0, // v5.1 sizes: AD NEW_FISH_V5_1.md 1
+      ram: 0.88, rasbora: 0.85, dwarfgourami: 0.95, swordtail: 1.05, cherrybarb: 0.85, angelfish: 1.0, pearlgourami: 1.05, clownloach: 1.1, rainbowfish: 1.05, discus: 1.15 },
     // Landscape tank geometry (Art Director LANDSCAPE_LAYOUT_V4.md 4)
     airFrac: 0.07, airMinPx: 16,          // top 7% of the tank (min 16 px) is air; the water surface is under it
     sandFrac: 0.86, sandMinPx: 36,        // sand top edge at 86% of tank height (sand band at least 36 px)

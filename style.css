@@ -156,6 +156,13 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 .card { background: #ffffff0d; border: 1px solid #ffffff14; border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .card canvas { width: 100%; aspect-ratio: 5 / 2; height: auto; background: radial-gradient(#1f5f86, #0e3552); border-radius: 8px; }
 .card .n { font-weight: 900; font-size: 13px; }
+.card { position: relative; }
+/* rarity labels (AD NEW_FISH_V5_1 2): uncommon green, rare purple */
+.rar { display: inline-block; font-size: 10px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; line-height: 15px; }
+.card .rar { position: absolute; top: 9px; left: 9px; }
+.rar-uncommon { background: #1f7a45; color: #d9ffe8; border: 1px solid #3ddc84; }
+.rar-rare { background: #5b2b8c; color: #f1e3ff; border: 1px solid #b57bff; }
+@media (min-height: 600px) { .rar { font-size: 12px; line-height: 18px; } }
 .card .l { font-size: 10px; color: var(--muted); font-style: italic; margin-top: -3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .s { font-size: 10px; color: var(--muted); }
 .card .btn { margin-top: auto; padding: 5px 6px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }

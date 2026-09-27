@@ -673,7 +673,7 @@
     // tank level block
     const ti = G.tankInfo();
     $('tank-label').textContent = `Tank Lv ${ti.level}`;
-    $('tank-xp').textContent = ti.max ? `${ti.xp} XP` : `${ti.xp} / ${ti.next}`;
+    $('tank-xp').textContent = ti.max ? 'Max level' : `${ti.xp} / ${ti.next}`;
     $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
     $('tankover').hidden = !G.tankOver();
     // hint line (bottom of the tank)
@@ -873,7 +873,8 @@
       T.species.forEach((sp) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
+        const rar = sp.rarity && sp.rarity !== 'common' ? `<span class="rar rar-${sp.rarity}">${sp.rarity === 'rare' ? 'Rare' : 'Uncommon'}</span>` : '';
+        card.innerHTML = `<canvas width="240" height="96"></canvas>${rar}<div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
           <div class="s">Adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
           <button class="btn buy" data-buy="${sp.id}"><svg><use href="#i-coin"/></svg><span class="price">${sp.price}</span><span class="lbl"></span></button>`;
         list.appendChild(card);
@@ -887,7 +888,7 @@
       T.foodPacks.forEach((p, i) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.pack = i;
         card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${p.food} food</div><div class="s">${(p.gold / p.food).toFixed(1)} gold per food</div>
-          <button class="btn buy" data-food="${i}"><svg><use href="#i-coin"/></svg><span class="price">${p.gold}</span></button>`;
+          <button class="btn buy" data-food="${i}"><svg><use href="#i-coin"/></svg><span class="price">${p.gold}</span><span class="lbl"></span></button>`;
         $('shop-food').appendChild(card);
         drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
         card.querySelector('button').addEventListener('click', () => { G.buyFood(i); renderShop(); });
@@ -915,8 +916,11 @@
       b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
     });
     $('shop-food').querySelectorAll('button[data-food]').forEach((b) => {
-      const p = T.foodPacks[+b.dataset.food], poor = G.state.gold < p.gold;
-      b.disabled = poor; b.classList.toggle('poor', poor);
+      const p = T.foodPacks[+b.dataset.food], locked = !G.packUnlocked(p), poor = G.state.gold < p.gold;
+      b.disabled = poor || locked; b.classList.toggle('poor', poor && !locked);
+      b.closest('.card').classList.toggle('locked', locked);
+      b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
+      b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${p.unlockTankLevel}` : '';
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
@@ -925,7 +929,7 @@
     });
     const dead = G.state.fish.length - G.living();
     $('shop-note').textContent = shopTab === 'fish'
-      ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. Tank level ${T.tank.maxLevel}: room for ${T.tank.level5Reward ? T.tank.level5Reward.tankCapacity : T.tankCapacity} fish.`
+      ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. ${G.tankInfo().level < T.tank.maxLevel ? `Tank level ${T.tank.maxLevel}: room for ${G.capacityAt(T.tank.maxLevel)} fish.` : ''}`
       : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds what it cost.`;
   }
 
@@ -1196,8 +1200,14 @@
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
       case 'tanklevel':
-        toast(d.unlocks.length ? `Tank level ${d.level}! ${d.unlocks.map((id) => G.SPECIES[id].name).join(', ')} unlocked`
-          : d.extraSlots ? `Tank level ${d.level}: room for ${d.extraSlots} more fish` : `Tank level ${d.level}!`, 'good');
+        { // NUMBERS v5.1 8: "Tank level 8: Pearl Gourami and Clown Loach (rare) unlocked, room for 2 more fish"
+          const names = d.unlocks.map((id) => { const sp = G.SPECIES[id]; return sp.name + (sp.rarity && sp.rarity !== 'common' ? ` (${sp.rarity})` : ''); });
+          const parts = [];
+          if (names.length) parts.push(`${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]} unlocked`);
+          if (d.extraSlots) parts.push(`room for ${d.extraSlots} more fish`);
+          (d.packs || []).forEach((pk) => parts.push(`${pk.food}-food pack in the shop`));
+          toast(parts.length ? `Tank level ${d.level}: ${parts.join(', ')}` : `Tank level ${d.level}!`, 'good');
+        }
         break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
       case 'death': toast(`${name} died`, 'bad'); break;
