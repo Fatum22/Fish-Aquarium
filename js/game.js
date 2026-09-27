@@ -1,4 +1,4 @@
-/* Aquarium game logic (Designer v2, slow game): state, simulation, actions, offline catch-up, save/load.
+/* Aquarium game logic (Designer v3 economy on the v2 slow game): state, simulation, actions, offline catch-up, save/load.
  * No DOM here. All balance numbers come from window.AQUARIUM_CONFIG.TUNING (config.js = tuning.json).
  */
 (function (root) {
@@ -37,13 +37,19 @@
   }
 
   // ---------------------------------------------------------------- tank XP / level
-  /** XP rules: TUNING.tank.xp unless config.js XP_SOURCE picks one of XP_PRESETS (Maksims' open question) */
-  function xpRules() { return (CFG.XP_SOURCE && CFG.XP_SOURCE !== 'designer' && CFG.XP_PRESETS[CFG.XP_SOURCE]) || T.tank.xp; }
-  function xpFor(kind, gold) {
-    const v = xpRules()[kind];
+  /** XP rules come straight from TUNING.tank.xp (v3: settled, XP_SOURCE switch retired).
+   *  fishLevelUp = "species.levelUpXp" -> the species' own levelUpXp table (no longer the level-up gold). */
+  function xpFor(kind, ctx) {
+    const v = T.tank.xp[kind];
     if (typeof v === 'number') return v;
-    if (typeof v === 'string' && v.indexOf('equals') === 0) return gold || 0; // "equalsLevelUpGold" / "equalsSellGold"
+    if (v === 'species.levelUpXp' && ctx && ctx.sp) return ctx.sp.levelUpXp[ctx.level - 2] || 0;
     return 0;
+  }
+  /** v3: clean pay by the stage the tank was at when rubbing started (dirt.cleanGoldIndex = byStageAtCleanStart) */
+  function cleanGoldFor(stage) {
+    const g = T.dirt.cleanGold;
+    if (Array.isArray(g)) return g[Math.max(1, Math.min(g.length, stage)) - 1];
+    return g;
   }
   function tankLevelFor(xp) {
     let lv = 0;
@@ -78,7 +84,7 @@
       speed: T.debugDefaultSpeed || 1,
       nextId: 1,
       fish: [],
-      dirt: { t: 0, spots: [], spawned: 0, grime5: 0 }, // t = game seconds since new tank / last full clean
+      dirt: { t: 0, spots: [], spawned: 0, grime5: 0, rubStage: 0 }, // t = game s since new tank / last full clean; rubStage = stage when rubbing started (0 = not started)
       tank: { xp: 0 },
       starterGrantUsed: false,
       stats: { cleans: 0, feeds: 0, taps: 0, levelUps: 0, deaths: 0, sold: 0, removed: 0 },
@@ -154,7 +160,7 @@
     S.stats.levelUps++;
     f.state = f.level >= T.maxLevel ? 'ADULT' : 'GROWING';
     if (f.state === 'ADULT') f.sinceFed = 0; // first adult hunger counts from reaching L4
-    const xp = xpFor('fishLevelUp', g);
+    const xp = xpFor('fishLevelUp', { sp, level: f.level });
     emit('levelup', { fish: f, gold: g, xp });
     addXp(xp, 'levelup');
   }
@@ -338,7 +344,7 @@
       f.deathLeft = null; f.sinceFed = 0; f.fed = 0;
       gold = T.feedGoldPerFish; S.gold += gold;
       S.stats.feeds++;
-      addXp(xpFor('feed', gold), 'feed');
+      addXp(xpFor('feed'), 'feed');
     }
     const r = { ok: true, fish: f, spent: give, full, gold, fed: full ? need : f.fed, need };
     emit('tapfed', r);
@@ -356,6 +362,7 @@
     const len = Math.hypot(bx - ax, by - ay);
     if (len <= 0) return { cleaned: false };
     let touched = false;
+    const rubStage0 = S.dirt.rubStage;
     for (const s of S.dirt.spots) {
       const cx = s.x * W, cy = s.y * H, R = s.r * W;
       // distance from spot centre to segment
@@ -364,16 +371,18 @@
       const d = Math.hypot(cx - px, cy - py);
       if (d < R + spongeR) { s.grime -= len; touched = true; } // full drawn sponge radius counts (Playtester pass 1 note 1)
     }
+    if (touched && !rubStage0) S.dirt.rubStage = stage; // first sponge contact since the last full clean
     S.dirt.spots = S.dirt.spots.filter((s) => s.grime > 0);
     if (touched && S.dirt.spots.length === 0 && stage >= 1 && S.dirt.spawned >= T.dirt.spots[stage - 1]) {
-      const gold = T.dirt.cleanGold; // v2: every full clean pays the same, whatever the stage
+      const payStage = S.dirt.rubStage || stage;
+      const gold = cleanGoldFor(payStage); // v3: 2/3/4/5/6 by the stage at rub start, paid when the last spot clears
       S.gold += gold;
-      S.dirt.t = 0; S.dirt.spawned = 0; S.dirt.spots = []; S.dirt.grime5 = 0;
+      S.dirt.t = 0; S.dirt.spawned = 0; S.dirt.spots = []; S.dirt.grime5 = 0; S.dirt.rubStage = 0;
       S.stats.cleans++;
-      const xp = xpFor('clean', gold);
-      emit('cleaned', { stage, gold, xp });
+      const xp = xpFor('clean');
+      emit('cleaned', { stage: payStage, stageNow: stage, gold, xp });
       addXp(xp, 'clean');
-      return { cleaned: true, gold, xp, stage };
+      return { cleaned: true, gold, xp, stage: payStage, stageNow: stage };
     }
     return { cleaned: false, touched };
   }
@@ -386,7 +395,7 @@
     S.gold += price;
     S.stats.sold++;
     emit('sold', { fish: f, gold: price });
-    addXp(xpFor('sell', price), 'sell');
+    addXp(xpFor('sell'), 'sell');
     checkStarterGrant();
     return price;
   }
@@ -448,30 +457,31 @@
     emit('reset');
   }
 
-  // ---------------------------------------------------------------- balance checks (NUMBERS.md v2 sections 4, 5)
+  // ---------------------------------------------------------------- balance checks (NUMBERS.md v3 sections 4, 5)
+  /** Designer's required checks:
+   *  (a) cleaning at stage 1 earns the most gold per day (cleanGold[n] * 24 h / stage n time), falling with every stage;
+   *  (b) per species, selling at L1..L3 is never a profit and selling at L4 always is.
+   *      profit(L) = sell[L] + level-up gold up to L - price - food eaten up to L (food at foodPack gold/food, NUMBERS.md 5);
+   *      noFood = the same without food, reported for reference. */
   function balanceChecks() {
-    const out = [];
-    const L = T.maxLevel;
-    T.species.forEach((sp) => {
-      // ideal play, food valued at foodPack.gold/foodPack.food per unit
-      const foodVal = T.foodPack.gold / T.foodPack.food;
-      const route = (sellAt) => {
-        let gold = -sp.price, time = 0, feeds = 1, food = portion(sp, 1);
-        for (let lv = 1; lv < sellAt; lv++) {
-          time += growSec(sp, lv);
-          feeds++; food += portion(sp, lv);
-          gold += levelUpGold(sp, lv + 1);
-        }
-        // a fish sold at level N was fed at: first feed + hunger in L1..L(N-1)
-        gold += feeds * T.feedGoldPerFish - food * foodVal + sellPrice(sp, sellAt);
-        return { gold, time, perHour: gold / (time / 3600) };
-      };
-      const r3 = route(L - 1), r4 = route(L);
-      out.push({ species: sp.name, sellL3perHour: +r3.perHour.toFixed(1), sellL4perHour: +r4.perHour.toFixed(1), l3gold: r3.gold, l4gold: r4.gold, ok: r4.perHour > r3.perHour });
+    const L = T.maxLevel, foodVal = T.foodPack.gold / T.foodPack.food;
+    const sell = T.species.map((sp) => {
+      const rows = [];
+      let lvlGold = 0, food = portion(sp, 1), feeds = 1, time = 0; // first feed at L1
+      for (let lv = 1; lv <= L; lv++) {
+        if (lv > 1) { lvlGold += levelUpGold(sp, lv); time += growSec(sp, lv - 1); }
+        const noFood = sellPrice(sp, lv) + lvlGold - sp.price;
+        const profit = noFood + feeds * T.feedGoldPerFish - food * foodVal;
+        rows.push({ level: lv, profit: +profit.toFixed(2), noFood, food, hours: time / 3600 });
+        if (lv < L) { food += portion(sp, lv); feeds++; } // the hunger feed inside level lv
+      }
+      const early = rows.slice(0, L - 1), adult = rows[L - 1];
+      return { species: sp.name, rows, l4perHour: +(adult.profit / adult.hours).toFixed(1),
+        ok: early.every((r) => r.profit <= 0) && adult.profit > 0 };
     });
-    const cleanPerDay = T.dirt.stageAtSec.map((t) => +(T.dirt.cleanGold * 86400 / t).toFixed(1));
-    const cleanOk = cleanPerDay.every((v, i) => i === 0 || v < cleanPerDay[i - 1]);
-    return { sell: out, sellOk: out.every((o) => o.ok), cleanPerDay, cleanOk, cleanRatio: +(cleanPerDay[0] / cleanPerDay[cleanPerDay.length - 1]).toFixed(2) };
+    const cleanPerDay = T.dirt.stageAtSec.map((t, i) => +(cleanGoldFor(i + 1) * 86400 / t).toFixed(2));
+    const cleanOk = cleanPerDay.every((v, i) => i === 0 || v < cleanPerDay[i - 1]) && cleanPerDay[0] === Math.max(...cleanPerDay);
+    return { sell, sellOk: sell.every((o) => o.ok), cleanPerDay, cleanOk, cleanRatio: +(cleanPerDay[0] / cleanPerDay[cleanPerDay.length - 1]).toFixed(2) };
   }
 
   root.Game = {
@@ -481,7 +491,7 @@
     tick, catchUp, resume, buyFish, buyFood, feedTap, rub, sell, removeDead, canBuy, isUnlocked,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm,
     fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood,
-    tankInfo, tankLevelFor, xpFor,
+    tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold,
     save, load, reset, newState, balanceChecks, living, tankOver,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

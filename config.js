@@ -3,30 +3,32 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/tuning.json   (v2, slow game)
- *  with the rules/proofs in NUMBERS.md (v2) in the same folder. To retune: paste
- *  a new tuning.json over the TUNING object (keys unchanged) and reload. The
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 3: v3 economy on the v2 slow game)
+ *  with the rules/proofs in NUMBERS.md (v3) in the same folder. To retune: run
+ *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
  *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
  *  Units: seconds of game time at debug speed x1 (the debug speed multiplies
  *  every timer equally, including time while the game is closed).
  *  Gold, food and XP are integers.
  *
- *  How the game reads TUNING (NUMBERS.md v2):
+ *  How the game reads TUNING (NUMBERS.md v3):
  *   - growSec[i]       : growth time from level i+1 to i+2 (L1->L2, L2->L3, L3->L4)
  *   - hungerPoint      : fraction of the current level's growth at which the fish gets hungry (once per level)
  *   - deathSec         : death timer from the moment a fish gets hungry (same for every species/level)
  *   - adultHungerSec   : an adult (L4) gets hungry this long after reaching L4, then after each full feed
  *   - portion          : foodBase * level * rarityFoodMult[rarity] food; one Food tap gives foodPerTap food
  *                        to the nearest fish that still needs food, so it takes ceil(portion / foodPerTap) taps
- *   - feedGoldPerFish  : gold paid when a fish becomes fully fed
- *   - levelUpGold[i]   : gold on reaching L(i+2); also tank XP when tank.xp.fishLevelUp = "equalsLevelUpGold"
+ *   - feedGoldPerFish  : gold paid when a fish becomes fully fed (v3: 0 -> no gold float at all)
+ *   - levelUpGold[i]   : gold on reaching L(i+2)
+ *   - levelUpXp[i]     : tank XP on reaching L(i+2) (tank.xp.fishLevelUp = "species.levelUpXp")
  *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
  *   - unlockTankLevel  : species can only be bought at this tank level or higher
  *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean
  *                        (runs regardless of living, dead or no fish: the empty tank gets dirty too)
  *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
- *   - dirt.cleanGold   : flat payout for any full clean (+ tank.xp.clean XP)
+ *   - dirt.cleanGold   : payout for a full clean by stage [st1..st5] (+ tank.xp.clean XP), indexed by the stage
+ *                        when rubbing started (cleanGoldIndex = byStageAtCleanStart), paid when the last spot clears
  *   - dirt.rubPxPerSpot: grime of a spot that appears at stage n = px of sponge travel over it
  *   - tank.levelAtXp   : total XP needed for tank level 1..5
  *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
@@ -35,11 +37,11 @@
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json (Designer v2 slow game, 2026-09-27)',
+  source: 'tuning.json (Designer v3 economy on the v2 slow game, 2026-09-27)',
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": 2,
+    "version": 3,
     "startGold": 20,
     "startFood": 10,
     "tankCapacity": 6,
@@ -49,7 +51,7 @@ window.AQUARIUM_CONFIG = {
       "gold": 10
     },
     "foodPerTap": 1,
-    "feedGoldPerFish": 1,
+    "feedGoldPerFish": 0,
     "hungerPoint": 0.5,
     "deathSec": 57600,
     "rarityFoodMult": {
@@ -78,17 +80,22 @@ window.AQUARIUM_CONFIG = {
           14400
         ],
         "levelUpGold": [
-          10,
-          20,
-          40
+          1,
+          2,
+          4
         ],
         "sell": [
           0,
-          10,
-          30,
-          90
+          8,
+          18,
+          40
         ],
-        "adultHungerSec": 14400
+        "adultHungerSec": 14400,
+        "levelUpXp": [
+          10,
+          20,
+          40
+        ]
       },
       {
         "id": "danio",
@@ -96,7 +103,7 @@ window.AQUARIUM_CONFIG = {
         "latin": "Danio rerio",
         "rarity": "common",
         "unlockTankLevel": 2,
-        "price": 40,
+        "price": 50,
         "foodBase": 1,
         "growSec": [
           4500,
@@ -104,17 +111,22 @@ window.AQUARIUM_CONFIG = {
           18000
         ],
         "levelUpGold": [
-          20,
-          40,
-          80
+          3,
+          5,
+          10
         ],
         "sell": [
           0,
           20,
-          60,
-          180
+          45,
+          100
         ],
-        "adultHungerSec": 18000
+        "adultHungerSec": 18000,
+        "levelUpXp": [
+          20,
+          40,
+          80
+        ]
       },
       {
         "id": "neon",
@@ -122,7 +134,7 @@ window.AQUARIUM_CONFIG = {
         "latin": "Paracheirodon innesi",
         "rarity": "common",
         "unlockTankLevel": 3,
-        "price": 60,
+        "price": 90,
         "foodBase": 2,
         "growSec": [
           6300,
@@ -130,17 +142,22 @@ window.AQUARIUM_CONFIG = {
           25200
         ],
         "levelUpGold": [
-          30,
-          60,
-          120
+          5,
+          9,
+          18
         ],
         "sell": [
           0,
-          30,
-          90,
-          270
+          36,
+          81,
+          180
         ],
-        "adultHungerSec": 25200
+        "adultHungerSec": 25200,
+        "levelUpXp": [
+          30,
+          60,
+          120
+        ]
       },
       {
         "id": "platy",
@@ -148,7 +165,7 @@ window.AQUARIUM_CONFIG = {
         "latin": "Xiphophorus maculatus",
         "rarity": "common",
         "unlockTankLevel": 4,
-        "price": 100,
+        "price": 150,
         "foodBase": 2,
         "growSec": [
           9000,
@@ -156,17 +173,22 @@ window.AQUARIUM_CONFIG = {
           36000
         ],
         "levelUpGold": [
-          50,
-          100,
-          200
+          8,
+          15,
+          30
         ],
         "sell": [
           0,
-          50,
-          150,
-          450
+          60,
+          135,
+          300
         ],
-        "adultHungerSec": 36000
+        "adultHungerSec": 36000,
+        "levelUpXp": [
+          50,
+          100,
+          200
+        ]
       }
     ],
     "adultHungerFrom": "reachL4ThenLastFeed",
@@ -186,7 +208,13 @@ window.AQUARIUM_CONFIG = {
         5,
         6
       ],
-      "cleanGold": 10,
+      "cleanGold": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
       "rubPxPerSpot": [
         150,
         150,
@@ -195,7 +223,8 @@ window.AQUARIUM_CONFIG = {
         220
       ],
       "stage5Film": true,
-      "runsWithEmptyTank": true
+      "runsWithEmptyTank": true,
+      "cleanGoldIndex": "byStageAtCleanStart"
     },
     "tank": {
       "levelAtXp": [
@@ -207,7 +236,7 @@ window.AQUARIUM_CONFIG = {
       ],
       "maxLevel": 5,
       "xp": {
-        "fishLevelUp": "equalsLevelUpGold",
+        "fishLevelUp": "species.levelUpXp",
         "clean": 5,
         "sell": 0,
         "feed": 0
@@ -226,16 +255,10 @@ window.AQUARIUM_CONFIG = {
       "takesTankSlot": true
     }
   },
+  // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 
-  // ---- Tank XP source switch (NUMBERS.md 1f / 11: open question for Maksims) --
-  // 'designer' = use TUNING.tank.xp as written (default: level-ups give XP equal to their gold,
-  // +5 per clean, 0 for selling/feeding). The other presets exist so the answer is a one-word change
-  // here without editing the verbatim TUNING copy.
-  XP_SOURCE: 'designer',
-  XP_PRESETS: {
-    levelUpsOnly:    { fishLevelUp: 'equalsLevelUpGold', clean: 0, sell: 0, feed: 0 },
-    levelUpsAndSell: { fishLevelUp: 'equalsLevelUpGold', clean: 5, sell: 'equalsSellGold', feed: 0 },
-  },
+  // Tank XP sources are settled (NUMBERS.md 11): the game reads TUNING.tank.xp directly. The v2
+  // XP_SOURCE / XP_PRESETS switch is retired.
 
   // ---- Offline catch-up (NUMBERS.md 9.3) -------------------------------------
   OFFLINE_CAP_SEC: 7 * 24 * 3600, // one catch-up replays at most 7 days of game time

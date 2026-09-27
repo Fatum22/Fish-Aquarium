@@ -6,7 +6,7 @@ CFG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config.js"
 tj = open(SRC).read().strip(); json.loads(tj)
 s = open(CFG).read()
 a = s.index("  TUNING: ") + len("  TUNING: ")
-b = s.index(",\n\n  // ---- Tank XP source switch")
+b = s.index(",\n  // ---- END VERBATIM tuning.json")
 s = s[:a] + "\n".join(("  " + l if i else l) for i, l in enumerate(tj.splitlines())) + s[b:]
 open(CFG, "w").write(s)
 print("config.js TUNING synced from", SRC)
