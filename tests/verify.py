@@ -177,7 +177,7 @@ def main():
         check("sold L2 Guppy for 10 gold", "Sell for 10 gold" in sell_txt and S()["gold"] == gold_b + 10 and fish(gid) is None, sell_txt)
 
         # ---- 8. release an L1 for 0 (confirm dialog)
-        if S()["gold"] < 20: page.click("#dbg-gold")
+        page.click("#dbg-gold")  # keep gold >= 20 after release so edge case 5 top-up doesn't fire here
         page.click("#btn-shop"); page.click('button[data-buy="guppy"]'); page.click('[data-close="shop"]')
         nid = S()["fish"][-1]["id"]
         page.wait_for_timeout(300)
@@ -234,14 +234,17 @@ def main():
           let guard = 0;
           while (f.level < 4 && guard++ < 10000) { G.tick(1); if (f.state === 'HUNGRY') { cleanNow(); G.feed(); } }
           const adult = f.state; const goldAt4 = G.state.gold;
+          const sinceAt4 = f.sinceFed; let hs = 0; while (f.state === 'ADULT' && hs < 5000) { G.tick(1); hs++; }
+          const adultHungerAfter = hs; cleanNow(); G.feed();
           const sold = G.sell(f.id);
-          // starter grant: no fish, gold < 20, food 0
-          G.state.gold = 3; G.state.food = 0; G.tick(1);
+          // starter grant: no fish, gold < cheapest baby, food left over (Designer's dead-guppy case)
+          G.state.gold = 3; G.state.food = 8; G.tick(1);
           const g1 = G.state.gold, used = G.state.starterGrantUsed;
           G.state.gold = 3; G.tick(1);
-          return { adult, sold, g1, used, g2: G.state.gold };
+          return { adult, sold, g1, used, g2: G.state.gold, sinceAt4, adultHungerAfter };
         }""")
         check("guppy reaches Adult (L4) and sells for 90", r["adult"] == "ADULT" and r["sold"] == 90, json.dumps(r))
+        check("first adult hunger 16:00 after reaching L4 (Guppy)", r["sinceAt4"] <= 1 and abs(r["adultHungerAfter"] - 960) <= 1, json.dumps(r))
         check("edge case 5: one-time top-up to 20 gold, only once", r["g1"] == 20 and r["used"] and r["g2"] == 3, json.dumps(r))
         # ---- 13. staged screenshot with mixed levels (levels set via console, visual only)
         page.evaluate("""() => { const G = AQ.game; G.reset(); G.state.gold = 500;

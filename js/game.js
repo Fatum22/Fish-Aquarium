@@ -21,8 +21,8 @@
     if (level >= T.maxLevel) return null;
     return sp.growSec[level - 1] * rarityGrowthMult(sp.rarity);
   }
-  /** adult: hungry this long after last feed ("= growSec[2] of species") */
-  function adultHungerSec(sp) { return sp.growSec[T.maxLevel - 2] * rarityGrowthMult(sp.rarity); }
+  /** adult: hungry this long after reaching L4, then after each adult feed (tuning adultHungerFrom = reachL4ThenLastFeed) */
+  function adultHungerSec(sp) { return sp.adultHungerSec * rarityGrowthMult(sp.rarity); }
   function deathSecFor(sp, level) {
     const base = level >= T.maxLevel ? adultHungerSec(sp) : growSec(sp, level);
     return T.deathMult * base;
@@ -119,6 +119,7 @@
     S.gold += g;
     S.stats.levelUps++;
     f.state = f.level >= T.maxLevel ? 'ADULT' : 'GROWING';
+    if (f.state === 'ADULT') f.sinceFed = 0; // first adult hunger counts from reaching L4 (NUMBERS.md 1c/step 5)
     emit('levelup', { fish: f, gold: g });
   }
 
@@ -153,8 +154,8 @@
   }
 
   function checkStarterGrant() {
-    // EDGE CASE 5 (pending Maksims' veto): one-time 20g top-up when no living fish, gold < 20 and food < 1 (NUMBERS.md §8.5)
-    if (!S.starterGrantUsed && living() === 0 && S.gold < T.startGold && S.food < 1) { S.gold = T.startGold; S.starterGrantUsed = true; emit('grant', { gold: T.startGold }); }
+    // EDGE CASE 5 (pending Maksims' veto; Producer ruling 2026-09-27): one-time 20g top-up when no living fish and gold < cheapest baby. Food ignored.
+    if (!S.starterGrantUsed && living() === 0 && S.gold < Math.min(...Object.values(SPECIES).map((sp) => sp.price))) { S.gold = T.starterGrant.topUpGoldTo; S.starterGrantUsed = T.starterGrant.oneTime; emit('grant', { gold: S.gold }); }
   }
 
   /** advance the game by dtGame seconds (already multiplied by speed) */

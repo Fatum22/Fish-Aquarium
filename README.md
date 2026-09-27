@@ -39,7 +39,7 @@ Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy 
 - One Food tap feeds every WAITING or hungry fish. Each fish costs `foodBase × level × rarityFoodMult` and pays +1 gold. When food is short, fish closest to death eat first (WAITING fish last). Any dirt blocks feeding.
 - Dirt builds only while there's at least one living fish (it pauses, and doesn't reset, if the tank empties). Stages come at 180/360/600/900/1320 s, with 2–6 spots. Each spot's grime is px of sponge travel (150 px for spots that appear at stages 1–2, 220 px at stages 3–5). The payout depends on the stage when the last spot clears.
 - Tank capacity is 6 (Buy shows "Tank full"). Unaffordable prices show in red and the Buy button is disabled.
-- **Edge case 5 (pending Maksims' veto):** a one-time top-up to 20 gold when there are no living fish, gold < 20 and food < 1. A flag is saved so it fires once per save. It's one line in `js/game.js` → `checkStarterGrant`.
+- **Edge case 5 (pending Maksims' veto):** a one-time top-up to 20 gold when there are no living fish and gold is below the cheapest baby (20). Food is ignored. A flag is saved so it fires once per save. It's one line in `js/game.js` → `checkStarterGrant`.
 - Diamonds: a disabled "Diamonds: coming later" stub in the shop only. No payments.
 
 ## Save

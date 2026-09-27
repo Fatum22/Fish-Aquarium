@@ -30,7 +30,7 @@
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json (Designer v1, 2026-09-27)',
+  source: 'tuning.json (Designer v1.1, 2026-09-27 02:35)',
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
@@ -76,7 +76,8 @@ window.AQUARIUM_CONFIG = {
           10,
           30,
           90
-        ]
+        ],
+        "adultHungerSec": 960
       },
       {
         "id": "danio",
@@ -100,7 +101,8 @@ window.AQUARIUM_CONFIG = {
           20,
           60,
           180
-        ]
+        ],
+        "adultHungerSec": 1200
       },
       {
         "id": "neon",
@@ -124,7 +126,8 @@ window.AQUARIUM_CONFIG = {
           30,
           90,
           270
-        ]
+        ],
+        "adultHungerSec": 1680
       },
       {
         "id": "platy",
@@ -148,10 +151,10 @@ window.AQUARIUM_CONFIG = {
           50,
           150,
           450
-        ]
+        ],
+        "adultHungerSec": 2400
       }
     ],
-    "adultHungerSec": "= growSec[2] of species",
     "dirt": {
       "stageAtSec": [
         180,
@@ -181,6 +184,12 @@ window.AQUARIUM_CONFIG = {
         220,
         220
       ]
+    },
+    "adultHungerFrom": "reachL4ThenLastFeed",
+    "starterGrant": {
+      "oneTime": true,
+      "when": "noLivingFish && gold < 20",
+      "topUpGoldTo": 20
     }
   },
 
