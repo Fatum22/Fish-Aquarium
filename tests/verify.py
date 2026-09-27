@@ -6,7 +6,7 @@ Timing rules are checked by stepping the game in the page (AQ.game.tick), so hou
 milliseconds; UI checks use real mouse/touch input. Writes a few screenshots to ../screenshots/
 (the art/look screenshots come from tests/art_shots.py). Resets the save at the end.
 """
-import json, os, sys, time
+import json, os, struct, sys, time, zlib
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("AQ_URL", "http://127.0.0.1:8766/")
@@ -16,6 +16,28 @@ TUNING = "/workspace/studio/briefs/aquarium/design/tuning.json"
 os.makedirs(SHOTS, exist_ok=True)
 
 results = []
+def png_rgb(data):
+    """Minimal PNG decoder (8-bit RGB/RGBA, non-interlaced) -> (w, h, px(x, y) -> (r, g, b)). No PIL in the test venv."""
+    pos, idat, w, h, ct = 8, b"", 0, 0, 6
+    while pos < len(data):
+        ln, = struct.unpack(">I", data[pos:pos + 4]); typ = data[pos + 4:pos + 8]; body = data[pos + 8:pos + 8 + ln]; pos += 12 + ln
+        if typ == b"IHDR": w, h, _bd, ct = struct.unpack(">IIBB", body[:10])
+        elif typ == b"IDAT": idat += body
+    bpp = 4 if ct == 6 else 3; stride = w * bpp; raw = zlib.decompress(idat); rows, prev, i = [], bytearray(stride), 0
+    for _y in range(h):
+        f = raw[i]; line = bytearray(raw[i + 1:i + 1 + stride]); i += 1 + stride
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0; b = prev[x]; c = prev[x - bpp] if x >= bpp else 0
+            if f == 1: line[x] = (line[x] + a) & 255
+            elif f == 2: line[x] = (line[x] + b) & 255
+            elif f == 3: line[x] = (line[x] + ((a + b) >> 1)) & 255
+            elif f == 4:
+                pp = a + b - c; pa, pb, pc = abs(pp - a), abs(pp - b), abs(pp - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(line); prev = line
+    return w, h, lambda x, y: tuple(rows[y][x * bpp:x * bpp + 3])
+
+
 def check(name, cond, detail=""):
     results.append((name, bool(cond), detail))
     print(("PASS " if cond else "FAIL ") + name + (f"  [{detail}]" if detail else ""), flush=True)
@@ -343,7 +365,6 @@ def main():
             after = ui_state(); txt = page.evaluate(DIRT_TXT)
             taps.append({"hiddenBefore": not before["callout"], "shown": after["callout"], "text": after["calloutText"], "count": after["count"] - before["count"],
                          "toasts": after["toasts"], "hint": after["hint"], "floats": after["floats"], "food": after["food"] - before["food"], "flakes": after["flakes"] - before["flakes"], "otherDirtText": txt})
-            if k == 2: page.screenshot(path=os.path.join(SHOTS, "dirty_feed.png"))
         page.wait_for_timeout(2000); still = ui_state()["callout"]   # 2.25 s after tap 3 = 3.25 s after tap 2 -> only up if tap 3 restarted it
         page.wait_for_timeout(700); gone = not ui_state()["callout"]
         check("each of 3 blocked feed taps shows the dirt-bar callout 'Clean the tank first' (re-shown after expiring, restarted while up, ~2.5 s)",
@@ -462,6 +483,99 @@ def main():
         check("N6: a real clean finished at the far right edge: 'Sparkling! +2 gold' fully inside the tank (>= 8 px)",
               stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps(cb))
         tool("hand")
+
+        # ================================================================ E3. Playtester pass 7 polish (M1 arrow, M2 multi level-up, N4, N5)
+        # M1 (Art Director spec): callout box unchanged; 12px-wide red triangle from its top edge, tip 4px under the dirt bar's
+        # bottom, centred on the dirt bar; may cross the XP row, drawn above it (not clipped by the tank or the HUD)
+        ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.4, 0.5); toStage(3);")
+        page.wait_for_timeout(2800); clear_toasts(); tool("food"); page.wait_for_timeout(200)
+        tank_click(box()["width"] * 0.4, box()["height"] * 0.6); page.wait_for_timeout(500)   # after the pop and the dirt-bar shake
+        co, ar, db, xprow, tkw = R("#dirt-callout"), R("#dirt-arrow"), R("#dirt-bar"), R("#tankbar"), R("#tank-wrap")
+        tip_x, tip_y, base_w = (ar["l"] + ar["r"]) / 2, ar["t"], ar["r"] - ar["l"]
+        base_y = ar["b"] - 2   # 2px strip under the base overlaps the box (no seam)
+        dbc = (db["l"] + db["r"]) / 2
+        # pixels down the arrow's centre line: between tip and dirt bar (no arrow), just under the tip, across the XP row,
+        # in the gap between XP row and tank, and just above the box: arrow red wherever it should be
+        page.screenshot(path=os.path.join(SHOTS, "dirty_feed.png"))
+        cx0 = int(round(tip_x)) - 4
+        png = page.screenshot(clip={"x": cx0, "y": 0, "width": 8, "height": int(co["t"]) + 2})
+        _w, _h, px = png_rgb(png); dpr = _w / 8
+        red = lambda c: c[0] > 200 and c[1] < 140 and c[2] < 140
+        at = lambda y: px(int((tip_x - cx0) * dpr), int(y * dpr))
+        samples = {"aboveTip": at(tip_y - 2), "underTip": at(tip_y + 9), "xpRowMid": at((xprow["t"] + xprow["b"]) / 2),
+                   "gapXpTank": at((xprow["b"] + tkw["t"]) / 2), "aboveBox": at(co["t"] - 3)}
+        arrow_pos = page.evaluate("(() => { const a = document.getElementById('dirt-arrow'); return { inTank: !!a.closest('#tank-wrap'), inHud: !!a.closest('#hud'), z: +getComputedStyle(a).zIndex, pos: getComputedStyle(a).position, hudZ: +getComputedStyle(document.getElementById('hud')).zIndex }; })()")
+        geo = {"tipX": round(tip_x, 2), "dirtBarCentreX": round(dbc, 2), "tipY": round(tip_y, 2), "dirtBarBottom": round(db["b"], 2), "tipGap": round(tip_y - db["b"], 2),
+               "baseW": round(base_w, 2), "baseY": round(base_y, 2), "box": co, "xpRow": xprow, "dirtBar": db, "arrow": ar, "pixels": samples, "el": arrow_pos}
+        print("   M1 geometry:", json.dumps(geo))
+        check("M1: callout arrow tip at the dirt bar's centre x (<= 2px) and 4px (+-1) below its bottom; 12px base on the box's top edge",
+              page.locator("#dirt-arrow").is_visible() and abs(tip_x - dbc) <= 2 and 3 <= tip_y - db["b"] <= 5 and abs(base_w - 12) <= 0.5 and abs(base_y - co["t"]) <= 1, json.dumps(geo))
+        check("M1: callout box stays clear of the XP row, in the tank's top-right corner (unchanged); arrow drawn above the XP row, not clipped (red pixels along its length)",
+              not hit(co, xprow) and co["t"] >= xprow["b"] and co["t"] >= tkw["t"] and abs(co["r"] - (tkw["r"] - 10)) <= 1 and abs(co["t"] - (tkw["t"] + 10)) <= 1
+              and not red(samples["aboveTip"]) and all(red(samples[k_]) for k_ in ("underTip", "xpRowMid", "gapXpTank", "aboveBox"))
+              and not arrow_pos["inTank"] and not arrow_pos["inHud"] and arrow_pos["z"] > arrow_pos["hudZ"], json.dumps({"pixels": samples, "el": arrow_pos}))
+        page.wait_for_timeout(2600)
+        check("M1: arrow hides together with the callout (2.5 s)", not page.locator("#dirt-callout").is_visible() and not page.locator("#dirt-arrow").is_visible())
+        tool("hand"); ev("clean();")
+
+        # M2: 4 Guppies level up in the same tick (3 bunched in the middle, 1 at the right wall): staggered float pairs never
+        # overlap, all >= 8px inside the tank; identical toasts merge into one line with a count
+        page.wait_for_timeout(1900); clear_toasts(); page.evaluate("AQ.floats(true)")
+        ev("""G.reset(); G.state.gold = 500; G.state.speed = 1;
+              [[0.5, 0.45], [0.52, 0.46], [0.48, 0.44], [0.97, 0.3]].forEach(([x, y]) => { const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, x, y); });""")
+        page.wait_for_timeout(300); clear_toasts()
+        ev("G.state.fish.forEach((f) => { f.progress = G.growSec(G.SPECIES.guppy, f.level) - 0.5; f.hungerDone = true; }); G.tick(1);")
+        m2, snaps = [], []
+        for wait in (80, 250, 700, 1100):
+            page.wait_for_timeout(wait)
+            bxs = page.evaluate("AQ.floatBoxes()"); snaps.append(len(bxs))
+            if wait == 250: page.screenshot(path=os.path.join(SHOTS, "multi_levelup.png"))
+            for i_, a_ in enumerate(bxs):
+                if not (a_["x0"] >= 8 - 0.01 and a_["y0"] >= 8 - 0.01 and a_["x1"] <= Wt - 8 + 0.01 and a_["y1"] <= Ht - 8 + 0.01): m2.append({"out": a_})
+                for b_ in bxs[i_ + 1:]:
+                    if a_["x0"] < b_["x1"] and b_["x0"] < a_["x1"] and a_["y0"] < b_["y1"] and b_["y0"] < a_["y1"]: m2.append({"overlap": [a_, b_]})
+        tl = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        lv = [t_ for t_ in tl if "reached level 2" in t_]
+        lvls = ev("return G.state.fish.map((f) => f.level);")
+        print("   M2 toasts:", json.dumps(tl))
+        check("M2: 4 simultaneous level-ups -> 8 float boxes, none overlapping, all >= 8px inside the tank (checked 4 times while rising)",
+              lvls == [2, 2, 2, 2] and snaps[0] == 8 and not m2, json.dumps({"levels": lvls, "boxes": snaps, "bad": m2[:3]}))
+        check("M2: identical level-up toasts merge into one line with a count: 'Guppy reached level 2! +1 gold ×4'",
+              lv == ["Guppy reached level 2! +1 gold ×4"] and len(tl) == len(set(tl)), json.dumps(tl))
+        # the merged toast restarts its timer, and a later identical toast joins it instead of stacking
+        # (~2.1 s after the first four: still on screen)
+        ev("const f = G.buyFish('guppy'); feedFull(f); f.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; f.hungerDone = true; AQ.pinFish(f.id, 0.3, 0.7); G.tick(1);"); page.wait_for_timeout(100)
+        tl2 = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        check("M2: a 5th identical toast while the merged one is still up joins it ('×5'), no second line",
+              [t_ for t_ in tl2 if "reached level 2" in t_] == ["Guppy reached level 2! +1 gold ×5"], json.dumps(tl2))
+
+        # N4: Start new tank clears toasts still showing/fading (e.g. "Guppy died") before "New tank started"
+        page.wait_for_timeout(2800); clear_toasts()
+        ev("""G.reset(); G.state.speed = 1; G.state.starterGrantUsed = true; const f = G.buyFish('guppy'); feedFull(f); G.state.gold = 3;
+              f.state = 'HUNGRY'; f.deathLeft = 0.5; G.tick(1); G.state.gameTime += 25;""")
+        page.wait_for_timeout(300)
+        before_nt = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        over_nt = page.locator("#tankover").is_visible()
+        page.click("#btn-newtank"); page.wait_for_timeout(60)
+        now_nt = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        page.wait_for_timeout(900)
+        later_nt = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        check("N4: Start new tank clears 'Guppy died' (and any other toast) first; only 'New tank started' shows",
+              over_nt and any("Guppy died" in t_ for t_ in before_nt) and now_nt == ["New tank started"] and later_nt == ["New tank started"],
+              json.dumps({"modal": over_nt, "before": before_nt, "after60ms": now_nt, "after1s": later_nt}))
+
+        # N5: "Reset save" fits on one line at 390x844, on the same row as the other debug buttons, fully on screen
+        page.wait_for_timeout(2800)
+        n5 = page.evaluate("""(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const e = document.getElementById('dbg-reset');
+            const rg = document.createRange(); rg.selectNodeContents(e); const lines = new Set([...rg.getClientRects()].map((q) => Math.round(q.top))).size;
+            const x = r('dbg-reset'), xp = r('dbg-xp'), g = r('dbg-gold'), dbg = r('debug');
+            return { text: e.textContent, visible: e.offsetParent !== null, textLines: lines, h: x.height, xpH: xp.height, top: x.top, xpTop: xp.top, goldTop: g.top,
+                     left: x.left, right: x.right, footerRight: dbg.right, vw: innerWidth, lh: parseFloat(getComputedStyle(e).fontSize) }; })()""")
+        page.screenshot(path=os.path.join(SHOTS, "footer_reset_save.png"))
+        print("   N5 geometry:", json.dumps(n5))
+        check("N5: 'Reset save' visible on one line (1 text line, same height as '+50 XP'), same row as +100g/+50 XP, inside the footer",
+              n5["visible"] and n5["text"] == "Reset save" and n5["textLines"] == 1 and abs(n5["h"] - n5["xpH"]) < 0.5 and abs(n5["top"] - n5["xpTop"]) < 0.5
+              and abs(n5["top"] - n5["goldTop"]) < 0.5 and n5["right"] <= n5["footerRight"] and n5["right"] <= n5["vw"], json.dumps(n5))
 
         # ================================================================ F. balance
         bc = page.evaluate("AQ.game.balanceChecks()")
