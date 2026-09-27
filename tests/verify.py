@@ -44,6 +44,12 @@ def png_rgb(data):
     return w, h, lambda x, y: tuple(rows[y][x * bpp:x * bpp + 3])
 
 
+def merged_tuning():
+    """what config.js TUNING must equal: the v4 archive + the live decorations.move (tools/sync_tuning.py), or AQ_TUNING verbatim"""
+    if os.environ.get("AQ_TUNING"): return json.load(open(TUNING))
+    sys.path.insert(0, os.path.join(HERE, "..", "tools")); import sync_tuning
+    return json.loads(sync_tuning.merged_text())
+
 def check(name, cond, detail=""):
     name = f"[{VIEW[0]}] {name}" if VIEW[0] else name
     results.append((name, bool(cond), detail))
@@ -66,7 +72,7 @@ JS = """const G = AQ.game, T = G.T, H = 3600;
 
 def main(VW, VH):
     errors = []
-    tj = json.load(open(TUNING))
+    tj = merged_tuning()
     VIEW[0] = f"{VW}x{VH}"; LARGE = VH >= 600
     def shot(name): return os.path.join(SHOTS, f"{name}_{VIEW[0]}.png")
     with sync_playwright() as p:
@@ -112,7 +118,7 @@ def main(VW, VH):
 
         # ================================================================ A. rules / config / speed
         boot(); page.evaluate("AQ.game.reset(); AQ.game.save()"); boot()
-        check("config.js TUNING == Designer tuning.json (verbatim)", page.evaluate("AQ.game.T") == tj)
+        check("config.js TUNING == Designer v4 tuning.json + live decorations.move (stepPxPerTapX 8 / stepPxPerTapY 4)", page.evaluate("AQ.game.T") == tj)
         s = S()
         check("page opens at x1 (debugDefaultSpeed)", s["speed"] == 1 == tj["debugDefaultSpeed"], f"speed={s['speed']}")
         btns = page.locator("#speed-btns .dbg").all_inner_texts()
@@ -498,13 +504,13 @@ def main(VW, VH):
         lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); n_on = page.evaluate("AQ.net()")
         page.screenshot(path=shot("net_drag_highlight"))
         # white body outline: the brightest pixel along the fish's top edge is near-white while targeted, not after
-        def top_edge_max():
+        def top_edge_max():   # number of near-white pixels (min channel > 228) in a box around the fish body
             tb2 = box(); png = page.screenshot(clip={"x": tb2["x"], "y": tb2["y"], "width": tb2["width"], "height": tb2["height"]}); _w2, _h2, px2 = png_rgb(png); k2 = _w2 / tb2["width"]
-            c_ = page.evaluate(f"AQ.fishScreen({nd['live']})"); fi = page.evaluate(f"AQ.fishIcon({nd['live']})"); hd = fi["halfDepth"]; best = 0
-            for yy in range(int(c_["y"] - hd * 1.4), int(c_["y"] - hd * 0.4)):
-                for dx in (-0.2, -0.1, 0.0, 0.1):
-                    q = px2(int((c_["x"] + dx * fi["L"]) * k2), int(yy * k2)); best = max(best, min(q))
-            return best
+            c_ = page.evaluate(f"AQ.fishScreen({nd['live']})"); fi = page.evaluate(f"AQ.fishIcon({nd['live']})"); hd = fi["halfDepth"]; n_ = 0
+            for yy in range(int(c_["y"] - hd * 1.8), int(c_["y"] + hd * 1.8) + 1):
+                for xx in range(int(c_["x"] - fi["L"] * 0.6), int(c_["x"] + fi["L"] * 0.6) + 1):
+                    if min(px2(int(xx * k2), int(yy * k2))) > 228: n_ += 1
+            return n_
         ring = [top_edge_max()]
         rim_on = page.evaluate("AQ.net()")
         mv(*empty, 12); n_off = page.evaluate("AQ.net()")
@@ -523,7 +529,7 @@ def main(VW, VH):
         info_nd = {"hover": n_hover, "down": n_down, "on": n_on, "off": n_off, "outlineMaxMin": ring, "emptyOk": empty_ok, "dip": dip_, "confirmDuringDip": early, "liveTxt": live_txt, "dead": n_dead, "deadToasts": dead_t, "deadOk": dead_ok}
         check("AD net cursor: hoop 44 / 60px centred on the mouse, follows it (hover and pressed), tilts while moving; the fish under the hoop is the target and gets a white body outline; letting go over empty water does nothing",
               n_hover["on"] and n_down["on"] and n_down["r"] == (30 if LARGE else 22) and abs(n_down["x"] - empty[0]) < 1.5 and abs(n_down["y"] - empty[1]) < 1.5 and n_on["target"] == nd["live"] and abs(n_on["x"] - lp["x"]) < 1.5
-              and 0 < abs(n_on["tilt"]) <= 12 * 3.1416 / 180 + 1e-6 and n_off["target"] is None and empty_ok and ring[0] > 215 and ring[0] > ring[1] + 25, json.dumps(info_nd))
+              and 0 < abs(n_on["tilt"]) <= 12 * 3.1416 / 180 + 1e-6 and n_off["target"] is None and empty_ok and ring[0] >= 40 and ring[0] > 3 * ring[1] + 20, json.dumps(info_nd))
         check("Net drag: letting go over a live fish dips the hoop first (no confirm yet at 60 ms), then opens its confirm ('Sell Guppy (L2) for 8 gold and 10 XP?'); over a dead fish it removes it (no confirm, 0 gold, 0 XP, 'Fish removed')",
               dip_["dip"] >= 0 and not early and live_txt == "Sell Guppy (L2) for 8 gold and 10 XP?" and n_dead["target"] == nd["dead"] and dead_ok, json.dumps(info_nd))
         tool("hand")
@@ -878,7 +884,18 @@ def main(VW, VH):
         page.mouse.move(rb["x"] + rb["width"] / 2, rb["y"] + rb["height"] / 2); page.mouse.down(); page.wait_for_timeout(700); page.mouse.up(); page.wait_for_timeout(60)
         x_c = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
         steps_held = round((x_b - x_c) / 8)
-        check("AD v4 7: a Move tap moves 8px; holding repeats every 80ms after 300ms (0.7 s hold = about 6 steps)", abs(x_b - x_a - 8) < 0.01 and 4 <= steps_held <= 7, f"tap {x_b - x_a:.2f}px, held {steps_held} steps")
+        # vertical: 4px per tap (Maksims 20:34, stepPxPerTapY), same hold-repeat
+        ev(f"const d = G.state.decor.find((x) => x.id === '{did_}'); d.y = 1.2; AQ.selectDecor(d.id);"); page.wait_for_timeout(60)
+        y_a = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["by"]
+        page.click('#deco-menu [data-move="down"]'); page.wait_for_timeout(60)
+        y_b = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["by"]
+        rb = page.locator('#deco-menu [data-move="up"]').bounding_box()
+        page.mouse.move(rb["x"] + rb["width"] / 2, rb["y"] + rb["height"] / 2); page.mouse.down(); page.wait_for_timeout(700); page.mouse.up(); page.wait_for_timeout(60)
+        y_c = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["by"]
+        vsteps = (y_b - y_c) / 4
+        check("AD v4 7 + Maksims 20:34: a Move tap moves 8px left/right and 4px up/down; holding repeats every 80ms after 300ms (0.7 s hold = about 6 steps) at the same step sizes",
+              abs(x_b - x_a - 8) < 0.01 and 4 <= steps_held <= 7 and abs(y_b - y_a - 4) < 0.01 and 4 <= round(vsteps) <= 7 and abs(vsteps - round(vsteps)) < 0.01,
+              f"x tap {x_b - x_a:.2f}px, x held {steps_held} steps; y tap {y_b - y_a:.2f}px, y held {vsteps:.2f} steps of 4px")
         # Maksims 20:12: move-DOWN runs the decoration's BASE all the way to the sand's front edge (the tank bottom / front
         # glass) at every size; it stays fully visible (full height above the base, top inside the water, not clipped)
         front, fshots = [], []

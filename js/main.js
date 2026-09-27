@@ -1000,9 +1000,10 @@
   }
   function moveDecor(dir) {
     const d = decorById(selDecor); if (!d) return;
-    const step = T.decorations.move.stepPxPerTap, band = (H - SAND) * V.decorFloorBand;
-    if (dir === 'left') d.x -= step / W; else if (dir === 'right') d.x += step / W;
-    else if (dir === 'up') d.y -= step / band; else if (dir === 'down') d.y += step / band;
+    // Maksims 20:34: left/right step stepPxPerTapX (8 px), up/down stepPxPerTapY (4 px); tap and hold-repeat alike
+    const mv = T.decorations.move, sx = mv.stepPxPerTapX, sy = mv.stepPxPerTapY, band = (H - SAND) * V.decorFloorBand;
+    if (dir === 'left') d.x -= sx / W; else if (dir === 'right') d.x += sx / W;
+    else if (dir === 'up') d.y -= sy / band; else if (dir === 'down') d.y += sy / band;
     clampDecor(d); placeMenu(true); G.save();
   }
   function sizeDecor(kind) {

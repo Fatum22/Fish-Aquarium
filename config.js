@@ -394,7 +394,8 @@ window.AQUARIUM_CONFIG = {
         "default": 1.0
       },
       "move": {
-        "stepPxPerTap": 8,
+        "stepPxPerTapX": 8,
+        "stepPxPerTapY": 4,
         "holdRepeatMs": 100,
         "clampInsideWater": true
       },
