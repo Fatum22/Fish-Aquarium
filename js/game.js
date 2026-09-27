@@ -492,6 +492,8 @@
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm,
     fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold,
+    /** debug +50 XP button (NUMBERS.md 9.13): the normal XP path (addXp), so tank level-ups/unlock toasts/saves behave as in play; no gold */
+    debugAddXp(n) { addXp(n, 'debug'); return tankInfo(); },
     save, load, reset, newState, balanceChecks, living, tankOver,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
