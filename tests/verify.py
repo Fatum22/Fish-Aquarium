@@ -1,4 +1,4 @@
-"""Headless end-to-end check of the Aquarium prototype (Designer v2 "slow game").
+"""Headless end-to-end check of the Aquarium prototype (Designer v3 economy on the v2 "slow game").
 
 Run (server must be up on 8766):
   /workspace/tools/venv-aq/bin/python /workspace/aquarium/tests/verify.py
@@ -37,7 +37,7 @@ def main():
     tj = json.load(open(TUNING))
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        ctx = browser.new_context(viewport={"width": 420, "height": 860}, device_scale_factor=2)
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2)
         page = ctx.new_page()
         page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
@@ -103,7 +103,13 @@ def main():
             const r = rubAll(1.01); out.push({ n, gold: G.state.gold - g0, xp: G.state.tank.xp - x0, cleaned: !!(r && r.cleaned), t: G.state.dirt.t, st: G.dirtStage() }); }
           G.reset(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.5); const partial = G.state.gold - g0;
           return { out, partial };""")
-        check("every full clean pays 10 gold + 5 XP at any stage and restarts the dirt clock", all(r["gold"] == 10 and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]) and tj["dirt"]["cleanGold"] == 10, json.dumps(c["out"]))
+        cg = tj["dirt"]["cleanGold"]
+        check("full clean pays cleanGold by stage (2/3/4/5/6) + 5 XP and restarts the dirt clock", cg == [2, 3, 4, 5, 6] and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
+        c2 = ev("""G.reset(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.3); const partial = G.state.gold - g0, rs = G.state.dirt.rubStage;
+          G.state.dirt.t = T.dirt.stageAtSec[3] - 0.5; G.tick(1); const midStage = G.dirtStage(), spots = G.state.dirt.spots.length;
+          const r = rubAll(1.01); return { partial, rs, midStage, spots, gold: G.state.gold - g0, payStage: r && r.stage, stageNow: r && r.stageNow, rsAfter: G.state.dirt.rubStage };""")
+        check("clean pays by the stage when the rub STARTED (start at 3, tank reaches 4 mid-rub -> pays cleanGold[3] = 4)",
+              c2["partial"] == 0 and c2["rs"] == 3 and c2["midStage"] == 4 and c2["spots"] >= 1 and c2["gold"] == cg[2] == 4 and c2["payStage"] == 3 and c2["stageNow"] == 4 and c2["rsAfter"] == 0, json.dumps(c2))
         check("partial rubbing pays nothing", c["partial"] == 0)
 
         # ================================================================ B. feeding / growth / hunger / death
@@ -130,17 +136,19 @@ def main():
         check("death exactly 16 h after getting hungry; the dead fish stays in the tank", f["deathAfter"] == tj["deathSec"] == 57600 and f["deadState"] == "DEAD" and f["deadStays"], f"deathAfter={f['deathAfter']}")
         check("an 8 h night right after a feed kills nobody", "DEAD" not in f["night"], str(f["night"]))
 
-        # real taps: 1 food per tap, fed meter, +1 gold when full (Platy needs 2 taps at L1)
+        # real taps: 1 food per tap, fed meter, v3 feeding pays 0 and shows no gold float (Platy needs 2 taps at L1)
         pid = ev("G.reset(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; const f = G.buyFish('platy'); AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
         page.wait_for_timeout(200); tool("food")
         pos = page.evaluate(f"AQ.fishScreen({pid})")
-        s0 = S(); tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(120); s1 = S()
+        page.evaluate("AQ.floats(true)"); s0 = S(); tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(120); s1 = S()
         tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(120); s2 = S()
         f1 = next(x for x in s1["fish"] if x["id"] == pid); f2 = next(x for x in s2["fish"] if x["id"] == pid)
-        check("real Food taps: 1 food per tap, Platy fed 1/2 then full -> growing, +1 gold",
-              s1["food"] == s0["food"] - 1 and f1["fed"] == 1 and f1["state"] == "WAITING" and s1["gold"] == s0["gold"]
-              and s2["food"] == s0["food"] - 2 and f2["state"] == "GROWING" and s2["gold"] == s0["gold"] + 1,
+        page.wait_for_timeout(900); fl = page.evaluate("AQ.floats(true)")
+        check("real Food taps: 1 food per tap, Platy fed 1/2 then full -> growing, 0 gold (feedGoldPerFish 0)",
+              tj["feedGoldPerFish"] == 0 and s1["food"] == s0["food"] - 1 and f1["fed"] == 1 and f1["state"] == "WAITING" and s1["gold"] == s0["gold"]
+              and s2["food"] == s0["food"] - 2 and f2["state"] == "GROWING" and s2["gold"] == s0["gold"],
               f"food {s0['food']}->{s1['food']}->{s2['food']} gold {s0['gold']}->{s2['gold']} state {f2['state']}")
+        check("full feed shows no gold float at all (no '+0')", not any("gold" in t or "+0" in t for t in fl), str(fl))
         clear_toasts(); tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(150)
         check("tap with nobody hungry: 'Nobody's hungry', no food spent", S()["food"] == s2["food"] and "Nobody's hungry" in page.inner_text("#toasts"), page.inner_text("#toasts"))
 
@@ -155,10 +163,20 @@ def main():
         # ================================================================ C. tank XP / shop gating
         x = ev("""G.reset(); G.state.gold = 1000; const a = G.buyFish('guppy'); feedFull(a); let n = 0;
           while (a.level < 2 && n++ < 10000) { G.tick(1); if (a.state === 'HUNGRY') { clean(); feedFull(a); } }
-          const afterLvl = G.state.tank.xp, gold2 = T.species.find((s) => s.id === 'guppy').levelUpGold[0];
+          const afterLvl = G.state.tank.xp, gu = T.species.find((s) => s.id === 'guppy');
           G.sell(a.id); const afterSell = G.state.tank.xp;
-          return { afterLvl, gold2, afterSell, src: G.CFG.XP_SOURCE, lv: [0, 59, 60, 399, 400, 1200, 3000].map(G.tankLevelFor) };""")
-        check("tank XP: level-up XP = level-up gold; selling gives 0 XP", x["afterLvl"] == x["gold2"] and x["afterSell"] == x["afterLvl"] and x["src"] == "designer", json.dumps(x))
+          const table = T.species.map((sp) => [2, 3, 4].map((lv) => G.xpFor('fishLevelUp', { sp, level: lv })));
+          return { afterLvl, xp2: gu.levelUpXp[0], gold2: gu.levelUpGold[0], afterSell, table, retired: G.CFG.XP_SOURCE === undefined && G.CFG.XP_PRESETS === undefined,
+            rule: T.tank.xp.fishLevelUp, lv: [0, 59, 60, 399, 400, 1200, 3000].map(G.tankLevelFor) };""")
+        check("tank XP from level-ups comes from species.levelUpXp (Guppy L2: 10 XP, while it pays 1 gold); selling gives 0 XP",
+              x["rule"] == "species.levelUpXp" and x["afterLvl"] == x["xp2"] == 10 and x["gold2"] == 1 and x["afterSell"] == x["afterLvl"] and x["retired"]
+              and x["table"] == [s_["levelUpXp"] for s_ in tj["species"]], json.dumps(x))
+        # level-up floats: "+2 gold" and "+20 XP" for a Guppy reaching L3 (NUMBERS.md 1f)
+        lf = ev("""G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); f.level = 2; f.progress = G.growSec(G.SPECIES.guppy, 2) - 0.5;
+          f.hungerDone = true; AQ.pinFish(f.id, 0.5, 0.5); AQ.floats(true); const g0 = G.state.gold, x0 = G.state.tank.xp; G.tick(1);
+          return { gold: G.state.gold - g0, xp: G.state.tank.xp - x0, level: f.level };""")
+        page.wait_for_timeout(100); fl = page.evaluate("AQ.floats(true)")
+        check("level-up pays v3 gold and shows '+2 gold' and '+20 XP' floats (Guppy L3)", lf["gold"] == 2 and lf["xp"] == 20 and lf["level"] == 3 and "+2 gold" in fl and "+20 XP" in fl, f"{lf} {fl}")
         check("tank levels at 60 / 400 / 1200 / 3000 XP", x["lv"] == [1, 1, 2, 2, 3, 4, 5], str(x["lv"]))
         ev("G.reset(); G.state.gold = 1000; G.state.tank.xp = 55; G.state.speed = 1;")
         page.click("#btn-shop"); page.wait_for_timeout(250)
@@ -172,6 +190,27 @@ def main():
         page.click("#btn-shop"); page.wait_for_timeout(250)
         check("tank level-up toast names the unlock; Danio becomes buyable", "Tank level 2" in tt and "Zebra Danio" in tt and not page.locator('button[data-buy="danio"]').is_disabled(), tt)
         page.click('[data-close="shop"]')
+        # shop prices / "sells up to" match tuning.json (all unlocked)
+        ev("G.reset(); G.state.gold = 1000; G.state.tank.xp = 5000; G.state.speed = 1;")
+        clear_toasts(); page.click("#btn-shop"); page.wait_for_timeout(250)
+        shop = {sp["id"]: (page.locator(f'button[data-buy="{sp["id"]}"] .price').inner_text(), page.locator(f'#shop-list .card:has(button[data-buy="{sp["id"]}"])').inner_text()) for sp in tj["species"]}
+        check("shop prices 20/50/90/150 and 'sells up to' adult price match tuning.json",
+              [int(shop[s_["id"]][0]) for s_ in tj["species"]] == [s_["price"] for s_ in tj["species"]] == [20, 50, 90, 150]
+              and all(f'sells up to {s_["sell"][3]}g' in shop[s_["id"]][1] for s_ in tj["species"]), json.dumps({k: v[0] for k, v in shop.items()}))
+        page.screenshot(path=os.path.join(SHOTS, "shop.png"))
+        page.click('[data-close="shop"]')
+        sp_tab = ev("return T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.sellPrice(sp, lv)));")
+        lg_tab = ev("return T.species.map((sp) => [2, 3, 4].map((lv) => G.levelUpGold(sp, lv)));")
+        check("sell prices at every level (Guppy 0/8/18/40 ...) and level-up gold (Guppy 1/2/4 ...) follow tuning.json v3",
+              sp_tab == [s_["sell"] for s_ in tj["species"]] and sp_tab[0] == [0, 8, 18, 40] and lg_tab == [s_["levelUpGold"] for s_ in tj["species"]] and lg_tab[0] == [1, 2, 4], json.dumps([sp_tab, lg_tab]))
+        btns = []
+        for lv in (1, 2, 3, 4):
+            fid = ev(f"G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); f.level = {lv}; f.state = {lv} === 4 ? 'ADULT' : 'GROWING'; AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
+            page.wait_for_timeout(150); tool("hand"); click_fish(fid); page.wait_for_timeout(150)
+            btns.append(page.inner_text("#p-sell"))
+            if lv == 4: page.screenshot(path=os.path.join(SHOTS, "panel_adult_sell.png"))
+            page.keyboard.press("Escape")
+        check("fish panel sell button per level: Release (0 gold) / Sell for 8 / 18 / 40 gold", btns == ["Release (0 gold)", "Sell for 8 gold", "Sell for 18 gold", "Sell for 40 gold"], str(btns))
 
         # ================================================================ D. offline catch-up (real reload) + dead fish
         ids = ev("""G.reset(); G.state.speed = 1; G.state.gold = 100; const a = G.buyFish('guppy'); feedFull(a); const b = G.buyFish('guppy');
@@ -230,7 +269,7 @@ def main():
 
         # ================================================================ E. UI: dirty feed, rub clean, sell/release, reload
         gid = ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.45); toStage(3); return f.id;")
-        page.wait_for_timeout(200); tool("food"); clear_toasts(); food_b = S()["food"]
+        page.wait_for_timeout(200); tool("food"); clear_toasts(); food_b = S()["food"]; page.evaluate("AQ.floats(true)")
         tank_click(box()["width"] * 0.5, box()["height"] * 0.3); page.wait_for_timeout(200)
         n_toasts = page.locator("#toasts > *").count(); hint_vis = page.locator("#hint").is_visible() and page.inner_text("#hint").strip() != ""
         check("dirty tank: feeding blocked with ONE message by the dirt bar (no toast, no hint)",
@@ -238,7 +277,8 @@ def main():
               f"toasts={n_toasts} hint={hint_vis}")
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]
         ok = rub_clean(); s = S()
-        check("sponge mouse rub cleans stage 3: +10 gold, +5 XP", ok and s["gold"] == gold_b + 10 and s["tank"]["xp"] == xp_b + 5, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']}")
+        fl = page.evaluate("AQ.floats(true)")
+        check("sponge mouse rub cleans stage 3: +4 gold, +5 XP, 'Sparkling! +4 gold' float", ok and s["gold"] == gold_b + 4 and s["tank"]["xp"] == xp_b + 5 and "Sparkling! +4 gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
         tool("hand"); page.wait_for_timeout(400)
         page.screenshot(path=os.path.join(SHOTS, "after_clean.png"))
         # L1 release (confirm) and L2 sell
@@ -269,8 +309,36 @@ def main():
 
         # ================================================================ F. balance
         bc = page.evaluate("AQ.game.balanceChecks()")
-        check("balance: selling at L4 beats L3 per hour (all species)", bc["sellOk"], json.dumps(bc["sell"]))
-        check("balance: clean often pays most: 80/40/20/10/5 gold per day, 16x", bc["cleanOk"] and bc["cleanPerDay"] == [80, 40, 20, 10, 5] and bc["cleanRatio"] == 16, str(bc["cleanPerDay"]))
+        # Designer check (a): gold per day if you always clean at stage n = cleanGold[n] * 24 h / stage-n time; stage 1 earns the most
+        per_day = [tj["dirt"]["cleanGold"][i] * 86400 / t for i, t in enumerate(tj["dirt"]["stageAtSec"])]
+        check("Designer check (a): cleaning at stage 1 earns the most gold per day (16/12/8/5/3), falling every stage",
+              per_day == [16, 12, 8, 5, 3] and all(per_day[i] < per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
+        # Designer check (b): profit(L) = sell[L] + level-up gold up to L - price - food eaten up to L (food 1 gold each, NUMBERS.md 5)
+        prof = {}
+        for sp in tj["species"]:
+            food_val = tj["foodPack"]["gold"] / tj["foodPack"]["food"]
+            port = [sp["foodBase"] * lv for lv in range(1, 5)]
+            rows = []
+            for L in range(1, 5):
+                food = port[0] + sum(port[:L - 1])  # first feed + one hunger feed in each finished level
+                no_food = sp["sell"][L - 1] + sum(sp["levelUpGold"][:L - 1]) - sp["price"]
+                rows.append((round(no_food - food * food_val + tj["feedGoldPerFish"] * L, 2), no_food))
+            prof[sp["id"]] = rows
+        ok_b = all(all(r[0] <= 0 for r in rows[:3]) and rows[3][0] > 0 for rows in prof.values())
+        check("Designer check (b): selling at L1-L3 is never a profit, L4 always is (Guppy -3/+20, Danio -1/+61, Neon -3/+108, Platy 0/+189)",
+              ok_b and [prof[k][2][0] for k in ("guppy", "danio", "neon", "platy")] == [-3, -1, -3, 0] and [prof[k][3][0] for k in ("guppy", "danio", "neon", "platy")] == [20, 61, 108, 189] and bc["sellOk"],
+              json.dumps({k: [r[0] for r in v] for k, v in prof.items()}) + " | without food: " + json.dumps({k: [r[1] for r in v] for k, v in prof.items()}))
+
+        # first-Guppy path (Playtester: softlock?) -- Designer's day-1 check-ins 08/12/16/19/23: clean if dirty, feed what's hungry
+        sl = ev("""G.reset(); const a = G.buyFish('guppy'); feedFull(a); const gold0 = G.state.gold, food0 = G.state.food; let now = 0; const rows = [];
+          for (const c of [4, 8, 11, 15]) { G.tick(c * H - now); now = c * H; if (G.dirtStage()) rubAll(1.01);
+            for (const f of G.state.fish) if (G.needsFood(f)) feedFull(f); rows.push([c, a.state, a.level, G.state.gold, G.state.food, G.state.tank.xp]); }
+          const foodToAdult = T.startFood - G.state.food, adultPortion = G.portion(G.SPECIES.guppy, 4), goldAtAdult = G.state.gold, foodAtAdult = G.state.food;
+          const sold = G.sell(a.id);
+          return { gold0, food0, rows, foodToAdult, adultPortion, goldAtAdult, foodAtAdult, afterSell: G.state.gold, xp: G.state.tank.xp };""")
+        check("first Guppy is no softlock: 10 starting food covers the 7 needed to adult; at adult 15 gold >= a 10-gold food pack for the 4-food adult feed; sell -> 55 (Designer day-1 table)",
+              sl["gold0"] == 0 and sl["food0"] == 9 and sl["foodToAdult"] == 7 and sl["rows"][-1][1] == "ADULT" and sl["goldAtAdult"] == 15 and sl["foodAtAdult"] == 3
+              and sl["adultPortion"] == 4 and sl["goldAtAdult"] >= tj["foodPack"]["gold"] and sl["afterSell"] == 55 and sl["xp"] == 90, json.dumps(sl))
 
         # ================================================================ G. Art Director look spec (v2 dirt + fish growth)
         a = ev("""const V = G.CFG.VISUAL, sz = AQ.size(); G.reset(); G.state.gold = 1000;
@@ -324,7 +392,17 @@ def main():
         check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
         dl1, dof, dl3 = a["danioL1"], a["danioL1off"], a["danioL3"]
         check("AD ruling 1: zebra danio L1 has no stripe (stripes from L2)", a["danioStripes"] == [0, 2, 4, 4] and dl1[0] >= dl1[2] and max(abs(dl1[i] - dof[i]) for i in range(3)) < 12 and dl3[2] > dl3[0] + 30, f"L1 {dl1} off {dof} L3 {dl3}")
-        check("AD ruling 6b: neon tetra L2 blue line at 70%", a["neonL2"] == 0.70)
+        ns = ev("""const V = G.CFG.VISUAL, L = AQ.fishLen('neon', 2), depth = FishArt.ART.neon.depth * L, sc = 4;
+          const meas = (lv) => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const x = c.getContext('2d');
+            x.translate(300, 200); x.scale(sc, sc); FishArt.drawFish(x, 'neon', L, 0, { level: lv });
+            const d = x.getImageData(300, 0, 1, 400).data; let n = 0, best = null;
+            for (let y = 0; y < 400; y++) { const i = y * 4; if (d[i + 3] > 128 && d[i + 2] - d[i] > 90) { n++; if (!best || d[i + 2] - d[i] > best[2] - best[0]) best = [d[i], d[i + 1], d[i + 2]]; } }
+            return { px: +(n / sc).toFixed(2), best }; };
+          return { L: +L.toFixed(1), depth: +depth.toFixed(2), l1: meas(1), l2: meas(2), look: FishArt.LOOK };""")
+        need = max(2, 0.12 * ns["depth"])
+        check("AD ruling (neon L2): line 85% in the adult stripe blue, no glow, >= max(2 px, 12% body depth) thick at tank size",
+              ns["look"]["neonL2LineAlpha"] == 0.85 and ns["look"]["neonStripe"] == ["#5ff6ff", "#2aa8ff", "#2a6bff"] and ns["l1"]["px"] == 0
+              and need <= ns["l2"]["px"] <= need + 2.5 and ns["l2"]["best"][2] > 200, f"tank L={ns['L']}px depth={ns['depth']}px need>={need:.2f}px measured={ns['l2']['px']}px colour={ns['l2']['best']}")
         f2, f4 = a["platyFinL2"], a["platyFinL4"]
         check("AD ruling 5b: platy L2 fin keeps its own orange hue at ~65% opacity", f2[0] > 230 and f2[0] - f2[2] > 150 and abs(f2[1] - f4[1]) < 25 and 0.58 < f2[3] < 0.72 and f4[3] > 0.75, f"L2 {f2} L4 {f4}")
         check("AD ruling 3 + v2: hair-algae patch 0.40, strands 0.5", a["hair"] == [0.40, 0.5], str(a["hair"]))
@@ -371,7 +449,7 @@ def main():
                         x_ = ax + (bx - ax) * t / 6; y_ = ay + (by - ay) * t / 6
                         cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tb["x"] + x_, "y": tb["y"] + y_}]})
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        check("touch drags rub the tank clean (phone emulation), +10 gold", st0 >= 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"],
+        check("touch drags rub the tank clean (phone emulation), stage 1 pays +2 gold", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
               f"stage {st0}->{tp.evaluate('AQ.game.dirtStage()')}")
         tp.evaluate("AQ.game.reset(); AQ.game.save()")
         tctx.close()
