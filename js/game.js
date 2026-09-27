@@ -31,10 +31,19 @@
   function sellPrice(sp, level) { return Math.round(sp.sell[level - 1] * rarityGoldMult(sp.rarity)); }
   function levelUpGold(sp, newLevel) { return Math.round(sp.levelUpGold[newLevel - 2] * rarityGoldMult(sp.rarity)); }
 
-  function dirtStage(elapsed) {
+  function dirtStage(points) {
     let s = 0;
-    T.dirt.stageAtSec.forEach((t) => { if (elapsed >= t) s++; });
+    T.dirt.stageAtPoints.forEach((t) => { if (points >= t) s++; });
     return s;
+  }
+  /** dirt points per minute from the fish in the tank (Designer v1.2, NUMBERS.md 1e). Recomputed every 1 s step, so buys/level-ups/sales/deaths take effect in order. */
+  function dirtLoadPerMin() {
+    let sum = 0;
+    for (const f of S.fish) {
+      const lv = f.state === 'WAITING' ? T.dirt.waitingFishCountsAsLevel : f.level;
+      sum += T.dirt.loadPerMinByLevel[Math.min(lv, T.dirt.loadPerMinByLevel.length) - 1];
+    }
+    return Math.min(T.dirt.maxLoadPerMin, sum);
   }
 
   // ---------------------------------------------------------------- state
@@ -47,7 +56,7 @@
       speed: 1,
       nextId: 1,
       fish: [],
-      dirt: { elapsed: 0, spots: [], spawned: 0 },
+      dirt: { points: 0, spots: [], spawned: 0 },
       starterGrantUsed: false,
       stats: { cleans: 0, feeds: 0, levelUps: 0, deaths: 0, sold: 0 },
     };
@@ -131,9 +140,9 @@
 
   function tickDirt(dt) {
     if (living() === 0) return; // with 0 fish, dirt does not build up
-    const before = dirtStage(S.dirt.elapsed);
-    S.dirt.elapsed += dt;
-    const st = dirtStage(S.dirt.elapsed);
+    const before = dirtStage(S.dirt.points);
+    S.dirt.points += dirtLoadPerMin() * dt / 60;
+    const st = dirtStage(S.dirt.points);
     if (st > 0) {
       const target = T.dirt.spots[st - 1];
       while (S.dirt.spawned < target) spawnSpot(st);
@@ -211,7 +220,7 @@
 
   /** Food tool tap. Returns {ok, reason?, fed:[], spent, gold, unfed} */
   function feed() {
-    const stage = dirtStage(S.dirt.elapsed);
+    const stage = dirtStage(S.dirt.points);
     if (stage >= 1) { const r = { ok: false, reason: 'dirty' }; emit('feedblocked', r); return r; }
     if (living() === 0) { const r = { ok: false, reason: 'nofish' }; emit('feedfail', r); return r; }
     const eaters = S.fish.filter(needsFood);
@@ -249,7 +258,7 @@
   /** Sponge rub along a segment in tank-normalized coords (x by width, y by height).
    *  W,H = tank size in CSS px (grime is measured in px of sponge travel). */
   function rub(x0, y0, x1, y1, W, H, spongeR) {
-    const stage = dirtStage(S.dirt.elapsed);
+    const stage = dirtStage(S.dirt.points);
     if (!S.dirt.spots.length) return { cleaned: false };
     const ax = x0 * W, ay = y0 * H, bx = x1 * W, by = y1 * H;
     const len = Math.hypot(bx - ax, by - ay);
@@ -267,7 +276,7 @@
     if (touched && S.dirt.spots.length === 0 && stage >= 1 && S.dirt.spawned >= T.dirt.spots[stage - 1]) {
       const gold = T.dirt.cleanGold[stage - 1];
       S.gold += gold;
-      S.dirt.elapsed = 0; S.dirt.spawned = 0; S.dirt.spots = [];
+      S.dirt.points = 0; S.dirt.spawned = 0; S.dirt.spots = [];
       S.stats.cleans++;
       emit('cleaned', { stage, gold });
       return { cleaned: true, gold, stage };
@@ -318,6 +327,8 @@
       const base = newState();
       S = Object.assign(base, d);
       S.dirt = Object.assign(newState().dirt, d.dirt || {});
+      if (typeof (d.dirt || {}).points !== 'number') { S.dirt.points = 0; S.dirt.spots = []; S.dirt.spawned = 0; } // old time-based save: start clean
+      delete S.dirt.elapsed;
       S.stats = Object.assign(newState().stats, d.stats || {});
       S.fish = (d.fish || []).filter((f) => SPECIES[f.sp]);
       return true;
@@ -350,7 +361,9 @@
       const r3 = route(L - 1), r4 = route(L);
       out.push({ species: sp.name, sellL3perMin: +r3.perMin.toFixed(2), sellL4perMin: +r4.perMin.toFixed(2), ok: r4.perMin > r3.perMin });
     });
-    const cleanPerHour = T.dirt.stageAtSec.map((t, i) => +(T.dirt.cleanGold[i] * 3600 / t).toFixed(1));
+    // per hour for one L1 fish (ratio between stages is the same at any load)
+    const rate = T.dirt.loadPerMinByLevel[0];
+    const cleanPerHour = T.dirt.stageAtPoints.map((p, i) => +(T.dirt.cleanGold[i] * 60 * rate / p).toFixed(1));
     const cleanOk = cleanPerHour.every((v, i) => i === 0 || v < cleanPerHour[i - 1]);
     return { sell: out, sellOk: out.every((o) => o.ok), cleanPerHour, cleanOk };
   }
@@ -360,7 +373,7 @@
     get state() { return S; },
     on(fn) { listeners.push(fn); },
     tick, buyFish, buyFood, feed, rub, sell, canBuy,
-    dirtStage: () => dirtStage(S.dirt.elapsed),
+    dirtStage: () => dirtStage(S.dirt.points), dirtLoadPerMin,
     fishInfo, portion, sellPrice, growSec, deathSecFor, adultHungerSec,
     save, load, reset, newState, balanceChecks, living, tankOver,
   };

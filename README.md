@@ -29,14 +29,14 @@ Automated check: `/workspace/tools/venv-aq/bin/python tests/verify.py` (Playwrig
 
 ## Numbers
 
-Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy of Designer's `/workspace/studio/briefs/aquarium/design/tuning.json`** (v1). The rules follow `NUMBERS.md` in the same folder. The test asserts that `config.js` and `tuning.json` match. To retune, paste a new tuning.json over `TUNING`. The only non-tuning values in config.js are the drafted rare/epic multipliers (NUMBERS.md §7, not used in v1) and presentation-only values (fish draw size, sponge size, save key).
+Every balance number is in **`config.js`**. `TUNING` there is a **verbatim copy of Designer's `/workspace/studio/briefs/aquarium/design/tuning.json`** (v1.2, dirt-load model). The rules follow `NUMBERS.md` in the same folder. The test asserts that `config.js` and `tuning.json` match. To retune, paste a new tuning.json over `TUNING`. The only non-tuning values in config.js are the drafted rare/epic multipliers (NUMBERS.md §7, not used in v1) and presentation-only values (fish draw size, sponge size, save key).
 
 ## Rules as implemented (NUMBERS.md)
 
 - Per-fish states: WAITING → GROWING ⇄ HUNGRY → … → ADULT ⇄ ADULT_HUNGRY, or → dead (removed, toast, no gold).
 - The fish gets hungry at 50% of each level's growth. While hungry, growth pauses and the death timer (1.5 × that level's growth) runs. Feeding clears it.
 - An adult gets hungry `growSec[2]` after its **last feed**, with a death timer of 1.5 × that.
-- One Food tap feeds every WAITING or hungry fish. Each fish costs `foodBase × level × rarityFoodMult` and pays +1 gold. When food is short, fish closest to death eat first (WAITING fish last). Any dirt blocks feeding.
+- One Food tap feeds every WAITING or hungry fish. Each fish costs `foodBase × level × rarityFoodMult` and pays +1 gold. When food is short, fish closest to death eat first (WAITING fish last). Any dirt blocks feeding. Dirt builds from the fish: each living fish adds `loadPerMinByLevel` points per minute (L1 2, L2 3, L3 5, adult 8; a never-fed fish counts as L1), capped at 20 per minute; stages start at 24, 48, 80, 120 and 176 points. The sponge is twice the old size and, on touch, is drawn just above the fingertip.
 - Dirt builds only while there's at least one living fish (it pauses, and doesn't reset, if the tank empties). Stages come at 180/360/600/900/1320 s, with 2–6 spots. Each spot's grime is px of sponge travel (150 px for spots that appear at stages 1–2, 220 px at stages 3–5). The payout depends on the stage when the last spot clears.
 - Tank capacity is 6 (Buy shows "Tank full"). Unaffordable prices show in red and the Buy button is disabled.
 - **Edge case 5 (pending Maksims' veto):** a one-time top-up to 20 gold when there are no living fish and gold is below the cheapest baby (20). Food is ignored. A flag is saved so it fires once per save. It's one line in `js/game.js` → `checkStarterGrant`.

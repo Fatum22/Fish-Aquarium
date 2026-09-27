@@ -22,7 +22,8 @@
  *   - feedGoldPerFish  : gold per fish actually fed on a tap
  *   - levelUpGold[i]   : gold on reaching L(i+2)
  *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
- *   - dirt.stageAtSec  : dirt stage n (1..5) is reached stageAtSec[n-1] s after the last clean
+ *   - dirt (model loadPoints): each living fish adds loadPerMinByLevel[level-1] points/min (unfed fish count as L1),
+ *     tank total capped at maxLoadPerMin; stage n is reached at stageAtPoints[n-1] points since the last clean
  *                        (dirt only builds while the tank has at least one living fish)
  *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
  *   - dirt.cleanGold   : payout for a full clean, by the stage when the LAST spot clears
@@ -30,7 +31,7 @@
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json (Designer v1.1, 2026-09-27 02:35)',
+  source: 'tuning.json (Designer v1.2 dirt-load, 2026-09-27)',
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
@@ -156,12 +157,21 @@ window.AQUARIUM_CONFIG = {
       }
     ],
     "dirt": {
-      "stageAtSec": [
-        180,
-        360,
-        600,
-        900,
-        1320
+      "model": "loadPoints",
+      "loadPerMinByLevel": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "waitingFishCountsAsLevel": 1,
+      "maxLoadPerMin": 20,
+      "stageAtPoints": [
+        24,
+        48,
+        80,
+        120,
+        176
       ],
       "spots": [
         2,
@@ -171,11 +181,11 @@ window.AQUARIUM_CONFIG = {
         6
       ],
       "cleanGold": [
-        3,
-        5,
         7,
-        8,
-        9
+        12,
+        17,
+        20,
+        23
       ],
       "rubPxPerSpot": [
         150,
@@ -206,7 +216,8 @@ window.AQUARIUM_CONFIG = {
   VISUAL: {
     levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
     speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
-    spongeRadiusFrac: 0.07,                 // sponge radius as a fraction of tank width
+    spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
+    spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
     spotRadiusFrac: [0.075, 0.11],          // dirt spot radius range (fraction of tank width)
     saveKey: 'aquarium.save.v1',
     saveEveryMs: 2000,

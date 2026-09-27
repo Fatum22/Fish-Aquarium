@@ -146,7 +146,8 @@ def main():
         check("fish reached level 2 and paid 10 gold", g["level"] == 2 and s["gold"] >= gold_before_lvl + 10, f"gold {gold_before_lvl}->{s['gold']}")
 
         # ---- 6. let dirt build up, feeding blocked, rub clean
-        wait_for(lambda: stage() >= 3, timeout=20)
+        page.evaluate("() => { const G = AQ.game; G.state.dirt.points = G.T.dirt.stageAtPoints[2] - 0.05; }")  # one L2 fish needs ~27 game-min; jump near stage 3
+        wait_for(lambda: stage() >= 3, timeout=10)
         check("dirt reached stage 3", stage() >= 3, f"stage={stage()}")
         n_spots = len(S()["dirt"]["spots"])
         check("dirt spots grow with stage (4 at stage 3)", n_spots == tj["dirt"]["spots"][stage() - 1], f"spots={n_spots}")
@@ -229,7 +230,7 @@ def main():
         r = page.evaluate("""() => {
           const G = AQ.game; G.reset(); G.state.gold = 20;
           const f = G.buyFish('guppy');
-          const cleanNow = () => { G.state.dirt.elapsed = 0; G.state.dirt.spots = []; G.state.dirt.spawned = 0; };
+          const cleanNow = () => { G.state.dirt.points = 0; G.state.dirt.spots = []; G.state.dirt.spawned = 0; };
           cleanNow(); G.feed();
           let guard = 0;
           while (f.level < 4 && guard++ < 10000) { G.tick(1); if (f.state === 'HUNGRY') { cleanNow(); G.feed(); } }
@@ -261,23 +262,47 @@ def main():
         page.screenshot(path=os.path.join(SHOTS, "tank_mixed_levels_staged.png"))
         page.evaluate("AQ.game.reset(); AQ.game.save()")
 
+        # ---- 13b. dirt load model (Designer v1.2): fish-driven dirt, cap, first-Guppy timing
+        d = page.evaluate("""() => {
+          const G = AQ.game; const T = G.T; G.reset(); G.state.gold = 1000;
+          const f = G.buyFish('guppy');                   // waiting fish counts as L1
+          G.tick(719); const waitSt719 = G.dirtStage(); G.tick(2); const waitSt721 = G.dirtStage();
+          G.reset(); G.state.gold = 1000; const g = G.buyFish('guppy'); G.feed();
+          let t = 0, stAtL2 = null, firstStage1 = null;
+          while (t < 1500 && firstStage1 === null) {
+            G.tick(1); t++;
+            if (g.level >= 2 && stAtL2 === null) stAtL2 = G.dirtStage();
+            if (G.dirtStage() >= 1) firstStage1 = t;
+            if ((g.state === 'HUNGRY') && G.dirtStage() === 0) G.feed();
+          }
+          G.reset(); G.state.gold = 10000;
+          for (let i = 0; i < 6; i++) { const a = G.buyFish('guppy'); a.level = 4; a.state = 'ADULT'; a.sinceFed = 0; }
+          const cap = G.dirtLoadPerMin();
+          G.reset(); G.save();
+          return { waitSt719, waitSt721, stAtL2, firstStage1, cap, maxLoad: T.dirt.maxLoadPerMin };
+        }""")
+        check("one waiting baby: dirt still clean at 11:59, stage 1 at 12:00", d["waitSt719"] == 0 and d["waitSt721"] == 1, json.dumps(d))
+        check("first Guppy: dirt bar empty through L1, stage 1 at ~9:20 (9-10 min)", d["stAtL2"] == 0 and 540 <= d["firstStage1"] <= 600, json.dumps(d))
+        check("full adult tank load capped at maxLoadPerMin (20/min)", d["cap"] == d["maxLoad"] == 20, json.dumps(d))
+
         # ---- 14. touch: rub-clean with real touch drags (CDP touch events, phone emulation)
         tctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, has_touch=True, is_mobile=True)
         tp = tctx.new_page()
         tp.on("pageerror", lambda e: errors.append(f"pageerror(touch): {e}"))
         tp.goto(BASE + "?speed=1"); tp.wait_for_function("window.AQ && window.AQ.game")
-        tp.evaluate("() => { const G = AQ.game; G.reset(); G.buyFish('guppy'); G.state.dirt.elapsed = 179.5; G.tick(1); }")
+        tp.evaluate("() => { const G = AQ.game; G.reset(); G.buyFish('guppy'); G.state.dirt.points = 23.99; G.tick(1); }")
         tp.wait_for_timeout(200)
         tp.tap('.tool[data-tool="sponge"]')
         cdp = tctx.new_cdp_session(tp)
         tb = tp.locator("#tank").bounding_box()
         st0 = tp.evaluate("AQ.game.dirtStage()"); gold0 = tp.evaluate("AQ.game.state.gold")
+        lift = tp.evaluate("(() => { const c = document.querySelector('#tank canvas') || document.querySelector('canvas'); return c.getBoundingClientRect().width * AQ.game.CFG.VISUAL.spongeRadiusFrac * AQ.game.CFG.VISUAL.spongeTouchLiftFrac; })()")
         for _ in range(20):
             if tp.evaluate("AQ.game.dirtStage()") == 0: break
             for sp in tp.evaluate("AQ.spotsScreen()"):
                 pts = []
                 for k in range(4):
-                    pts += [(sp["x"] - sp["r"], sp["y"]), (sp["x"] + sp["r"], sp["y"] + 3)]
+                    pts += [(sp["x"] - sp["r"], sp["y"] + lift), (sp["x"] + sp["r"], sp["y"] + lift + 3)]  # finger below; sponge cleans above it
                 x0, y0 = pts[0]
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": tb["x"] + x0, "y": tb["y"] + y0}]})
                 for (ax, ay), (bx, by) in zip(pts, pts[1:]):
@@ -285,7 +310,7 @@ def main():
                         x = ax + (bx - ax) * t / 6; y = ay + (by - ay) * t / 6
                         cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tb["x"] + x, "y": tb["y"] + y}]})
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        check("touch drags rub the tank clean (phone emulation)", st0 >= 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + 3,
+        check("touch drags rub the tank clean (phone emulation)", st0 >= 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
               f"stage {st0}->{tp.evaluate('AQ.game.dirtStage()')}")
         tp.evaluate("AQ.game.reset(); AQ.game.save()")
         tctx.close()

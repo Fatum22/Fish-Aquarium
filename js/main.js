@@ -276,10 +276,11 @@
     g.addColorStop(0, 'rgba(255,255,255,0.10)'); g.addColorStop(0.3, 'rgba(255,255,255,0)'); g.addColorStop(0.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0.06)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
+  function spongeLift() { return pointer.touch ? W * V.spongeRadiusFrac * V.spongeTouchLiftFrac : 0; }
   function drawSponge() {
     if (tool !== 'sponge' || !pointer.inside) return;
     const r = W * V.spongeRadiusFrac;
-    ctx.save(); ctx.translate(pointer.x, pointer.y); ctx.rotate(-0.2);
+    ctx.save(); ctx.translate(pointer.x, pointer.y - spongeLift()); ctx.rotate(-0.2);
     ctx.fillStyle = '#ffd84a'; ctx.strokeStyle = '#b08d12'; ctx.lineWidth = 2;
     roundRect(-r, -r * 0.7, r * 2, r * 1.4, 8); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#3aa35a'; roundRect(-r, r * 0.25, r * 2, r * 0.45, 5); ctx.fill();
@@ -315,7 +316,7 @@
     const st = G.dirtStage();
     const bar = $('dirt-bar'); bar.dataset.stage = st;
     [...bar.children].forEach((el, i) => el.classList.toggle('on', i < st));
-    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtSec.length}`;
+    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${T.dirt.stageAtPoints.length}`;
     $('buyfood-label').textContent = `+${T.foodPack.food} food · ${T.foodPack.gold}g`;
     $('btn-buyfood').disabled = s.gold < T.foodPack.gold;
     $('tankover').hidden = !G.tankOver();
@@ -474,7 +475,8 @@
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     const p = local(e);
-    Object.assign(pointer, { x: p.x, y: p.y, lx: p.x, ly: p.y, down: true, inside: true, id: e.pointerId });
+    const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+    Object.assign(pointer, { touch, x: p.x, y: p.y, lx: p.x, ly: p.y - (touch && tool === 'sponge' ? W * V.spongeRadiusFrac * V.spongeTouchLiftFrac : 0), down: true, inside: true, id: e.pointerId });
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     if (!$('shop').hidden) closeShop();
     if (tool === 'hand') {
@@ -487,16 +489,17 @@
       }
       if (r.ok) floatText(`-${r.spent} food  +${r.gold}g`, p.x, p.y - 16, '#ffe07a');
     } else if (tool === 'sponge') {
-      rubTo(p.x, p.y);
+      rubTo(p.x, p.y - spongeLift());
     }
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = local(e);
     pointer.inside = true;
+    if (!pointer.down) pointer.touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     if (pointer.down && e.pointerId === pointer.id && tool === 'sponge') {
       // use coalesced events for smooth fast rubbing
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-      (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y); });
+      (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y - spongeLift()); });
     }
     pointer.x = p.x; pointer.y = p.y;
   });
