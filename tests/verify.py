@@ -367,6 +367,7 @@ def main(VW, VH):
               stage() == 5 and a and a["state"] == "DEAD" and abs(a["diedAt"] - ids["t0"] - 21690) <= 5 and b["state"] == "WAITING",
               f"stage={stage()} a={a and a['state']} diedAt-t0={a and a['diedAt'] - ids['t0']:.0f} b={b and b['state']}")
         aw = page.locator("#away").is_visible(); at_ = page.inner_text("#away-time") if aw else ""; al = page.inner_text("#away-list") if aw else ""
+        if aw: page.screenshot(path=shot("away_window"))
         check("'While you were away' summary: 49h, Guppy died, 'Tank is at dirt stage 5'", aw and "49h 00m" in at_ and "Guppy died" in al and "Tank is at dirt stage 5" in al and "clean" not in al.lower(), f"{at_} | {al}")
         page.click("#away-ok")
         r = ev("""const t0 = G.state.gameTime; G.state.lastSeen = Date.now(); const back = G.resume(Date.now() - H * 1000); const d1 = G.state.gameTime - t0;
@@ -583,23 +584,19 @@ def main(VW, VH):
             page.wait_for_timeout(1000)
         check("N6: clean / level-up (gold+XP pair) / feed floats spawned at every edge and corner stay >= 8 px inside the tank (measured text box), pair never overlaps",
               not bad and n_boxes >= 2 * len(pts) * 4, f"boxes checked={n_boxes} bad={json.dumps(bad[:3])}")
-        # real clean finishing at the far right edge
-        ev("fresh(); G.state.gold = 50; G.state.speed = 1; toStage(1); G.state.dirt.spots.forEach((s, i) => { s.x = 0.9; s.y = 0.3 + i * 0.25; });")
-        page.wait_for_timeout(200); page.evaluate("AQ.floats(true)"); tool("sponge"); b_ = box()
-        cb = []
-        for _ in range(12):
-            if stage() == 0: break
-            for sp in page.evaluate("AQ.spotsScreen()"):
-                page.mouse.move(b_["x"] + sp["x"] - sp["r"], b_["y"] + sp["y"]); page.mouse.down()
-                for _k in range(3):
-                    page.mouse.move(b_["x"] + b_["width"] + 30, b_["y"] + sp["y"] + 4, steps=6)
-                    page.mouse.move(b_["x"] + sp["x"] - sp["r"], b_["y"] + sp["y"] - 4, steps=6)
-                page.mouse.move(b_["x"] + b_["width"] - 3, b_["y"] + sp["y"], steps=4); page.mouse.up()
-                cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
-                if cb: break   # measured as soon as the clean finishes (a slow run must not let the float expire first)
-            if stage() == 0: break
-        page.wait_for_timeout(60)
-        cb = cb or [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
+        # real clean finishing at the far right edge: the spots are pre-rubbed to 3% grime in the page, then one real mouse
+        # stroke along the right wall finishes the clean there (deterministic at every tank size)
+        ev("fresh(); G.state.gold = 50; G.state.speed = 1; toStage(1); G.state.dirt.spots.forEach((s, i) => { s.x = 0.9; s.y = 0.3 + i * 0.25; s.grime = s.grime0 * 0.03; });")
+        page.wait_for_timeout(200); page.evaluate("AQ.floats(true)"); tool("sponge"); b_ = box(); cb = []
+        for sp in page.evaluate("AQ.spotsScreen()"):
+            page.mouse.move(b_["x"] + b_["width"] - 30, b_["y"] + sp["y"] - 10); page.mouse.down()
+            for _k in range(4):
+                page.mouse.move(b_["x"] + b_["width"] - 3, b_["y"] + sp["y"] + 10, steps=4)
+                page.mouse.move(b_["x"] + b_["width"] - 30, b_["y"] + sp["y"] - 10, steps=4)
+                if stage() == 0: break
+            page.mouse.up()
+            if stage() == 0:
+                page.wait_for_timeout(80); cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]; break
         page.screenshot(path=shot("float_edge_clamp"))
         check("N6: a real clean finished at the far right edge: 'Sparkling! +2 gold' fully inside the tank (>= 8 px)",
               stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps({"stage": stage(), "cb": cb, "Wt": Wt}))
@@ -793,6 +790,7 @@ def main(VW, VH):
               abs(fi_["y"] - (c2["y"] - fi_["halfDepth"] - 12)) < 0.01 and abs(fi_["x"] - (c2["x"] + fi_["face"] * 0.25 * fi_["L"])) < 0.01, json.dumps([fi_, c2]))
         # stage 1 readability (AD v4 21): 3 spots, alpha 0.22, colour #7A8A4A, big enough to see
         ev("fresh(); toStage(1);"); page.wait_for_timeout(300)
+        page.evaluate("['toasts', 'hint'].forEach((id) => document.getElementById(id).style.visibility = 'hidden')")  # DOM pills over a spot centre would hide it in both shots
         sp1 = page.evaluate("AQ.spotsScreen()"); gm = page.evaluate("AQ.geom()")
         png = page.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); pw, ph, px = png_rgb(png); k_ = pw / tb["width"]
         ev("clean();"); page.wait_for_timeout(250)
@@ -800,6 +798,7 @@ def main(VW, VH):
         diffs = [sum(abs(a_ - b_) for a_, b_ in zip(px(int(q["x"] * k_), int(q["y"] * k_)), px0(int(q["x"] * k_), int(q["y"] * k_)))) for q in sp1]
         check("AD v4 21: stage 1 = 3 spots (dirt.spots[0]), radius 0.10-0.14 of the water height, each clearly visible against clean water (colour change > 40 at its centre)",
               len(sp1) == tj["dirt"]["spots"][0] == 3 and all(0.10 * gm["waterH"] - 0.01 <= q["r"] <= 0.14 * gm["waterH"] + 0.01 for q in sp1) and min(diffs) > 40, json.dumps({"r": [round(q["r"], 1) for q in sp1], "diff": diffs}))
+        page.evaluate("['toasts', 'hint'].forEach((id) => document.getElementById(id).style.visibility = '')")
         ev("toStage(1);"); page.wait_for_timeout(250); page.screenshot(path=shot("stage1_dirt")); ev("clean();")
         check("AD v4 6: sponge radius = 0.16 x water height clamped 40-72px", abs(gm["spongeR"] - max(40, min(72, 0.16 * gm["waterH"]))) < 0.01, str(gm["spongeR"]))
         # shop: centred panel, tabs, close pill, food packs, decorations
