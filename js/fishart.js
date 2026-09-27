@@ -12,8 +12,8 @@
     finAlpha: [0, 0.4, 0.7, 1], markAlpha: [0, 0.4, 1, 1],
   };
   const CLEAR_FIN = 'rgba(235,240,245,0.22)', CLEAR_EDGE = 'rgba(255,255,255,0.35)';
-  // Art Director rulings 2026-09-27: danio stripes start at L2 (none at L1); neon L2 line at 55%.
-  const LOOK = { neonL2LineAlpha: 0.55, danioStripes: [[], [1, 2], [0, 1, 2, 3], [0, 1, 2, 3]] };
+  // Art Director rulings 2026-09-27: danio stripes start at L2 (none at L1); neon L2 line at 70% (raised from 55%); platy fins 65%/85% at L2/L3 (VISUAL.fishGrowth.finAlphaBySpecies).
+  const LOOK = { neonL2LineAlpha: 0.70, danioStripes: [[], [1, 2], [0, 1, 2, 3], [0, 1, 2, 3]] };
 
   // Adult palette (L4). Pushed richer per the spec: vivid guppy tail, deep red platy, dark-blue danio stripes.
   const ART = {
@@ -67,9 +67,10 @@
     return str(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t, p[3] + (q[3] - p[3]) * t);
   }
 
-  function growth(level) {
+  function growth(level, id) {
     const i = Math.max(1, Math.min(4, level || 4)) - 1;
-    return { lv: i + 1, sat: GROW.sat[i], tl: GROW.tailLen[i], ts: GROW.tailSpread[i], fin: GROW.finAlpha[i], mark: GROW.markAlpha[i], clear: GROW.finAlpha[i] === 0 };
+    const fin = ((GROW.finAlphaBySpecies || {})[id] || GROW.finAlpha)[i];
+    return { lv: i + 1, sat: GROW.sat[i], tl: GROW.tailLen[i], ts: GROW.tailSpread[i], fin, mark: GROW.markAlpha[i], clear: GROW.finAlpha[i] === 0 };
   }
   /** fill the current path as a fin: clear at L1, else the species' own fin colour (never grey-blended,
    *  AD ruling 5) at finAlpha of its alpha */
@@ -312,7 +313,7 @@
   function drawFish(ctx, id, L, phase, opts) {
     const base = ART[id] || ART.neon;
     opts = opts || {};
-    const k = growth(opts.level);
+    const k = growth(opts.level, id);
     const a = Object.assign({}, base, { tailLen: base.tailLen * k.tl, tailSpread: base.tailSpread * k.ts });
     const hh = (a.depth * L) / 2;
     const sway = opts.dead ? 0 : Math.sin(phase) * (opts.hungry ? 0.14 : 0.28);

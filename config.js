@@ -237,6 +237,9 @@ window.AQUARIUM_CONFIG = {
       tailSpread: [0.50, 0.70, 0.85, 1.00],
       finAlpha:   [0,    0.40, 0.70, 1.00], // 0 = clear fins rgba(235,240,245,0.22) + white edge
       markAlpha:  [0,    0.40, 1.00, 1.00], // main markings; L4 adds adult detail
+      // AD ruling 2026-09-27: platy (only warm fish) fins+tail total opacity 65% at L2, 85% at L3 so orange doesn't turn grey over blue water.
+      // Multipliers on the platy's own fin alpha 0.85: 0.65/0.85 and 0.85/0.85.
+      finAlphaBySpecies: { platy: [0, 0.65 / 0.85, 1.00, 1.00] },
     },
     saveKey: 'aquarium.save.v1',
     saveEveryMs: 2000,

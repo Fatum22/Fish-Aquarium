@@ -338,9 +338,9 @@ def main():
         check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
         dl1, dof, dl3 = a["danioL1"], a["danioL1off"], a["danioL3"]
         check("AD ruling 1: zebra danio L1 has no stripe (stripes from L2)", a["danioStripes"] == [0, 2, 4, 4] and dl1[0] >= dl1[2] and max(abs(dl1[i] - dof[i]) for i in range(3)) < 12 and dl3[2] > dl3[0] + 30, f"L1 {dl1} off {dof} L3 {dl3} stripes {a['danioStripes']}")
-        check("AD ruling 6: neon tetra L2 blue line at 55%", a["neonL2"] == 0.55)
+        check("AD ruling 6b: neon tetra L2 blue line at 70%", a["neonL2"] == 0.70)
         f2, f4 = a["platyFinL2"], a["platyFinL4"]
-        check("AD ruling 5: platy L2 fin keeps its own orange hue (not grey-blended), only alpha lower", f2[0] > 230 and f2[0] - f2[2] > 150 and abs(f2[1] - f4[1]) < 25 and 0.2 < f2[3] < 0.5 and f4[3] > 0.75, f"L2 {f2} L4 {f4}")
+        check("AD ruling 5b: platy L2 fin keeps its own orange hue at ~65% opacity", f2[0] > 230 and f2[0] - f2[2] > 150 and abs(f2[1] - f4[1]) < 25 and 0.58 < f2[3] < 0.72 and f4[3] > 0.75, f"L2 {f2} L4 {f4}")
         check("AD ruling 3: hair-algae patch 0.28, strands 0.5", a["hair"] == [0.28, 0.5], str(a["hair"]))
         check("fish: L1 tail clear/uncoloured, L4 tail full colour (growth table)", a["l1Clear"] and a["tailL1"]["alpha"] < 0.35 and a["tailL1"]["sat"] < 0.15 and a["tailL4"]["alpha"] > 0.6 and a["tailL4"]["sat"] > 0.4, f"L1 {a['tailL1']} L4 {a['tailL4']}")
 
