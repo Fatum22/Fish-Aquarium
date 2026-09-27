@@ -681,7 +681,7 @@
     else if (!s.fish.length) hint = st >= 1 && s.firstCleanPending ? 'Pick Clean and rub the dirt off the glass' : 'Open the Shop and buy a baby fish';
     else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it'; // dirty: the blocked-feed warning is the only message
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
-    else if (tool === 'net') hint = 'Tap a fish to sell or release it';
+    else if (tool === 'net') hint = 'Drag the net onto a fish and let go';
     else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
     else hint = G.living() ? 'Tap a fish to see its details' : '';
     $('hint').textContent = hint;
@@ -748,6 +748,7 @@
     tool = t;
     document.querySelectorAll('.tool[data-tool]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
     wrap.dataset.tool = t;
+    net.on = false; net.target = null;
     if (t !== 'hand') closePanel();
     closeShop();
     if (t === 'brush') enterEdit(); else exitEdit();
@@ -819,10 +820,10 @@
     y.onclick = () => { $('confirm').hidden = true; onYes(); };
     $('confirm-no').onclick = () => { $('confirm').hidden = true; };
   }
-  /** net tool (bible 19, NUMBERS 11.4): every sell / release / remove asks first */
+  /** net tool (bible 19, NUMBERS 11.4): a live fish always asks first (sale, or release at L1); a dead fish goes at once */
   function netFish(f) {
     const sp = G.SPECIES[f.sp], name = sp.name, por = (pc) => drawPortrait(pc, f);
-    if (f.state === 'DEAD') confirmBox(`Remove the dead ${name}? You get nothing.`, 'Remove', () => G.removeDead(f.id), por, 'danger');
+    if (f.state === 'DEAD') { G.removeDead(f.id); return; } // Designer NUMBERS 11 item 4: no confirm, 0 gold, 0 XP, "Fish removed" toast
     else if (f.level === 1) confirmBox(`Release ${name}? You get nothing.`, 'Release', () => G.sell(f.id), por, 'danger');
     else {
       const gold = G.sellPrice(sp, f.level), xp = G.xpFor('sell', { sp, level: f.level });
@@ -1040,6 +1041,38 @@
     return null;
   }
 
+  // ------------------------------------------------------------ net tool: the net follows the pointer, the fish under it glows
+  const net = { on: false, x: 0, y: 0, target: null };
+  function drawNetHighlight() { // soft glow + ring behind the targeted fish (drawn before the fish)
+    if (tool !== 'net' || !net.on || !net.target || editing) return;
+    const f = G.state.fish.find((q) => q.id === net.target.id), m = f && anim.get(f.id); if (!m) return;
+    const L = fishLen(f), rx = L * 0.62 + 8, ry = L * 0.3 + 10;
+    ctx.save();
+    const gr = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, rx);
+    gr.addColorStop(0, 'rgba(255,240,150,0.35)'); gr.addColorStop(1, 'rgba(255,240,150,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(m.x, m.y, rx, ry, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = f.state === 'DEAD' ? 'rgba(255,138,138,0.9)' : 'rgba(255,226,110,0.95)'; ctx.lineWidth = 2.5; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.ellipse(m.x, m.y, rx, ry, 0, 0, 7); ctx.stroke();
+    ctx.restore();
+  }
+  function drawNetCursor() { // the i-net look: hoop 2.5px #d9e3ea, mesh #9fd8ff 70%, wooden handle to the bottom-left
+    if (tool !== 'net' || !net.on || editing) return;
+    const R = LARGE() ? 30 : 24, cx = net.x, cy = net.y;
+    ctx.save();
+    ctx.strokeStyle = '#c98a4b'; ctx.lineWidth = LARGE() ? 6 : 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx - R * 0.72, cy + R * 0.72); ctx.lineTo(cx - R * 2.1, cy + R * 2.1); ctx.stroke();
+    ctx.fillStyle = 'rgba(159,216,255,0.12)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
+    ctx.strokeStyle = 'rgba(159,216,255,0.7)'; ctx.lineWidth = 1.2;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(cx - R, cy + i * R * 0.38 - R); ctx.lineTo(cx + R, cy + i * R * 0.38 + R); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - R, cy + i * R * 0.38 + R); ctx.lineTo(cx + R, cy + i * R * 0.38 - R); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#d9e3ea'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
+    ctx.restore();
+  }
+
   // ------------------------------------------------------------ input on the tank
   const pointer = { x: 0, y: 0, down: false, inside: false, id: null, lx: 0, ly: 0 };
   function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -1068,7 +1101,7 @@
       const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the hungry fish nearest the tap
       if (r.ok) flakeShower(p.x, p.y, r);
     } else if (tool === 'sponge') rubTo(p.x, p.y - spongeLift());
-    else if (tool === 'net') { const f = hitFish(p.x, p.y); if (f) netFish(f); }
+    else if (tool === 'net') { net.on = true; net.x = p.x; net.y = p.y; net.target = hitFish(p.x, p.y); }
   });
   canvas.addEventListener('pointermove', (e) => {
     const p = local(e);
@@ -1079,11 +1112,23 @@
       (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y - spongeLift()); });
     }
     pointer.x = p.x; pointer.y = p.y;
+    if (tool === 'net' && !editing) { // the net follows the pointer (while pressed; mouse also on hover) and highlights the fish under it
+      net.x = p.x; net.y = p.y; net.on = pointer.down || !pointer.touch; net.target = net.on ? hitFish(p.x, p.y) : null;
+    }
   });
-  function endPointer(e) { if (e.pointerId === pointer.id) { pointer.down = false; pointer.id = null; } }
+  function endPointer(e) {
+    if (e.pointerId !== pointer.id) return;
+    const wasDown = pointer.down;
+    pointer.down = false; pointer.id = null;
+    if (tool === 'net' && wasDown && !editing) { // let go: live fish -> confirm, dead fish -> removed, empty water -> nothing
+      const p = local(e), f = e.type === 'pointerup' ? hitFish(p.x, p.y) : null;
+      net.target = null; if (pointer.touch) net.on = false;
+      if (f) netFish(f);
+    }
+  }
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
-  canvas.addEventListener('pointerleave', () => { if (!pointer.down) pointer.inside = false; });
+  canvas.addEventListener('pointerleave', () => { if (!pointer.down) { pointer.inside = false; net.on = false; net.target = null; } });
   function rubTo(x, y) {
     const r = G.rub(pointer.lx / W, pointer.ly / H, x / W, y / H, W, H, spongeR(), WATER_H);
     pointer.lx = x; pointer.ly = y;
@@ -1107,7 +1152,7 @@
         break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
       case 'death': toast(`${name} died`, 'bad'); break;
-      case 'removed': anim.delete(d.fish.id); toast(`Removed ${name} (${d.gold} gold)`); if (selectedId === d.fish.id) closePanel(); break;
+      case 'removed': anim.delete(d.fish.id); toast('Fish removed', '', { ms: 1600 }); if (selectedId === d.fish.id) closePanel(); break;
       case 'feedblocked': blockedFeed(); break;
       case 'feedfail': toast(d.reason === 'nofood' ? 'Out of food' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : ''); break;
       case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.food ? ` · +${d.food} food` : ''}${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
@@ -1184,12 +1229,14 @@
     drawDecor();        // behind the fish, sorted by base y
     drawBubbles(dtAnim);
     drawPellets(dtAnim);
+    drawNetHighlight();
     drawFishAll(dtAnim);
     drawGlass();
     drawDirtLayer(p);   // in front of the fish, behind the spots
     drawSpots(p);
     drawSponge();
     drawFloaters(dtAnim);
+    drawNetCursor();
 
     updateHUD();
     if (selDecor && !$('deco-menu').hidden) renderMenu();
@@ -1272,6 +1319,7 @@
     },
     fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L) }; },
     decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
+    net() { return { on: net.on, x: net.x, y: net.y, target: net.target ? net.target.id : null }; },
     edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },

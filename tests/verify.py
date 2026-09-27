@@ -397,9 +397,10 @@ def main(VW, VH):
         page.click("#btn-shop"); page.wait_for_timeout(200)
         check("shop disables buying while the tank is full with a dead fish in it", page.locator('button[data-buy="guppy"]').is_disabled())
         page.click('[data-close="shop"]'); tool("hand")
-        gold_b = S()["gold"]; rt = net_text(ids["a"]); page.click("#confirm-yes"); page.wait_for_timeout(200)
-        check("Net on a dead fish asks first ('Remove the dead Guppy? You get nothing.'), then pays 0 and frees the slot",
-              rt == "Remove the dead Guppy? You get nothing." and fish(ids["a"]) is None and S()["gold"] == gold_b and not page.locator("#confirm").is_visible() and ev("return G.canBuy('guppy').ok;"), rt)
+        gold_b, xp_b = S()["gold"], S()["tank"]["xp"]; clear_toasts(); tool("net"); click_fish(ids["a"], "#toasts .toast"); page.wait_for_timeout(150)
+        tl_ = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        check("Designer NUMBERS 11.4: Net on a dead fish removes it at once (no confirm), 0 gold, 0 XP, 'Fish removed' toast, slot freed",
+              fish(ids["a"]) is None and not page.locator("#confirm").is_visible() and S()["gold"] == gold_b and S()["tank"]["xp"] == xp_b and "Fish removed" in tl_ and ev("return G.canBuy('guppy').ok;"), json.dumps(tl_))
         tool("hand")
         check("dead fish can't be sold", ev("const f = G.buyFish('guppy'); f.state = 'DEAD'; return G.sell(f.id) === null;"))
 
@@ -484,6 +485,36 @@ def main(VW, VH):
         l2 = next(s_ for s_ in tj["species"] if s_["id"] == "guppy")["sell"][1]
         check(f"Net sells an L2 Guppy only after confirming: Cancel keeps it, Sell pays {l2} gold + 10 XP", kept and st == f"Sell Guppy (L2) for {l2} gold and 10 XP?" and S()["gold"] == gb + l2 and S()["tank"]["xp"] == xb + 10 and fish(sid) is None, st)
         tool("hand")
+        # Net drag (Maksims): the net follows the pointer, the fish under it is highlighted; letting go over a live fish opens
+        # its sell / release confirm, over a dead fish removes it (no confirm, Designer 11.4), over empty water does nothing
+        nd = ev("""fresh(); G.state.gold = 100; G.state.speed = 1; const a = G.buyFish('guppy'); a.level = 2; a.state = 'GROWING'; AQ.pinFish(a.id, 0.5, 0.5);
+                  const d = G.buyFish('guppy'); d.state = 'DEAD'; return { live: a.id, dead: d.id };""")
+        page.wait_for_timeout(600); tool("net"); b_ = box(); clear_toasts()
+        def mv(x, y, steps=8): page.mouse.move(b_["x"] + x, b_["y"] + y, steps=steps); page.wait_for_timeout(80)
+        empty = (b_["width"] * 0.8, b_["height"] * 0.62)
+        mv(*empty); n_hover = page.evaluate("AQ.net()"); page.mouse.down(); page.wait_for_timeout(60)
+        n_down = page.evaluate("AQ.net()")
+        lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); n_on = page.evaluate("AQ.net()")
+        page.screenshot(path=shot("net_drag_highlight"))
+        tb2 = box(); png = page.screenshot(clip={"x": tb2["x"], "y": tb2["y"], "width": tb2["width"], "height": tb2["height"]}); _w2, _h2, px2 = png_rgb(png); k2 = _w2 / tb2["width"]
+        L_ = page.evaluate(f"AQ.fishLen('guppy', 2)"); ring = [px2(int((lp["x"] + dx) * k2), int(lp["y"] * k2)) for dx in (L_ * 0.62 + 8, -(L_ * 0.62 + 8))]
+        mv(*empty, 12); n_off = page.evaluate("AQ.net()"); page.mouse.up(); page.wait_for_timeout(150)
+        empty_ok = not page.locator("#confirm").is_visible() and len(S()["fish"]) == 2
+        page.mouse.down(); lp = page.evaluate(f"AQ.fishScreen({nd['live']})"); mv(lp["x"], lp["y"], 12); page.mouse.up(); page.wait_for_timeout(150)
+        live_txt = page.inner_text("#confirm-text") if page.locator("#confirm").is_visible() else ""
+        page.screenshot(path=shot("net_release_live_confirm")); page.click("#confirm-no"); page.wait_for_timeout(100)
+        g0_, x0_ = S()["gold"], S()["tank"]["xp"]; clear_toasts()
+        mv(*empty); page.mouse.down(); dp = page.evaluate(f"AQ.fishScreen({nd['dead']})"); mv(dp["x"], dp["y"], 12)
+        n_dead = page.evaluate("AQ.net()"); page.screenshot(path=shot("net_drag_dead")); page.mouse.up(); page.wait_for_timeout(150)
+        dead_t = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
+        dead_ok = fish(nd["dead"]) is None and not page.locator("#confirm").is_visible() and S()["gold"] == g0_ and S()["tank"]["xp"] == x0_ and "Fish removed" in dead_t
+        info_nd = {"hover": n_hover, "down": n_down, "on": n_on, "off": n_off, "ring": ring, "emptyOk": empty_ok, "liveTxt": live_txt, "dead": n_dead, "deadToasts": dead_t, "deadOk": dead_ok}
+        check("Net drag: the net follows the pointer (hover and pressed), the fish under it is the target and gets a yellow ring; letting go over empty water does nothing",
+              n_down["on"] and abs(n_down["x"] - empty[0]) < 1.5 and abs(n_down["y"] - empty[1]) < 1.5 and n_on["target"] == nd["live"] and abs(n_on["x"] - lp["x"]) < 1.5
+              and n_off["target"] is None and empty_ok and all(c_[0] > 150 and c_[1] > 130 and c_[0] > c_[2] for c_ in ring), json.dumps(info_nd))
+        check("Net drag: letting go over a live fish opens its confirm ('Sell Guppy (L2) for 8 gold and 10 XP?'); over a dead fish removes it at once (no confirm, 0 gold, 0 XP, 'Fish removed')",
+              live_txt == "Sell Guppy (L2) for 8 gold and 10 XP?" and n_dead["target"] == nd["dead"] and dead_ok, json.dumps(info_nd))
+        tool("hand")
         # full tank screenshot + reload keeps state
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; ['guppy','danio','neon','platy'].forEach((id) => { const f = G.buyFish(id); feedFull(f); });")
         tool("hand"); page.wait_for_timeout(2500)
@@ -555,6 +586,7 @@ def main(VW, VH):
         # real clean finishing at the far right edge
         ev("fresh(); G.state.gold = 50; G.state.speed = 1; toStage(1); G.state.dirt.spots.forEach((s, i) => { s.x = 0.9; s.y = 0.3 + i * 0.25; });")
         page.wait_for_timeout(200); page.evaluate("AQ.floats(true)"); tool("sponge"); b_ = box()
+        cb = []
         for _ in range(12):
             if stage() == 0: break
             for sp in page.evaluate("AQ.spotsScreen()"):
@@ -563,11 +595,14 @@ def main(VW, VH):
                     page.mouse.move(b_["x"] + b_["width"] + 30, b_["y"] + sp["y"] + 4, steps=6)
                     page.mouse.move(b_["x"] + sp["x"] - sp["r"], b_["y"] + sp["y"] - 4, steps=6)
                 page.mouse.move(b_["x"] + b_["width"] - 3, b_["y"] + sp["y"], steps=4); page.mouse.up()
-        page.wait_for_timeout(250)
-        cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
+                cb = [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
+                if cb: break   # measured as soon as the clean finishes (a slow run must not let the float expire first)
+            if stage() == 0: break
+        page.wait_for_timeout(60)
+        cb = cb or [q for q in page.evaluate("AQ.floatBoxes()") if q["text"].startswith("Sparkling")]
         page.screenshot(path=shot("float_edge_clamp"))
         check("N6: a real clean finished at the far right edge: 'Sparkling! +2 gold' fully inside the tank (>= 8 px)",
-              stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps(cb))
+              stage() == 0 and len(cb) == 1 and cb[0]["x1"] <= Wt - 8 + 0.01 and cb[0]["x0"] >= 8 and cb[0]["x1"] >= Wt - 8 - 25, json.dumps({"stage": stage(), "cb": cb, "Wt": Wt}))
         tool("hand")
 
         # ================================================================ E3. Playtester pass 7 polish (M2 multi level-up, N4); the M1 callout arrow is gone (v4)
