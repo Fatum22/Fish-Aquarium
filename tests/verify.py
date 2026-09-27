@@ -152,6 +152,37 @@ def main():
         clear_toasts(); tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(150)
         check("tap with nobody hungry: 'Nobody's hungry', no food spent", S()["food"] == s2["food"] and "Nobody's hungry" in page.inner_text("#toasts"), page.inner_text("#toasts"))
 
+        # v1 flake shower on every successful tap (NUMBERS.md 3.4), drifting toward the fed fish; blocked taps show none
+        fid = ev("G.reset(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; const f = G.buyFish('platy'); AQ.pinFish(f.id, 0.82, 0.55); return f.id;")
+        page.wait_for_timeout(200); tool("food"); b_ = box()
+        fl0 = page.evaluate("AQ.flakes()"); food0 = S()["food"]
+        tank_click(b_["width"] * 0.18, b_["height"] * 0.25); page.wait_for_timeout(60)
+        fl1 = page.evaluate("AQ.flakes()"); food1 = S()["food"]; pf = fish(fid)
+        n_new = fl1["spawned"] - fl0["spawned"]
+        check("feed tap: a shower of >= 8 flakes, still exactly 1 food and one meter step on the nearest hungry fish",
+              n_new >= 8 and fl1["showers"] == fl0["showers"] + 1 and food1 == food0 - 1 and pf["fed"] == 1 and all(x["fishId"] == fid for x in fl1["live"]), f"flakes={n_new} food {food0}->{food1} fed={pf['fed']}")
+        clear_toasts(); page.wait_for_timeout(450)
+        page.screenshot(path=os.path.join(SHOTS, "feeding_flakes.png"))
+        page.wait_for_timeout(250)
+        live = page.evaluate("AQ.flakes().live")
+        dr = sum(x["x"] - x["x0"] for x in live) / max(1, len(live))
+        ev(f"AQ.pinFish({fid}, 0.15, 0.55);"); page.wait_for_timeout(1500)   # let the first shower finish / be eaten
+        fl2 = page.evaluate("AQ.flakes()")
+        tank_click(b_["width"] * 0.85, b_["height"] * 0.25); page.wait_for_timeout(700)
+        fl3 = page.evaluate("AQ.flakes()"); live2 = [x for x in fl3["live"] if x["t"] < 1.0]
+        dl = sum(x["x"] - x["x0"] for x in live2) / max(1, len(live2))
+        check("flakes drift sideways toward the fed fish (fish right -> drift right, fish left -> drift left)",
+              len(live) >= 4 and dr > 15 and fl3["spawned"] - fl2["spawned"] >= 8 and len(live2) >= 4 and dl < -15, f"right: {len(live)} flakes mean dx={dr:.1f}px; left: {len(live2)} flakes mean dx={dl:.1f}px")
+        blocked = {}
+        for why, setup in [("nobody hungry", ""),
+                           ("out of food", "G.buyFish('guppy'); G.state.food = 0;"),
+                           ("dirty", "G.state.food = 5; toStage(1);")]:
+            ev(setup); page.wait_for_timeout(100); a0 = page.evaluate("AQ.flakes().spawned"); f0 = S()["food"]
+            tank_click(b_["width"] * 0.5, b_["height"] * 0.3); page.wait_for_timeout(150)
+            blocked[why] = (page.evaluate("AQ.flakes().spawned") - a0, S()["food"] - f0)
+        check("blocked taps (nobody hungry, out of food, dirty) spawn zero flakes and spend nothing", all(v == (0, 0) for v in blocked.values()), json.dumps(blocked))
+        ev("clean();")
+
         # hungry panel text
         gid = ev("G.reset(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); G.tick(1800); AQ.pinFish(f.id, 0.5, 0.45); return f.id;")
         page.wait_for_timeout(2500); clear_toasts(); tool("hand"); click_fish(gid); page.wait_for_timeout(250)
@@ -211,6 +242,28 @@ def main():
             if lv == 4: page.screenshot(path=os.path.join(SHOTS, "panel_adult_sell.png"))
             page.keyboard.press("Escape")
         check("fish panel sell button per level: Release (0 gold) / Sell for 8 / 18 / 40 gold", btns == ["Release (0 gold)", "Sell for 8 gold", "Sell for 18 gold", "Sell for 40 gold"], str(btns))
+
+        # debug +50 XP button (NUMBERS.md 9.13): normal XP path, tank level-ups + unlock toasts, no gold, persists
+        ev("G.reset(); G.state.gold = 1000; G.state.speed = 1;"); page.wait_for_timeout(100)
+        check("debug row has '+50 XP' next to the speed buttons, +100g and Reset save",
+              page.locator("#debug #dbg-xp").inner_text() == "+50 XP" and page.locator("#debug #dbg-gold").is_visible() and page.locator("#debug #dbg-reset").is_visible())
+        page.locator("#debug").screenshot(path=os.path.join(SHOTS, "debug_row.png"))
+        seen, clicks, xp_trace = {}, 0, []
+        for target, lvl, sp_name in [(60, 2, "Zebra Danio"), (400, 3, "Neon Tetra"), (1200, 4, "Platy")]:
+            while page.evaluate("AQ.game.state.tank.xp") < target:
+                clear_toasts(); page.click("#dbg-xp"); clicks += 1; page.wait_for_timeout(30)
+            page.wait_for_timeout(120)
+            seen[lvl] = (page.evaluate("AQ.game.tankInfo().level"), page.evaluate("AQ.game.state.tank.xp"), page.inner_text("#toasts"))
+        g_after = S()["gold"]
+        check("+50 XP x2 / x8 / x24 reaches tank level 2 / 3 / 4 at 100 / 400 / 1200 XP with the unlock toasts, gold unchanged",
+              clicks == 24 and seen[2][:2] == (2, 100) and "Tank level 2! Zebra Danio unlocked" in seen[2][2] and seen[3][:2] == (3, 400) and "Tank level 3! Neon Tetra unlocked" in seen[3][2]
+              and seen[4][:2] == (4, 1200) and "Tank level 4! Platy unlocked" in seen[4][2] and g_after == 1000, json.dumps({"clicks": clicks, "seen": seen, "gold": g_after}))
+        page.click("#btn-shop"); page.wait_for_timeout(200)
+        unl = {sp_["id"]: (page.locator(f'button[data-buy="{sp_["id"]}"]').is_disabled(), page.locator(f'button[data-buy="{sp_["id"]}"]').inner_text()) for sp_ in tj["species"]}
+        check("at tank level 4 all four species are unlocked and buyable in the shop", all(not d_ and "Tank level" not in t_ for d_, t_ in unl.values()), json.dumps(unl))
+        page.click('[data-close="shop"]')
+        boot("?speed=1")
+        check("debug XP persists after reload (normal save path)", page.evaluate("AQ.game.state.tank.xp") == 1200 and page.evaluate("AQ.game.tankInfo().level") == 4 and S()["gold"] == 1000)
 
         # ================================================================ D. offline catch-up (real reload) + dead fish
         ids = ev("""G.reset(); G.state.speed = 1; G.state.gold = 100; const a = G.buyFish('guppy'); feedFull(a); const b = G.buyFish('guppy');
