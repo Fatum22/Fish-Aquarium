@@ -47,6 +47,11 @@ def merged_tuning():
     """what config.js TUNING must equal: the live design/tuning.json (v6) verbatim, or AQ_TUNING if set"""
     return json.load(open(TUNING))
 
+def ver_at_least(tj, v):
+    """tuning.json version >= v (e.g. '6.8' >= '6.5'): a rule introduced at v stays checked in every later approved version
+    unless that version changes the numbers (the number checks themselves still read tuning.json)."""
+    return tuple(int(x) for x in str(tj["version"]).split(".")) >= tuple(int(x) for x in v.split("."))
+
 def check(name, cond, detail=""):
     name = f"[{VIEW[0]}] {name}" if VIEW[0] else name
     results.append((name, bool(cond), detail))
@@ -201,7 +206,7 @@ def main(VW, VH):
           fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.5); const partial = G.state.gold - g0;
           return { out, partial };""")
         cg = tj["dirt"]["cleanGold"]
-        check("v6.5 full clean pays cleanGold by stage (4/7/12/20/32) + 5 XP and restarts the dirt clock (first clean already used)", cg == [4, 7, 12, 20, 32] and tj["version"] in ("6.5", "6.6", "6.7") and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
+        check("v6.5 full clean pays cleanGold by stage (4/7/12/20/32) + 5 XP and restarts the dirt clock (first clean already used)", cg == [4, 7, 12, 20, 32] and ver_at_least(tj, "6.5") and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
         c2 = ev("""fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.3); const partial = G.state.gold - g0, rs = G.state.dirt.rubStage;
           G.state.dirt.t = T.dirt.stageAtSec[3] - 0.5; G.tick(1); const midStage = G.dirtStage(), spots = G.state.dirt.spots.length;
           const r = rubAll(1.01); return { partial, rs, midStage, spots, gold: G.state.gold - g0, payStage: r && r.stage, stageNow: r && r.stageNow, rsAfter: G.state.dirt.rubStage };""")
@@ -280,7 +285,7 @@ def main(VW, VH):
           return out;""")
         check("v6.3 food per level = mealFood (Guppy 2/3/4/5, Danio 2/3/4/5, Discus 2/7/11/16), 1 food per tap",
               f["meal"] == [s_["mealFood"] for s_ in tj["species"]] and f["meal"][0] == [2, 3, 4, 5] and f["meal"][1] == [2, 3, 4, 5] and f["meal"][-1] == [2, 7, 11, 16] and tj["foodPerTap"] == 1
-              and tj["version"] in ("6.3", "6.4", "6.5", "6.6", "6.7"), json.dumps(f["meal"]))
+              and ver_at_least(tj, "6.3"), json.dumps(f["meal"]))
         split_ok = all(sp_[lv] == [s_["mealFood"][lv] // 2, s_["mealFood"][lv] - s_["mealFood"][lv] // 2] and min(sp_[lv]) >= 1 for sp_, s_ in zip(f["split"], tj["species"]) for lv in range(3))
         check("v6.3 mealSplit: L1-L3 mid = floor(total / 2), end = the rest (Guppy L3 4 -> 2+2, Ram L3 5 -> 2+3), every meal >= 1, every L1 = 1+1; L4 one meal of mealFood[3]",
               split_ok and all(sp_[0] == [1, 1] for sp_ in f["split"]) and all(sp_[3] == [s_["mealFood"][3]] for sp_, s_ in zip(f["split"], tj["species"]))
@@ -1041,7 +1046,7 @@ def main(VW, VH):
         # Lv1 (xp 0): only the 5-food pack buyable; others visible, greyed, locked label where the price was
         p1 = open_food(lvxp(1)); reach1 = packs_reachable()
         check("v6.7 Food packs (5, rendered from tuning): unlockTankLevel 1/2/4/6/9, foodPackLockedLabel, foodPackLockedShown; labels '5 food · 3 gold' and locked labels fit; every pack button reachable (scroll, not under Close), no sideways overflow",
-              closed and tj["version"] == "6.7" and tj.get("foodPackLockedShown") is True
+              closed and ver_at_least(tj, "6.7") and tj.get("foodPackLockedShown") is True
               and tj.get("foodPackLockedLabel") == "Unlocks at Aquarium Lv {N}"
               and [[p["food"], p["gold"], p["unlockTankLevel"]] for p in tj["foodPacks"]] == [[5, 3, 1], [10, 5, 2], [50, 20, 4], [250, 75, 6], [500, 125, 9]] and len(p1) == len(tj["foodPacks"]) == 5
               and [c["n"] for c in p1] == want and [c["s"] for c in p1] == want_s and all(c["nFits"] for c in p1)
