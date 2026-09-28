@@ -664,7 +664,7 @@
     $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : st >= maxSt ? 'Dirt: max' : `Dirt: stage ${st} of ${maxSt}`;
     // tank level block
     const ti = G.tankInfo();
-    $('tank-label').textContent = `Tank Lv ${ti.level}`;
+    $('tank-label').textContent = `Aquarium Lv ${ti.level}`;
     $('tank-xp').textContent = ti.max ? 'Max level' : `${ti.xp} / ${ti.next}`;
     $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
     $('tankover').hidden = !G.tankOver();
@@ -905,14 +905,14 @@
       b.closest('.card').classList.toggle('locked', locked);
       b.classList.toggle('poor', poor && !full && !locked);
       b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
-      b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
+      b.querySelector('.lbl').textContent = locked ? `🔒 Aquarium level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
     });
     $('shop-food').querySelectorAll('button[data-food]').forEach((b) => {
       const p = T.foodPacks[+b.dataset.food], locked = !G.packUnlocked(p), poor = G.state.gold < p.gold;
       b.disabled = poor || locked; b.classList.toggle('poor', poor && !locked);
       b.closest('.card').classList.toggle('locked', locked);
       b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
-      b.querySelector('.lbl').textContent = locked ? `🔒 Tank level ${p.unlockTankLevel}` : '';
+      b.querySelector('.lbl').textContent = locked ? `🔒 Aquarium level ${p.unlockTankLevel}` : '';
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
@@ -921,7 +921,7 @@
     });
     const dead = G.state.fish.length - G.living();
     $('shop-note').textContent = shopTab === 'fish'
-      ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. ${G.tankInfo().level < T.tank.maxLevel ? `Tank level ${T.tank.maxLevel}: room for ${G.capacityAt(T.tank.maxLevel)} fish.` : ''}`
+      ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. ${G.tankInfo().level < T.tank.maxLevel ? `Aquarium level ${T.tank.maxLevel}: room for ${G.capacityAt(T.tank.maxLevel)} fish.` : ''}`
       : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds what it cost.`;
   }
 
@@ -1204,13 +1204,13 @@
         toast(d.fish.level >= T.maxLevel ? `${name} is now an adult (L${d.fish.level})! +${d.gold} gold` : `${name} reached level ${d.fish.level}! +${d.gold} gold`, 'good');
         break;
       case 'tanklevel':
-        { // NUMBERS v5.1 8: "Tank level 8: Pearl Gourami and Clown Loach (rare) unlocked, room for 2 more fish"
+        { // NUMBERS v5.1 8 (v6.1: player-facing "Aquarium level"): "Aquarium level 8: Pearl Gourami and Clown Loach (rare) unlocked, room for 2 more fish"
           const names = d.unlocks.map((id) => { const sp = G.SPECIES[id]; return sp.name + (sp.rarity && sp.rarity !== 'common' ? ` (${sp.rarity})` : ''); });
           const parts = [];
           if (names.length) parts.push(`${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]} unlocked`);
           if (d.extraSlots) parts.push(`room for ${d.extraSlots} more fish`);
           (d.packs || []).forEach((pk) => parts.push(`${pk.food}-food pack in the shop`));
-          toast(parts.length ? `Tank level ${d.level}: ${parts.join(', ')}` : `Tank level ${d.level}!`, 'good');
+          toast(parts.length ? `Aquarium level ${d.level}: ${parts.join(', ')}` : `Aquarium level ${d.level}!`, 'good');
         }
         break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
@@ -1280,7 +1280,7 @@
     const locked = T.species.filter((sp) => (sp.unlockTankLevel || 1) > 1).map((sp) => sp.name);
     const list = locked.length > 1 ? `${locked.slice(0, -1).join(', ')} and ${locked[locked.length - 1]}` : locked.join('');
     const fc = T.newTank && T.newTank.firstCleanReward;
-    $('newtank-reset').textContent = `Everything resets: ${T.startGold} gold, ${T.startFood} food, ${T.startDiamonds || 0} diamonds, no fish, tank level 1 (0 XP)` +
+    $('newtank-reset').textContent = `Everything resets: ${T.startGold} gold, ${T.startFood} food, ${T.startDiamonds || 0} diamonds, no fish, aquarium level 1 (0 XP)` +
       (locked.length ? `, ${list} lock again` : '') + `, only the default decorations, and the tank starts dirty (stage ${T.newTank ? T.newTank.dirtStartStage : 3})` +
       (fc ? `. The first clean pays ${fc.gold} gold and ${fc.food} food again.` : '.');
   })();

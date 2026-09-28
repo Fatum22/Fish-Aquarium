@@ -315,7 +315,7 @@
     const lines = [];
     ev.level.forEach((f) => lines.push(`${SPECIES[f.sp].name} reached L${f.level}${f.level >= T.maxLevel ? ' (adult)' : ''}`));
     ev.died.forEach((f) => lines.push(`${SPECIES[f.sp].name} died`));
-    ev.tank.forEach((t) => lines.push(`tank level ${t.level}` + (t.unlocks.length ? `: ${t.unlocks.map((id) => SPECIES[id].name).join(', ')} unlocked` : t.extraSlots ? `: room for ${t.extraSlots} more fish` : '')));
+    ev.tank.forEach((t) => lines.push(`aquarium level ${t.level}` + (t.unlocks.length ? `: ${t.unlocks.map((id) => SPECIES[id].name).join(', ')} unlocked` : t.extraSlots ? `: room for ${t.extraSlots} more fish` : '')));
     const hungry = S.fish.filter((f) => f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY');
     if (hungry.length) lines.push(`${hungry.map((f) => SPECIES[f.sp].name).join(', ')} ${hungry.length > 1 ? 'are' : 'is'} hungry`);
     const st = dirtStage(S.dirt.t);
@@ -342,7 +342,7 @@
   function canBuy(id) {
     const sp = SPECIES[id];
     if (!sp) return { ok: false, reason: 'Unknown species' };
-    if (!isUnlocked(sp)) return { ok: false, reason: `Tank level ${sp.unlockTankLevel}`, locked: true };
+    if (!isUnlocked(sp)) return { ok: false, reason: `Aquarium level ${sp.unlockTankLevel}`, locked: true };
     if (S.fish.length >= capacity()) return { ok: false, reason: 'Tank full' }; // dead fish take a slot until removed
     if (S.gold < sp.price) return { ok: false, reason: 'Not enough gold' };
     return { ok: true };
@@ -368,7 +368,7 @@
   function buyFood(i) {
     const p = T.foodPacks[i || 0];
     if (!p) return false;
-    if (!packUnlocked(p)) { emit('msg', { text: `Tank level ${p.unlockTankLevel} needed` }); return false; }
+    if (!packUnlocked(p)) { emit('msg', { text: `Aquarium level ${p.unlockTankLevel} needed` }); return false; }
     if (S.gold < p.gold) { emit('msg', { text: 'Not enough gold for food' }); return false; }
     S.gold -= p.gold; S.food += p.food;
     emit('foodbought', { food: p.food, gold: p.gold });

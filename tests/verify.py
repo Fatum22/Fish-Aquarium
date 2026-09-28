@@ -380,14 +380,14 @@ def main(VW, VH):
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 55; G.state.speed = 1;")
         page.click("#btn-shop"); page.wait_for_timeout(250)
         lock = {sp: (page.locator(f'button[data-buy="{sp}"]').is_disabled(), page.locator(f'button[data-buy="{sp}"]').inner_text()) for sp in ["guppy", "danio", "neon", "platy"]}
-        check("shop: locked species disabled with 'Tank level N' even with 1000 gold", not lock["guppy"][0] and all(lock[s][0] and f"Tank level {n}" in lock[s][1] for s, n in [("danio", 2), ("neon", 3), ("platy", 4)]), json.dumps(lock))
+        check("shop: locked species disabled with 'Aquarium level N' (never 'Tank level') even with 1000 gold", not lock["guppy"][0] and all(lock[s][0] and f"Aquarium level {n}" in lock[s][1] and "Tank" not in lock[s][1] for s, n in [("danio", 2), ("neon", 3), ("platy", 4)]), json.dumps(lock))
         check("buying a locked species is refused", ev("return G.canBuy('neon').locked === true && G.buyFish('neon') === null;"))
         page.click('[data-close="shop"]'); clear_toasts()
         ev("toStage(1); rubAll(1.01);")  # clean gives the last 5 XP -> tank level 2
         page.wait_for_timeout(200)
         tt = page.inner_text("#toasts")
         page.click("#btn-shop"); page.wait_for_timeout(250)
-        check("tank level-up toast names the unlock; Danio becomes buyable", "Tank level 2" in tt and "Zebra Danio" in tt and not page.locator('button[data-buy="danio"]').is_disabled(), tt)
+        check("aquarium level-up toast ('Aquarium level 2: ...') names the unlock; Danio becomes buyable", "Aquarium level 2" in tt and "Tank level" not in tt and "Zebra Danio" in tt and not page.locator('button[data-buy="danio"]').is_disabled(), tt)
         page.click('[data-close="shop"]')
         # shop prices / "sells up to" match tuning.json (all unlocked)
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 5000; G.state.speed = 1;")
@@ -433,7 +433,7 @@ def main(VW, VH):
             seen[lvl] = (page.evaluate("AQ.game.tankInfo().level"), page.evaluate("AQ.game.state.tank.xp"), page.inner_text("#toasts"))
         g_after = S()["gold"]
         check("+50 XP x2 / x8 / x24 reaches tank level 2 / 3 / 4 at 100 / 400 / 1200 XP with the unlock toasts, gold unchanged",
-              clicks == 24 and seen[2][:2] == (2, 100) and "Tank level 2: Zebra Danio unlocked" in seen[2][2] and seen[3][:2] == (3, 400)
+              clicks == 24 and seen[2][:2] == (2, 100) and "Aquarium level 2: Zebra Danio unlocked" in seen[2][2] and seen[3][:2] == (3, 400)
               and "Neon Tetra" in seen[3][2] and "German Blue Ram (rare)" in seen[3][2]
               and seen[4][:2] == (4, 1200) and "Platy" in seen[4][2] and "Harlequin Rasbora (uncommon)" in seen[4][2] and g_after == 1000, json.dumps({"clicks": clicks, "seen": {k: (v[0], v[1], v[2][:80]) for k, v in seen.items()}, "gold": g_after}))
         page.click("#btn-shop"); page.wait_for_timeout(200)
@@ -641,7 +641,7 @@ def main(VW, VH):
         dy = (page.evaluate(f"AQ.game.state.fish.find((f) => f.id === {did}).y") * gm["H"] - gm["surf"]) / gm["waterH"]
         page.screenshot(path=shot("dead_fish_with_toast"))
         check("N2: toasts ('Guppy died', tank level-up) never intersect the air gap + dead-fish band; the dead fish stays in its band (6-10% of water below the surface)",
-              len(toasts) >= 2 and any("died" in t_["text"] for t_ in toasts) and any("Tank level 2" in t_["text"] for t_ in toasts) and not any(hit(t_, band) for t_ in toasts) and 0.055 <= dy <= 0.105,
+              len(toasts) >= 2 and any("died" in t_["text"] for t_ in toasts) and any("Aquarium level 2" in t_["text"] for t_ in toasts) and not any(hit(t_, band) for t_ in toasts) and 0.055 <= dy <= 0.105,
               json.dumps({"band": band, "toasts": toasts, "deadY": round(dy, 3)}))
         # N3: only dead fish -> no hint; back once a living fish is there
         page.wait_for_timeout(2800)
@@ -658,7 +658,7 @@ def main(VW, VH):
         locked_names = [s_["name"] for s_ in tj["species"] if (s_.get("unlockTankLevel") or 1) > 1]
         locked_txt = (", ".join(locked_names[:-1]) + " and " + locked_names[-1]) if len(locked_names) > 1 else (locked_names[0] if locked_names else "")
         fc = tj["newTank"]["firstCleanReward"]
-        exp_line = f"Everything resets: 0 gold, 0 food, 0 diamonds, no fish, tank level 1 (0 XP), {locked_txt} lock again, only the default decorations, and the tank starts dirty (stage 3). The first clean pays {fc['gold']} gold and {fc['food']} food again."
+        exp_line = f"Everything resets: 0 gold, 0 food, 0 diamonds, no fish, aquarium level 1 (0 XP), {locked_txt} lock again, only the default decorations, and the tank starts dirty (stage 3). The first clean pays {fc['gold']} gold and {fc['food']} food again."
         page.click("#btn-newtank"); page.wait_for_timeout(250)
         after = ev("return { gold: G.state.gold, food: G.state.food, diamonds: G.state.diamonds, fish: G.state.fish.length, xp: G.state.tank.xp, lvl: G.tankInfo().level, locked: ['danio', 'neon', 'platy'].map((id) => !!G.canBuy(id).locked), grant: G.state.starterGrantUsed, speed: G.state.speed, stage: G.dirtStage(), fc: G.state.firstCleanPending };")
         check("D1: 'Your tank is empty' modal has the v6 reset line (first clean 20g+50f), and Start new tank resets exactly that",
@@ -806,10 +806,27 @@ def main(VW, VH):
         hud = page.evaluate("""(() => { const q = (s) => document.querySelector(s); const r = (s) => q(s).getBoundingClientRect();
             return { order: [...q('#hud').children].map((e) => e.id), food: !!q('#res-food'), gold: r('#res-gold'), gem: r('#res-gem'), lvl: r('#tanklvl'), dirt: r('#dirt-win'), hud: r('#hud'),
                      gems: q('#gems').textContent, label: q('#tank-label').textContent, xp: q('#tank-xp').textContent, pillFs: getComputedStyle(q('#res-gold')).fontSize, tab: getComputedStyle(q('#gold')).fontVariantNumeric }; })()""")
-        check("AD v4 3: top bar = gold pill, diamond pill (no food pill; 0 diamonds), 'Tank Lv 1' block with '0 / 60', dirt window 240x36 / 320x48 right-aligned; pills 32 / 42 high",
-              hud["order"] == ["res-gold", "res-gem", "tanklvl", "dirt-win"] and not hud["food"] and hud["gems"] == "0" and hud["label"] == "Tank Lv 1" and hud["xp"] == "0 / 60"
+        check("AD v4 3: top bar = gold pill, diamond pill (no food pill; 0 diamonds), 'Aquarium Lv 1' block with '0 / 60', dirt window 240x36 / 320x48 right-aligned; pills 32 / 42 high",
+              hud["order"] == ["res-gold", "res-gem", "tanklvl", "dirt-win"] and not hud["food"] and hud["gems"] == "0" and hud["label"] == "Aquarium Lv 1" and hud["xp"] == "0 / 60"
               and abs(hud["dirt"]["width"] - (320 if LARGE else 240)) < 0.5 and abs(hud["dirt"]["height"] - (48 if LARGE else 36)) < 0.5 and abs(hud["dirt"]["right"] - hud["hud"]["right"]) < 0.5
               and abs(hud["gold"]["height"] - (42 if LARGE else 32)) < 0.5 and hud["lvl"]["width"] >= 160 and hud["pillFs"] == ("20px" if LARGE else "16px") and "tabular-nums" in hud["tab"], json.dumps(hud))
+        # Maksims / AD v4 3 (2026-09-28): the level block reads "Aquarium Lv N"; "Aquarium Lv 12" + "Dirt: max" must fit on one row without clipping
+        lv12 = ev("""toStage(5); if (!G.__tankInfo) G.__tankInfo = G.tankInfo; const real = G.__tankInfo; G.tankInfo = () => Object.assign({}, real(), { level: 12 }); return 0;""")
+        page.wait_for_timeout(120)
+        fit = page.evaluate("""(() => { const q = (s) => document.querySelector(s), r = (s) => q(s).getBoundingClientRect(); const l = q('#tank-label'), cs = getComputedStyle(l);
+            const lb = r('#tank-label'), blk = r('#tanklvl'), dw = r('#dirt-win'), hud = q('#hud'), dl = q('#dirt-label');
+            return { label: l.textContent, dirt: dl.textContent, sw: l.scrollWidth, cw: l.clientWidth, dsw: dl.scrollWidth, dcw: dl.clientWidth, ellipsis: cs.textOverflow,
+                     inBlock: lb.left >= blk.left - 0.5 && lb.right <= blk.right + 0.5, beforeDirt: blk.right <= dw.left + 0.5, oneRow: hud.scrollHeight <= hud.clientHeight + 0.5 && hud.scrollWidth <= hud.clientWidth + 0.5,
+                     title: q('#tanklvl').title }; })()""")
+        page.locator("#hud").screenshot(path=shot("topbar_aquarium_lv12"))
+        ev("G.tankInfo = G.__tankInfo; delete G.__tankInfo; clean();"); page.wait_for_timeout(80)
+        check("AD v4 3 rename: top bar reads 'Aquarium Lv 12' (forced level 12) next to 'Dirt: max' on one row: label not clipped or ellipsed (scrollWidth <= clientWidth), inside its block, block left of the dirt window; tooltip says 'Aquarium level'",
+              fit["label"] == "Aquarium Lv 12" and fit["dirt"] == "Dirt: max" and fit["sw"] <= fit["cw"] and fit["dsw"] <= fit["dcw"] and fit["inBlock"] and fit["beforeDirt"] and fit["oneRow"]
+              and fit["title"].startswith("Aquarium level"), json.dumps(fit))
+        ev("fresh(); G.state.tank.xp = 130;"); page.wait_for_timeout(150); page.screenshot(path=shot("aquarium_label_clean_no_timer"))
+        vis = page.evaluate("document.body.innerText")
+        check("rename: no player-facing 'Tank Lv' / 'Tank level' text on the main screen; 'Aquarium Lv 2' and 'Dirt: clean' shown with no countdown",
+              "Tank Lv" not in vis and "Tank level" not in vis and "Aquarium Lv 2" in vis and "Dirt: clean" in vis and " in " not in page.evaluate("document.getElementById('dirt-win').innerText"), vis[:300])
         def dirt_txt():
             return page.evaluate("""(() => { const l = document.getElementById('dirt-label'), h = document.getElementById('hud'), w = document.getElementById('dirt-win');
               const a = l.getBoundingClientRect(), wr = w.getBoundingClientRect();
@@ -915,7 +932,7 @@ def main(VW, VH):
             const cols = getComputedStyle(document.getElementById('shop-list')).gridTemplateColumns.split(' ').length;
             return { w: s.width, h: s.height, cx: (s.left + s.right) / 2 - (k.left + k.right) / 2, top: s.top - k.top, tankW: k.width, tankH: k.height, closeW: c.width, closeH: c.height,
                      closeCx: (c.left + c.right) / 2 - (s.left + s.right) / 2, closeBottom: s.bottom - parseFloat(getComputedStyle(document.getElementById('shop')).borderBottomWidth) - c.bottom, cols, tabs: [...document.querySelectorAll('#shop .tab')].map((t) => t.textContent),
-                     title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
+                     title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv|Aquarium Lv/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
                      pad: parseFloat(getComputedStyle(document.getElementById('shop-scroll')).paddingBottom) }; })()""")
         check("AD v4 8 / bible 7-8: shop = centred panel min(680, tankW-32) x tankH-16, header 'Shop' + tabs Fish / Food / Decorations, no tank level / XP, 4 / 5 columns",
               abs(sh["w"] - min(680, sh["tankW"] - 32)) < 1 and abs(sh["h"] - (sh["tankH"] - 16)) < 1 and abs(sh["cx"]) < 1 and abs(sh["top"] - 8) < 1 and sh["title"] == "Shop"
