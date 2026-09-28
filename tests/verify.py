@@ -822,8 +822,8 @@ def main(VW, VH):
             return { textLines: lines, sameRow: Math.abs(x.top - xp.top) < 0.5, resetRight: x.right, clockRight: c.right, clockTop: c.top, dbgRight: dbg.right, dbgL: dbg.left, tankL: t.left, tankR: t.right,
                      clockOneLine: c.height < 20, fs: parseFloat(getComputedStyle(document.getElementById('debug')).fontSize), h: dbg.height, overflow: document.getElementById('debug').scrollWidth > document.getElementById('debug').clientWidth + 0.5 }; })()""")
         page.locator("#debug").screenshot(path=shot("debug_row"))
-        check("debug row: one line under the tank only, 11px / 13px, h 24 / 32, Reset save on the button row, clock right-aligned, nothing clipped",
-              n5["textLines"] == 1 and n5["sameRow"] and abs(n5["clockRight"] - n5["dbgRight"]) < 1 and n5["clockOneLine"] and n5["fs"] == (13 if LARGE else 11) and abs(n5["h"] - (32 if LARGE else 24)) < 0.5
+        check("debug row: one line under the tank only, 11px / 13px, h 20 / 22 (Job F), Reset save on the button row, clock right-aligned, nothing clipped",
+              n5["textLines"] == 1 and n5["sameRow"] and abs(n5["clockRight"] - n5["dbgRight"]) < 1 and n5["clockOneLine"] and n5["fs"] == (13 if LARGE else 11) and abs(n5["h"] - (22 if LARGE else 20)) < 0.5
               and abs(n5["dbgL"] - n5["tankL"]) < 0.5 and abs(n5["dbgRight"] - n5["tankR"]) < 0.5 and not n5["overflow"] and n5["resetRight"] < n5["clockRight"], json.dumps(n5))
 
         # ================================================================ L. landscape layout v4 (Art Director LANDSCAPE_LAYOUT_V4.md)
@@ -831,10 +831,10 @@ def main(VW, VH):
         lay = page.evaluate("AQ.layout()")
         # fluid frame (Maksims 20:10): padding 8 / 12 on top, left and right, bottom only max(4, safe-area) = 4 here; the tank
         # fills everything right of the column and between the top bar and the debug row (AD boxes with the 4px bottom)
-        pd, cw, tb_, gp, dh = (12, 96, 48, 8, 32) if LARGE else (8, 68, 36, 6, 24)
+        pd, cw, tb_, gp, dh = (12, 96, 48, 8, 22) if LARGE else (8, 68, 36, 6, 20)  # Job F: debug row 20 / 22, no bottom padding
         tx_ = pd + cw + pd if LARGE else pd + cw + 8
-        spec = {"column": (pd, pd, cw, VH - pd - 4), "hud": (tx_, pd, VW - tx_ - pd, tb_), "tank": (tx_, pd + tb_ + gp, VW - tx_ - pd, VH - 4 - dh - gp - (pd + tb_ + gp)),
-                "debug": (tx_, VH - 4 - dh, VW - tx_ - pd, dh)}
+        spec = {"column": (pd, pd, cw, VH - pd), "hud": (tx_, pd, VW - tx_ - pd, tb_), "tank": (tx_, pd + tb_ + gp, VW - tx_ - pd, VH - dh - gp - (pd + tb_ + gp)),
+                "debug": (tx_, VH - dh, VW - tx_ - pd, dh)}
         off = {k: max(abs(lay[k]["x"] - v[0]), abs(lay[k]["y"] - v[1]), abs(lay[k]["w"] - v[2]), abs(lay[k]["h"] - v[3])) for k, v in spec.items()}
         check("AD v4 1: tool column, top bar, tank and debug row match the spec boxes within 4px; nothing scrolls",
               max(off.values()) <= 4 and lay["scrollW"] <= VW and lay["scrollH"] <= VH, json.dumps({"off": off, "got": {k: lay[k] for k in spec}}))
@@ -1482,8 +1482,8 @@ def fluid_layout():
             page.screenshot(path=os.path.join(SHOTS, f"fluid_{w}x{h}.png"))
             pad = 12 if h >= 600 else 8
             sizes[f"{w}x{h}"] = f"{m['tank'][2]:.0f}x{m['tank'][3]:.0f} at ({m['tank'][0]:.0f},{m['tank'][1]:.0f})"
-            check(f"fluid layout {w}x{h}: debug row bottom within 6px of the viewport bottom, tank-to-debug gap <= 8px, tank fills to the right padding, top bar one row, tools fit the column, nothing scrolls",
-                  0 <= h - m["debugBottom"] <= 6 and 0 <= m["debugTop"] - m["tankBottom"] <= 8 and abs(w - pad - m["tankRight"]) < 1 and m["dirtRight"] <= m["hudRight"] + 0.5 and m["hudLines"] == 1
+            check(f"fluid layout {w}x{h}: debug row bottom on the viewport bottom edge (Job F), tank-to-debug gap <= 8px, tank fills to the right padding, top bar one row, tools fit the column, nothing scrolls",
+                  abs(h - m["debugBottom"]) < 0.5 and 0 <= m["debugTop"] - m["tankBottom"] <= 8 and abs(w - pad - m["tankRight"]) < 1 and m["dirtRight"] <= m["hudRight"] + 0.5 and m["hudLines"] == 1
                   and m["toolsBottom"] <= m["colBottom"] + 0.5 and m["toolsLeftOfTank"] and m["scroll"][0] <= w and m["scroll"][1] <= h, json.dumps(m))
             ctx.close()
         browser.close()
@@ -1655,6 +1655,56 @@ def home_screen_icons():
           M.get("apple-mobile-web-app-capable") == "yes" and M.get("mobile-web-app-capable") == "yes" and M.get("apple-mobile-web-app-status-bar-style") == "black-translucent"
           and M.get("apple-mobile-web-app-title") == "Aquarium" and M.get("theme-color") == "#07192a", json.dumps(M))
 
+
+def debug_bottom():
+    """Job F (Maksims 17:43): Debug button + options on the very bottom edge so the tank extends lower; password gate kept;
+    options never clipped (they open upward on narrow screens); bottom padding is only the safe-area inset."""
+    VIEW[0] = "debug-bottom"
+    print("\n======== debug bottom (Job F)", flush=True)
+    css = open(os.path.join(HERE, "..", "style.css")).read()
+    check("Job F CSS: #app bottom padding = the safe-area inset only (no 4px strip); debug row 20 / 22 px; narrow screens open the options upward",
+          "max(4px, env(safe-area-inset-bottom" not in css and "max(4px, var(--safe-b))" not in css
+          and ("env(safe-area-inset-bottom, 0px) calc(var(--pad)" in css or "var(--safe-b) calc(var(--pad)" in css)
+          and "--dbg: 20px" in css and "--dbg: 22px" in css and "#debug.up #dbg-panel" in css, "style.css")
+    BEFORE = {"844x390": 306, "1180x820": 708}   # tank height before Job F (debug row 24 / 32 + 4px bottom padding)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (w, h) in ((844, 390), (1180, 820), (568, 320)):
+            view = f"{w}x{h}"
+            page = browser.new_page(viewport={"width": w, "height": h})
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(400)
+            m0 = page.evaluate("""(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const t = r('tank-wrap'), d = r('debug'), g = r('dbg-toggle');
+              return { tankH: t.height, tankW: t.width, tankBottom: t.bottom, debugTop: d.top, debugBottom: d.bottom, toggleBottom: g.bottom, toggleTop: g.top, vh: innerHeight }; })()""")
+            if view in BEFORE:
+                check(f"{view}: tank taller than before Job F ({BEFORE[view]} -> {m0['tankH']:.0f} px); debug row on the bottom edge, no empty strip under DEBUG (<= 1.5 px)",
+                      m0["tankH"] > BEFORE[view] and abs(m0["debugBottom"] - h) < 0.5 and h - m0["toggleBottom"] <= 1.5 and m0["debugTop"] >= m0["tankBottom"], json.dumps(m0))
+            # password gate still there: wrong code keeps it closed, 123456 opens
+            page.click("#dbg-toggle"); page.wait_for_timeout(80); page.fill("#dbg-pass-input", "000000"); page.click("#dbg-pass-yes"); page.wait_for_timeout(80)
+            wrong = page.evaluate("AQ.debugOpen()")
+            page.fill("#dbg-pass-input", "123456"); page.click("#dbg-pass-yes"); page.wait_for_timeout(150)
+            o = page.evaluate("""(() => { const d = document.getElementById('debug'), vw = innerWidth, vh = innerHeight;
+              const btns = [...document.querySelectorAll('#dbg-panel button'), document.getElementById('dbg-toggle')].map((b) => { const r = b.getBoundingClientRect();
+                const e = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+                return { t: b.textContent, inView: r.left >= -0.5 && r.right <= vw + 0.5 && r.top >= -0.5 && r.bottom <= vh + 0.5, hit: !!e && (e === b || b.contains(e)), w: r.width }; });
+              const pr = document.getElementById('dbg-panel').getBoundingClientRect();
+              return { open: AQ.debugOpen(), up: d.classList.contains('up'), clipped: !d.classList.contains('up') && d.scrollWidth > d.clientWidth + 0.5, btns, panel: [pr.left, pr.top, pr.right, pr.bottom],
+                       debugBottom: d.getBoundingClientRect().bottom }; })()""")
+            page.screenshot(path=os.path.join(SHOTS, f"debug_bottom_after_{view}.png"))
+            names = [b_["t"] for b_ in o["btns"]]
+            check(f"{view}: password gate kept (wrong code stays closed, 123456 opens); every debug option visible, on screen and tappable (not clipped{'; opens upward' if o['up'] else ''})",
+                  wrong is False and o["open"] and not o["clipped"] and all(b_["inView"] and b_["hit"] and b_["w"] > 0 for b_ in o["btns"])
+                  and "+100g" in names and "+50 XP" in names and "Reset save" in names and "DEBUG" in names and abs(o["debugBottom"] - h) < 0.5, json.dumps(o))
+            if view == "568x320":
+                check("568x320 (narrowest landscape phone): options that do not fit the bottom strip open upward over the tank, inside the screen",
+                      o["up"] and o["panel"][3] <= m0["debugTop"] + 0.5 and o["panel"][0] >= 0 and o["panel"][2] <= w + 0.5, json.dumps(o))
+            else:
+                # tap +100g works from the bottom strip
+                g0 = page.evaluate("AQ.game.state.gold"); page.click("#dbg-gold"); page.wait_for_timeout(60)
+                check(f"{view}: options stay in the one bottom line (no overlay) and work (+100g adds 100 gold)",
+                      not o["up"] and page.evaluate("AQ.game.state.gold") == g0 + 100, json.dumps({"up": o["up"]}))
+            page.close()
+        browser.close()
+
 if __name__ == "__main__":
     views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",") if x.strip()]
     for vw, vh in views:
@@ -1666,6 +1716,7 @@ if __name__ == "__main__":
     if os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
+    debug_bottom()
     cache_bust()
     home_screen_icons()
     failed = [r for r in results if not r[1]]

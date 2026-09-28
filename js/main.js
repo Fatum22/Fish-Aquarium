@@ -1262,7 +1262,15 @@
     dbgOpen = !!on;
     $('debug').classList.toggle('open', dbgOpen);
     $('dbg-toggle').setAttribute('aria-pressed', dbgOpen ? 'true' : 'false');
+    fitDebug();
   }
+  // Job F: the debug row sits on the bottom edge; when the open options do not fit that one line (narrow screens)
+  // they open upward over the tank (class 'up', wrapped) instead of being clipped
+  function fitDebug() {
+    const d = $('debug'); d.classList.remove('up');
+    if (dbgOpen && d.scrollWidth > d.clientWidth + 0.5) d.classList.add('up');
+  }
+  addEventListener('resize', () => requestAnimationFrame(fitDebug));
   function closeDbgPass() {
     $('dbg-pass').hidden = true; $('dbg-pass-err').hidden = true; $('dbg-pass-input').value = '';
   }
