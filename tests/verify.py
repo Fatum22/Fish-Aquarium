@@ -101,6 +101,14 @@ def main(VW, VH):
             tool("net"); ok = click_fish(fid, "#confirm"); t = page.inner_text("#confirm-text") if ok else ""
             return t
         def clear_toasts(): page.evaluate("document.getElementById('toasts').innerHTML = ''")
+        def open_debug(pw="123456"):
+            """Unlock the debug panel through the password popup (Maksims 2026-09-28)."""
+            if page.evaluate("AQ.debugOpen()"): return True
+            page.click("#dbg-toggle"); page.wait_for_timeout(80)
+            page.fill("#dbg-pass-input", pw); page.click("#dbg-pass-yes"); page.wait_for_timeout(80)
+            return page.evaluate("AQ.debugOpen()")
+        def close_debug():
+            if page.evaluate("AQ.debugOpen()"): page.click("#dbg-toggle"); page.wait_for_timeout(60)
         def rub_clean(timeout=40):
             tool("sponge"); b = box(); t0 = time.time()
             while stage() >= 1 and time.time() - t0 < timeout:
@@ -120,6 +128,52 @@ def main(VW, VH):
         check("page opens at x1 (debugDefaultSpeed)", s["speed"] == 1 == tj["debugDefaultSpeed"], f"speed={s['speed']}")
         btns = page.locator("#speed-btns .dbg").all_inner_texts()
         check("debug speed buttons are exactly x1 x5 x10 x15 x20", btns == ["×1", "×5", "×10", "×15", "×20"] and tj["debugSpeeds"] == [1, 5, 10, 15, 20], str(btns))
+        # Maksims 2026-09-28: DEBUG is a password toggle; buttons start hidden; wrong password / cancel stay closed; right password opens; one tap closes
+        gate0 = page.evaluate("""(() => { const d = document.getElementById('debug'), p = document.getElementById('dbg-panel'), m = document.getElementById('dbg-pass');
+          const vis = (el) => !!(el && el.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true }));
+          return { open: AQ.debugOpen(), cls: d.classList.contains('open'), pressed: document.getElementById('dbg-toggle').getAttribute('aria-pressed'),
+                   panel: vis(p), gold: vis(document.getElementById('dbg-gold')), xp: vis(document.getElementById('dbg-xp')), reset: vis(document.getElementById('dbg-reset')),
+                   speeds: [...document.querySelectorAll('#speed-btns .dbg')].map((b) => vis(b)), modal: vis(m), clock: vis(document.getElementById('dbg-clock')) }; })()""")
+        check("debug starts closed: DEBUG toggle visible, speed/+100g/+50 XP/Reset hidden, clock still shown, no password modal, not in save",
+              not gate0["open"] and not gate0["cls"] and gate0["pressed"] == "false" and not gate0["panel"] and not gate0["gold"] and not gate0["xp"] and not gate0["reset"]
+              and gate0["speeds"] == [False] * 5 and not gate0["modal"] and gate0["clock"], json.dumps(gate0))
+        page.click("#dbg-toggle"); page.wait_for_timeout(100)
+        box_pw = page.evaluate("""(() => { const b = document.querySelector('#dbg-pass .modal-box').getBoundingClientRect(), k = document.getElementById('tank-wrap').getBoundingClientRect();
+          return { w: b.width, h: b.height, cx: (b.left + b.right) / 2 - (k.left + k.right) / 2, cy: (b.top + b.bottom) / 2 - (k.top + k.bottom) / 2,
+                   title: document.getElementById('dbg-pass-title').textContent, yes: document.getElementById('dbg-pass-yes').textContent, no: document.getElementById('dbg-pass-no').textContent,
+                   tankW: k.width, tankH: k.height }; })()""")
+        page.screenshot(path=shot("debug_password"))
+        check("tapping DEBUG opens a centred password popup (fits the tank: <= 280 / 340 wide) matching the confirm style: 'Developer password', Cancel + Unlock",
+              not page.evaluate("AQ.debugOpen()") and page.locator("#dbg-pass").is_visible() and box_pw["title"] == "Developer password" and box_pw["yes"] == "Unlock" and box_pw["no"] == "Cancel"
+              and abs(box_pw["cx"]) < 3 and abs(box_pw["cy"]) < 3 and box_pw["w"] <= (340 if LARGE else 280) + 1 and box_pw["h"] < box_pw["tankH"] - 8, json.dumps(box_pw))
+        page.fill("#dbg-pass-input", "000000"); page.click("#dbg-pass-yes"); page.wait_for_timeout(80)
+        wrong = page.evaluate("""(() => ({ open: AQ.debugOpen(), err: !document.getElementById('dbg-pass-err').hidden, modal: !document.getElementById('dbg-pass').hidden,
+          panel: document.getElementById('debug').classList.contains('open') }))()""")
+        check("wrong password: stays closed, shows 'Wrong password', modal still up, debug buttons still hidden",
+              not wrong["open"] and wrong["err"] and wrong["modal"] and not wrong["panel"] and page.inner_text("#dbg-pass-err") == "Wrong password", json.dumps(wrong))
+        page.click("#dbg-pass-no"); page.wait_for_timeout(80)
+        cancelled = page.evaluate("({ open: AQ.debugOpen(), modal: !document.getElementById('dbg-pass').hidden, panel: document.getElementById('debug').classList.contains('open') })")
+        check("Cancel on the password popup leaves debug closed (no buttons)", not cancelled["open"] and not cancelled["modal"] and not cancelled["panel"], json.dumps(cancelled))
+        page.click("#dbg-toggle"); page.wait_for_timeout(80)
+        page.fill("#dbg-pass-input", "123456"); page.click("#dbg-pass-yes"); page.wait_for_timeout(100)
+        unlocked = page.evaluate("""(() => { const vis = (id) => document.getElementById(id).checkVisibility({ visibilityProperty: true });
+          return { open: AQ.debugOpen(), cls: document.getElementById('debug').classList.contains('open'), pressed: document.getElementById('dbg-toggle').getAttribute('aria-pressed'),
+                   modal: !document.getElementById('dbg-pass').hidden, gold: vis('dbg-gold'), xp: vis('dbg-xp'), reset: vis('dbg-reset'),
+                   speeds: [...document.querySelectorAll('#speed-btns .dbg')].map((b) => b.checkVisibility({ visibilityProperty: true })) }; })()""")
+        page.locator("#debug").screenshot(path=shot("debug_row_open"))
+        check("password 123456 unlocks: DEBUG pressed, modal gone, speed/+100g/+50 XP/Reset visible",
+              unlocked["open"] and unlocked["cls"] and unlocked["pressed"] == "true" and not unlocked["modal"] and unlocked["gold"] and unlocked["xp"] and unlocked["reset"]
+              and unlocked["speeds"] == [True] * 5, json.dumps(unlocked))
+        page.click("#dbg-toggle"); page.wait_for_timeout(80)
+        closed = page.evaluate("({ open: AQ.debugOpen(), cls: document.getElementById('debug').classList.contains('open'), gold: document.getElementById('dbg-gold').checkVisibility({ visibilityProperty: true }), modal: !document.getElementById('dbg-pass').hidden })")
+        check("one tap on DEBUG closes the panel with no password prompt", not closed["open"] and not closed["cls"] and not closed["gold"] and not closed["modal"], json.dumps(closed))
+        # reopen for any later checks that need the buttons (and prove every open asks again)
+        page.click("#dbg-toggle"); page.wait_for_timeout(60)
+        again = page.locator("#dbg-pass").is_visible()
+        page.fill("#dbg-pass-input", "123456"); page.click("#dbg-pass-yes"); page.wait_for_timeout(80)
+        check("opening again always asks for the password (not remembered across closes)", again and page.evaluate("AQ.debugOpen()"), f"asked={again}")
+        page.evaluate("AQ.game.save()"); boot("?speed=1")
+        check("reload always starts with debug closed (open state is not saved)", not page.evaluate("AQ.debugOpen()") and not page.locator("#dbg-gold").is_visible())
         nt = page.evaluate("({ st: AQ.game.dirtStage(), spots: AQ.game.state.dirt.spots.map((s) => s.stage), next: AQ.game.dirtNextIn(), fc: AQ.game.state.firstCleanPending, lvl: AQ.game.tankInfo().level })")
         check("v4 new tank: empty, 0 gold / 0 food / 0 diamonds, dirt stage 3 (clock at 12 h, next stage in 12 h) with its spots, first-clean reward armed, tank Lv1",
               s["fish"] == [] and s["gold"] == tj["startGold"] == 0 and s["food"] == tj["startFood"] == 0 and s["diamonds"] == tj["startDiamonds"] == 0 and nt["st"] == 3
@@ -367,6 +421,7 @@ def main(VW, VH):
 
         # debug +50 XP button (NUMBERS.md 9.13): normal XP path, tank level-ups + unlock toasts, no gold, persists
         ev("fresh(); G.state.gold = 1000; G.state.speed = 1;"); page.wait_for_timeout(100)
+        assert open_debug()
         check("debug row has '+50 XP' next to the speed buttons, +100g and Reset save",
               page.locator("#debug #dbg-xp").inner_text() == "+50 XP" and page.locator("#debug #dbg-gold").is_visible() and page.locator("#debug #dbg-reset").is_visible())
         page.locator("#debug").screenshot(path=shot("debug_row"))
@@ -698,7 +753,7 @@ def main(VW, VH):
               json.dumps({"modal": over_nt, "before": before_nt, "after60ms": now_nt, "after1s": later_nt}))
 
         # debug row (AD v4 1): under the tank only, one line, 11px (Large 13px), clock right-aligned; Reset save on the same row
-        page.wait_for_timeout(300)
+        page.wait_for_timeout(300); assert open_debug()
         n5 = page.evaluate("""(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const e = document.getElementById('dbg-reset');
             const rg = document.createRange(); rg.selectNodeContents(e); const lines = new Set([...rg.getClientRects()].map((q) => Math.round(q.top))).size;
             const x = r('dbg-reset'), xp = r('dbg-xp'), c = r('dbg-clock'), dbg = r('debug'), t = r('tank-wrap');
@@ -782,7 +837,7 @@ def main(VW, VH):
         air = P(gm["W"] * 0.33, gm["surf"] * 0.45); water = P(gm["W"] * 0.33, gm["surf"] + 30)
         xr = gm["W"] - gm["inset"]; yl = (gm["surf"] + gm["sand"]) / 2
         line_px, beside = P(xr, yl), P(xr - 9, yl)
-        surf_px = max((P(gm["W"] * 0.66, gm["surf"] + d) for d in (-1, 0, 1)), key=sum)
+        surf_px = max((P(gm["W"] * 0.66, gm["surf"] + d) for d in (-2, -1, 0, 1, 2)), key=sum)  # Large tanks: the 1px surface can fall between ±1 samples
         check("AD v4 4: air gap = top 7% (min 16px: 21 / 49px) filled darker than the water; sand top at 86%; glass lines inset 3.5% of W",
               abs(gm["surf"] - exp_surf) < 0.01 and abs(gm["surf"] - max(16, 0.07 * gm["H"])) < 0.01 and abs(gm["sand"] - min(0.86 * gm["H"], gm["H"] - 36)) < 0.01 and abs(gm["inset"] - 0.035 * gm["W"]) < 0.01
               and sum(air) < sum(water) - 150 and air[2] < 110, json.dumps({"geom": gm, "air": air, "water": water}))

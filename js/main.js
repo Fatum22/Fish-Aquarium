@@ -1199,7 +1199,7 @@
     pointer.lx = x; pointer.ly = y;
     if (r.cleaned) floatClean(r.gold, x, y, r.food);
   }
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closePanel(); closeShop(); if (editing) deselectDecor(); } });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('dbg-pass').hidden) { closeDbgPass(); return; } closePanel(); closeShop(); if (editing) deselectDecor(); } });
 
   // ------------------------------------------------------------ game events
   G.on((type, d) => {
@@ -1243,6 +1243,42 @@
   });
 
   // ------------------------------------------------------------ debug row
+  // ------------------------------------------------------------ debug row (password gate; closed state is NOT saved)
+  const DBG_PASS = '123456'; // casual gate: plain string compare is fine (Maksims 2026-09-28)
+  let dbgOpen = false;
+  function setDebugOpen(on) {
+    dbgOpen = !!on;
+    $('debug').classList.toggle('open', dbgOpen);
+    $('dbg-toggle').setAttribute('aria-pressed', dbgOpen ? 'true' : 'false');
+  }
+  function closeDbgPass() {
+    $('dbg-pass').hidden = true; $('dbg-pass-err').hidden = true; $('dbg-pass-input').value = '';
+  }
+  function askDbgPass() {
+    $('dbg-pass-err').hidden = true; $('dbg-pass-input').value = '';
+    $('dbg-pass').hidden = false;
+    setTimeout(() => { try { $('dbg-pass-input').focus(); $('dbg-pass-input').select(); } catch (e) { /* ignore */ } }, 30);
+  }
+  function tryDbgUnlock() {
+    const ok = $('dbg-pass-input').value === DBG_PASS;
+    if (ok) { closeDbgPass(); setDebugOpen(true); }
+    else { $('dbg-pass-err').hidden = false; $('dbg-pass-input').select(); }
+    return ok;
+  }
+  $('dbg-toggle').addEventListener('click', () => {
+    if (dbgOpen) { setDebugOpen(false); closeDbgPass(); } // one tap closes, no password
+    else askDbgPass(); // every open asks again
+  });
+  $('dbg-pass-yes').addEventListener('click', tryDbgUnlock);
+  $('dbg-pass-no').addEventListener('click', closeDbgPass);
+  $('dbg-pass-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); tryDbgUnlock(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeDbgPass(); }
+  });
+  // click the dimmed backdrop to cancel (same as Cancel)
+  $('dbg-pass').addEventListener('click', (e) => { if (e.target === $('dbg-pass')) closeDbgPass(); });
+  setDebugOpen(false); // reload always starts closed (not in save)
+
   T.debugSpeeds.forEach((s) => {
     const b = document.createElement('button'); b.className = 'dbg'; b.dataset.speed = s; b.textContent = `×${s}`;
     b.addEventListener('click', () => { G.state.speed = s; G.save(); });
@@ -1391,6 +1427,7 @@
     decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
     net() { return { on: net.on, x: net.x, y: net.y, fx: net.fx, fy: net.fy, touch: net.touch, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR(),
       handleA: NET_HANDLE_A, handleLen: NET_HANDLE_LEN, grip: NET_TOUCH_GRIP }; },
+    debugOpen() { return !!dbgOpen; }, openDebug(pw) { if (pw === DBG_PASS) { setDebugOpen(true); closeDbgPass(); return true; } return false; }, closeDebug() { setDebugOpen(false); closeDbgPass(); },
     edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },

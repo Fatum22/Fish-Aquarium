@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07192a">
   <meta name="screen-orientation" content="landscape">
   <title>Aquarium (prototype)</title>
-  <link rel="stylesheet" href="style.css?v=202609281506">
+  <link rel="stylesheet" href="style.css?v=202609281529">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -136,6 +136,17 @@
           <div class="modal-actions"><button class="btn primary" id="away-ok">OK</button></div>
         </div>
       </div>
+    <div id="dbg-pass" class="modal" hidden>
+      <div class="modal-box confirm-box" role="dialog" aria-labelledby="dbg-pass-title">
+        <p id="dbg-pass-title">Developer password</p>
+        <input id="dbg-pass-input" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Password" />
+        <p id="dbg-pass-err" class="dbg-pass-err" hidden>Wrong password</p>
+        <div class="modal-actions">
+          <button class="btn" id="dbg-pass-no">Cancel</button>
+          <button class="btn primary" id="dbg-pass-yes">Unlock</button>
+        </div>
+      </div>
+    </div>
       <div id="confirm" class="modal" hidden>
         <div class="modal-box confirm-box">
           <canvas id="confirm-portrait" width="240" height="120"></canvas>
@@ -149,11 +160,13 @@
     </main>
 
     <footer id="debug">
-      <span class="dbg-title">DEBUG</span>
-      <span id="speed-btns"></span>
-      <button id="dbg-gold" class="dbg">+100g</button>
-      <button id="dbg-xp" class="dbg">+50 XP</button>
-      <button id="dbg-reset" class="dbg warn">Reset save</button>
+      <button type="button" id="dbg-toggle" class="dbg-title" aria-pressed="false" title="Show or hide debug controls">DEBUG</button>
+      <span id="dbg-panel">
+        <span id="speed-btns"></span>
+        <button id="dbg-gold" class="dbg">+100g</button>
+        <button id="dbg-xp" class="dbg">+50 XP</button>
+        <button id="dbg-reset" class="dbg warn">Reset save</button>
+      </span>
       <span id="dbg-clock"></span>
     </footer>
   </div>
@@ -168,9 +181,9 @@
     <div id="rotate-text">Turn your device sideways</div>
   </div>
 
-  <script src="config.js?v=202609281506"></script>
-  <script src="js/fishart.js?v=202609281506"></script>
-  <script src="js/game.js?v=202609281506"></script>
-  <script src="js/main.js?v=202609281506"></script>
+  <script src="config.js?v=202609281529"></script>
+  <script src="js/fishart.js?v=202609281529"></script>
+  <script src="js/game.js?v=202609281529"></script>
+  <script src="js/main.js?v=202609281529"></script>
 </body>
 </html>
