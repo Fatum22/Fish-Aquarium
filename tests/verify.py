@@ -1170,6 +1170,35 @@ def main(VW, VH):
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         check("touch drags rub the tank clean (touch emulation), stage 1 pays +2 gold", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
               f"stage {st0}->{tp.evaluate('AQ.game.dirtStage()')}")
+        # Maksims 2026-09-28: on touch the fingertip holds the wooden handle 60-70% of the way down it; the hoop sits up and
+        # left of the finger; targeting uses the hoop centre; the mouse still centres the hoop on the cursor (checked above)
+        nid = tp.evaluate("() => { const G = AQ.game; G.reset(); const d = G.state.dirt; d.t = 0; d.spots = []; d.spawned = 0; G.state.firstCleanPending = false; G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); f.level = 2; f.state = 'GROWING'; AQ.pinFish(f.id, 0.5, 0.5); return f.id; }")
+        tp.wait_for_timeout(400); tp.tap('.tool[data-tool="net"]'); tp.wait_for_timeout(150); tb = tp.locator("#tank").bounding_box()
+        fc_ = tp.evaluate(f"AQ.fishScreen({nid})"); R_ = tp.evaluate("AQ.net().r"); dgrip = R_ * (1 + 0.65 * 1.8)
+        fx_, fy_ = fc_["x"] + dgrip * 0.7071, fc_["y"] + dgrip * 0.7071   # finger where the untilted grip point puts the hoop on the fish
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": tb["x"] + fx_ - 30, "y": tb["y"] + fy_}]})
+        for t in range(1, 11):
+            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tb["x"] + fx_ - 30 + 3 * t, "y": tb["y"] + fy_}]})
+            tp.wait_for_timeout(16)
+        moving = tp.evaluate("AQ.net()")
+        tp.wait_for_timeout(500); held = tp.evaluate("AQ.net()")
+        def grip_of(n):   # where the fingertip sits along the handle (0 = hoop end, 1 = far end) and how far off its axis
+            import math
+            a_ = n["handleA"] + n["tilt"]; ux, uy = math.cos(a_), math.sin(a_); vx_, vy_ = n["fx"] - n["x"], n["fy"] - n["y"]
+            along = vx_ * ux + vy_ * uy; perp = abs(-vx_ * uy + vy_ * ux)
+            return {"frac": round((along - n["r"]) / (n["r"] * n["handleLen"]), 3), "perp": round(perp, 2), "hoopUpLeft": n["x"] < n["fx"] and n["y"] < n["fy"]}
+        g_mv, g_held = grip_of(moving), grip_of(held)
+        tp.screenshot(path=shot("net_touch_grip"))
+        png_t = tp.screenshot(clip={"x": tb["x"], "y": tb["y"], "width": tb["width"], "height": tb["height"]}); _wt, _ht, pxt = png_rgb(png_t); kt = _wt / tb["width"]
+        wood = pxt(int(held["fx"] * kt), int(held["fy"] * kt))
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []}); tp.wait_for_timeout(350)
+        ctxt = tp.inner_text("#confirm-text") if tp.locator("#confirm").is_visible() else ""
+        check("touch net: the fingertip sits on the wooden handle 60-70% of the way down it (held and while moving/tilted), the hoop is up-left of the finger and its centre picks the fish; letting go opens that fish's confirm",
+              0.6 <= g_held["frac"] <= 0.7 and 0.6 <= g_mv["frac"] <= 0.7 and g_held["perp"] < 1 and g_mv["perp"] < 1 and g_held["hoopUpLeft"] and held["touch"]
+              and held["target"] == nid and abs(held["x"] - fc_["x"]) < 3 and abs(held["y"] - fc_["y"]) < 3
+              and wood[0] > 120 and wood[0] > wood[2] + 40 and ctxt == "Sell Guppy (L2) for 20 gold and 10 XP?",
+              json.dumps({"held": g_held, "moving": g_mv, "tilt": [round(moving["tilt"], 3), round(held["tilt"], 3)], "hoop": [round(held["x"], 1), round(held["y"], 1)], "finger": [round(held["fx"], 1), round(held["fy"], 1)], "fish": fc_, "wood": wood, "confirm": ctxt}))
+        if tp.locator("#confirm").is_visible(): tp.tap("#confirm-no")
         tp.evaluate("AQ.game.reset(); AQ.game.save()")
         tctx.close()
 

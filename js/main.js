@@ -1048,13 +1048,22 @@
   }
 
   // ------------------------------------------------------------ net tool (AD "Net cursor and target highlight")
-  // Shown while the Net is selected and a finger is down or a mouse is over the tank. Touch: hoop centre 1.25 hoop radii
-  // above the fingertip (like the sponge); mouse: hoop centre on the cursor. Tilts with horizontal movement (max 12 deg,
-  // eases back in ~200 ms). The targeted fish gets a white body outline + soft glow and the rim turns --accent.
+  // Shown while the Net is selected and a finger is down or a mouse is over the tank. Touch (Maksims 2026-09-28): the
+  // fingertip holds the wooden handle NET_TOUCH_GRIP (65%) of the way down it, so the hoop sits up and to the left of the
+  // finger, clear of it; the tilt pivots round the fingertip so the finger stays on the stick. Mouse: hoop centre on the
+  // cursor. Targeting always uses the hoop centre. Tilts with horizontal movement (max 12 deg, eases back in ~200 ms). The targeted fish gets a white body outline + soft glow and the rim turns --accent.
   // Letting go over a fish: the hoop dips (1 -> 0.9 -> 1 over 150 ms), then the confirm opens (dead fish: removed).
-  const net = { on: false, x: 0, y: 0, target: null, vx: 0, tilt: 0, dip: -1, lastX: 0, lastT: 0, moved: 0 };
+  const net = { on: false, x: 0, y: 0, fx: 0, fy: 0, touch: false, target: null, vx: 0, tilt: 0, dip: -1, lastX: 0, lastT: 0, moved: 0 };
   const netR = () => (LARGE() ? 30 : 22);
-  function netAt(px, py, touch) { return { x: px, y: py - (touch ? netR() * 1.25 : 0) }; }
+  // handle geometry (drawNetCursor): leaves the hoop at 45 deg down-right, from R to R + NET_HANDLE_LEN x R from the centre
+  const NET_HANDLE_A = Math.PI / 4, NET_HANDLE_LEN = 1.8, NET_TOUCH_GRIP = 0.65;
+  /** distance from the hoop centre to the fingertip on touch: the grip point 65% down the handle */
+  const netGripDist = () => netR() * (1 + NET_TOUCH_GRIP * NET_HANDLE_LEN);
+  function netAt(px, py, touch) {
+    if (!touch) return { x: px, y: py };
+    const d = netGripDist(), a = NET_HANDLE_A + net.tilt;
+    return { x: px - Math.cos(a) * d, y: py - Math.sin(a) * d };
+  }
   /** same pick rule as taps: front-most fish whose body contains the point, otherwise the nearest centre within the hoop radius */
   function netPick(x, y) {
     const fish = G.state.fish;
@@ -1068,14 +1077,17 @@
     return best;
   }
   function netMove(px, py, touch) {
-    const q = netAt(px, py, touch), now = performance.now(), dt = Math.max(1, now - net.lastT) / 1000;
-    if (net.on) { net.vx = net.vx * 0.5 + ((q.x - net.x) / dt) * 0.5; net.moved += Math.hypot(q.x - net.x, q.y - net.y); }
-    net.x = q.x; net.y = q.y; net.lastT = now;
+    const now = performance.now(), dt = Math.max(1, now - net.lastT) / 1000;
+    // speed and drag distance from the pointer itself (on touch the hoop also swings with the tilt)
+    if (net.on) { net.vx = net.vx * 0.5 + ((px - net.fx) / dt) * 0.5; net.moved += Math.hypot(px - net.fx, py - net.fy); }
+    net.fx = px; net.fy = py; net.touch = !!touch; net.lastT = now;
+    const q = netAt(px, py, touch); net.x = q.x; net.y = q.y;
   }
   function stepNet(dt) {
     net.vx *= Math.exp(-dt / 0.08);
     const want = Math.max(-1, Math.min(1, net.vx / 500)) * (12 * Math.PI / 180);
     net.tilt += (want - net.tilt) * (1 - Math.exp(-dt / 0.06));
+    if (net.touch && (net.on || net.dip >= 0)) { const q = netAt(net.fx, net.fy, true); net.x = q.x; net.y = q.y; } // pivot round the fingertip
     if (net.dip >= 0) { net.dip += dt; if (net.dip > 0.15) net.dip = -1; }
   }
   function drawNetTargetGlow(f, L) { // called inside the fish's own transform: body outline only (fins and tail excluded)
@@ -1095,8 +1107,8 @@
     const k = net.dip >= 0 ? 1 - 0.1 * Math.sin(Math.PI * Math.min(1, net.dip / 0.15)) : 1;
     ctx.save();
     ctx.translate(net.x, net.y); ctx.rotate(net.tilt); ctx.scale(k, k);
-    // handle: leaves the hoop's lower-right at 45 deg, 0.9 x hoop diameter long, rounded end
-    const a = Math.PI / 4, x0 = Math.cos(a) * R, y0 = Math.sin(a) * R, x1 = Math.cos(a) * (R + 0.9 * D), y1 = Math.sin(a) * (R + 0.9 * D);
+    // handle: leaves the hoop's lower-right at 45 deg, 0.9 x hoop diameter (NET_HANDLE_LEN x R) long, rounded end
+    const a = NET_HANDLE_A, x0 = Math.cos(a) * R, y0 = Math.sin(a) * R, x1 = Math.cos(a) * R * (1 + NET_HANDLE_LEN), y1 = Math.sin(a) * R * (1 + NET_HANDLE_LEN);
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#6a4424'; ctx.lineWidth = hw + 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.strokeStyle = '#b07a44'; ctx.lineWidth = hw; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
@@ -1377,7 +1389,8 @@
     },
     fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L) }; },
     decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
-    net() { return { on: net.on, x: net.x, y: net.y, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR() }; },
+    net() { return { on: net.on, x: net.x, y: net.y, fx: net.fx, fy: net.fy, touch: net.touch, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR(),
+      handleA: NET_HANDLE_A, handleLen: NET_HANDLE_LEN, grip: NET_TOUCH_GRIP }; },
     edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },
