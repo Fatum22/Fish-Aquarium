@@ -2158,6 +2158,29 @@ def decor_v1():
             check("locked labels 'Unlocks at Aquarium Lv {N}' are shown in full (not cut off with an ellipsis)", not trunc, json.dumps(trunc))
             if VW == 844: page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)  # show the locked row too
             page.screenshot(path=os.path.join(DECOR_SHOTS, f"shop_{VW}.png"))
+            # Art Director nit: portraits fit the card by their limiting dimension (contain on the art's opaque bounds), locked cards too
+            def portraits():
+                page.wait_for_function("[...document.querySelectorAll('#shop-decor .card[data-decor] canvas')].slice(2).every((c) => c.dataset.art)", timeout=10000)
+                return page.evaluate("""[...document.querySelectorAll('#shop-decor .card')].slice(2).map((card) => { const cv = card.querySelector('canvas'), q = cv.getBoundingClientRect(), k = card.getBoundingClientRect();
+                    const [x, y, w, h] = cv.dataset.art.split(',').map(Number), sx = q.width / cv.width, sy = q.height / cv.height;
+                    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height - 19).data; let c0 = cv.width, c1 = -1;
+                    for (let j = 0; j < cv.height - 19; j++) for (let i = 0; i < cv.width; i++) if (px[(j * cv.width + i) * 4 + 3] > 8) { c0 = Math.min(c0, i); c1 = Math.max(c1, i); }
+                    return { id: card.dataset.decor, locked: card.classList.contains('locked'), wFrac: w * sx / q.width, hFrac: h * sy / q.height, inCanvas: x >= -0.5 && y >= -0.5 && x + w <= cv.width + 0.5 && y + h <= cv.height + 0.5,
+                      inCard: q.left >= k.left - 0.5 && q.right <= k.right + 0.5 && q.top >= k.top - 0.5 && q.bottom <= k.bottom + 0.5, limit: Math.max(w / (cv.width - 4), h / (cv.height - 4)), pxFrac: (c1 - c0 + 1) / cv.width }; })""")
+            pt = {}
+            for lv in (4, 7):  # Lv 4: the ship card is locked (greyed); Lv 7: unlocked
+                ev(f"G.state.tank.xp = {lvl_xp[lv - 1]}; AQ.openShop(); AQ.setShopTab('decor');"); page.wait_for_timeout(100)
+                pt[lv] = portraits()
+            ship = {lv: next(q for q in v if q["id"] == "shipwreck") for lv, v in pt.items()}
+            castle = next(q for q in pt[7] if q["id"] == "castle")
+            check("shop portraits fit the card by their limiting dimension (contain): the Sunken Ship fills >= 85% of the portrait width, locked (Lv 4) and unlocked (Lv 7); "
+                  "every piece touches one side (limit ~1), tall pieces (Castle) use the height and stay inside; no portrait outside its canvas, no canvas outside its card",
+                  all(ship[lv]["wFrac"] >= 0.85 and ship[lv]["pxFrac"] >= 0.8 for lv in ship) and ship[4]["locked"] and not ship[7]["locked"]
+                  and castle["hFrac"] >= 0.9 and castle["wFrac"] < 0.6 and all(q["inCanvas"] and q["inCard"] and abs(q["limit"] - 1) < 0.01 for v in pt.values() for q in v),
+                  json.dumps({"ship": ship, "castle": castle, "bad": [q for v in pt.values() for q in v if not (q["inCanvas"] and q["inCard"] and abs(q["limit"] - 1) < 0.01)]}))
+            if VW == 844:
+                page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)
+                page.screenshot(path=os.path.join(DECOR_SHOTS, "shop_ship_844.png"))
             page.evaluate("document.querySelector('#shop-close').click()")
             refused = ev(f"""G.state.tank.xp = 0; G.state.gold = 99999; const out = {{}};
                 for (const it of T.decorations.shopItems.items) {{ const g = G.state.gold, r = G.buyDecor(it.id); out[it.id] = [r === null, G.state.gold - g, G.state.decor.length]; }} return out;""")
@@ -2251,11 +2274,11 @@ def decor_v1():
             # assets: every decor file the game asked for came back 200 from a relative decor/ URL
             dec = [r for r in resp if "/decor/" in r[1]]
             svgs = {i for i in ids if any(r[1].split("?")[0].endswith(f"/decor/{i}.svg") for r in dec)}
-            thumbs = {i for i in ids if any(r[1].split("?")[0].endswith(f"/decor/thumbs/{i}-256.png") for r in dec)}
             rel = page.evaluate("[...document.scripts].map((s) => s.getAttribute('src')).filter((s) => s && s.includes('decor'))")
-            check("assets: decor-v1-data.js, all 10 SVGs and all 10 shop thumbs load with HTTP 200 from relative decor/ URLs (works under a GitHub Pages subpath); no 4xx/5xx",
-                  dec and all(r[0] == 200 for r in dec) and svgs == set(ids) and thumbs == set(ids) and rel == ["decor/decor-v1-data.js?" + rel[0].split("?")[1]] and not any(r[0] >= 400 for r in resp),
-                  json.dumps({"n": len(dec), "bad": [r for r in resp if r[0] >= 400][:3], "svgs": sorted(set(ids) - svgs), "thumbs": sorted(set(ids) - thumbs), "rel": rel}))
+            # shop / confirm portraits are drawn from the SVGs themselves (contain on the art's opaque bounds), so the square thumbs are not requested any more
+            check("assets: decor-v1-data.js and all 10 SVGs (also the shop portraits) load with HTTP 200 from relative decor/ URLs (works under a GitHub Pages subpath); no 4xx/5xx",
+                  dec and all(r[0] == 200 for r in dec) and svgs == set(ids) and rel == ["decor/decor-v1-data.js?" + rel[0].split("?")[1]] and not any(r[0] >= 400 for r in resp),
+                  json.dumps({"n": len(dec), "bad": [r for r in resp if r[0] >= 400][:3], "svgs": sorted(set(ids) - svgs), "rel": rel}))
             check("decorations v1: no page errors", not errs, "; ".join(errs[:3]))
             ev("G.reset(); G.save();")
             ctx.close()

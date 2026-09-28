@@ -334,7 +334,7 @@
   const decorBmp = new Map();   // 'type|color|res' -> ready canvas
   const decorLast = new Map();  // decoration id -> key of the last ready bitmap (drawn while a new one rasters)
   const decorPending = new Map(); // decoration id -> raster job (only the latest per decoration, one raster at a time)
-  const decorSvgText = {}, decorImg = {}, decorThumbs = {};
+  const decorSvgText = {}, decorImg = {};
   let decorBusy = null, decorRastered = 0;
   const decorArt = (type) => (window.DECOR_V1 || {})[type];
   function decorRes(d) { return Math.min(3, Math.max(0.25, Math.ceil(decorU() * DPR * Math.max(d.sh, d.sw) * 4) / 4)); } // raster px per unit
@@ -395,20 +395,37 @@
     }
     return inside;
   }
-  function decorThumb(type, onload) { // shop / confirm portrait: decor/thumbs/<id>-256.png (the @2x of the 128 crop)
-    let img = decorThumbs[type];
-    if (!img) { img = decorThumbs[type] = new Image(); img.src = DECOR_DIR + decorArt(type).thumb2x; }
-    if (!(img.complete && img.naturalWidth) && onload) img.addEventListener('load', onload, { once: true });
-    return img;
+  /** shop card / sell confirm portrait art (Art Director: portraits fit the card by their limiting dimension): the
+   *  slider-50 SVG rastered once per type (longest side 512 px) plus its opaque bounds (alpha > 8) in viewBox units, so
+   *  wide pieces (ship, driftwood) fill the card width and tall ones (castle) its height; nothing is square-cropped. */
+  const decorCards = {}, decorCardReady = {};
+  function decorCardArt(type) {
+    if (!decorCards[type]) decorCards[type] = (async () => {
+      const J = decorArt(type), img = await decorSvgImage(type, DECOR_DIR + J.file), vw = J.viewBox[2], vh = J.viewBox[3], r = Math.min(1, 512 / Math.max(vw, vh));
+      const c = document.createElement('canvas'); c.width = Math.ceil(vw * r); c.height = Math.ceil(vh * r);
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+      let bb = [0, 0, vw, vh];
+      try {
+        const a = x.getImageData(0, 0, c.width, c.height).data; let x0 = c.width, y0 = c.height, x1 = 0, y1 = 0;
+        for (let j = 0; j < c.height; j++) for (let i = 0; i < c.width; i++) if (a[(j * c.width + i) * 4 + 3] > 8) { if (i < x0) x0 = i; if (i >= x1) x1 = i + 1; if (j < y0) y0 = j; if (j >= y1) y1 = j + 1; }
+        if (x1 > x0 && y1 > y0) bb = [x0 / r, y0 / r, x1 / r, y1 / r];
+      } catch (e) { /* unreadable canvas: fall back to the whole viewBox */ }
+      return (decorCardReady[type] = { c, bb });
+    })();
+    return decorCards[type];
   }
-  /** shop card / sell confirm portrait: the thumb (corals at slider 50); the sell confirm of a coral crops the portrait
-   *  square from its current tinted bitmap when that is ready. Bottom-aligned, as tall as the canvas allows. */
+  /** contain: the art's opaque bounds scaled by the limiting dimension into cw x ch (2 px margin), centred, bottom-aligned.
+   *  The sell confirm of a coral uses its current tinted bitmap (same bounds) when that is ready. */
   function drawDecorThumb(c, type, cw, ch, d) {
-    const J = decorArt(type), sz = Math.min(cw, ch) - 4, x = (cw - sz) / 2, y = ch - sz - 2;
-    const lk = d && J.colorSlider && decorLast.get(d.id), bmp = lk && decorBmp.get(lk);
-    if (bmp && lk === decorKey(d)) { const p = J.portrait, r = bmp.width / J.viewBox[2]; c.drawImage(bmp, p.x * r, p.y * r, p.size * r, p.size * r, x, y, sz, sz); return; }
-    const img = decorThumb(type, () => drawDecorThumb(c, type, cw, ch, d));
-    if (img.complete && img.naturalWidth) c.drawImage(img, x, y, sz, sz);
+    const J = decorArt(type), A = decorCardReady[type];
+    if (!A) { decorCardArt(type).then(() => drawDecorThumb(c, type, cw, ch, d), () => {}); return; }
+    const [bx0, by0, bx1, by1] = A.bb, bw = bx1 - bx0, bh = by1 - by0, k = Math.min((cw - 4) / bw, (ch - 4) / bh);
+    const w = bw * k, h = bh * k, x = (cw - w) / 2, y = ch - 2 - h;
+    const lk = d && J.colorSlider && decorLast.get(d.id), bmp = lk && lk === decorKey(d) && decorBmp.get(lk);
+    const src = bmp || A.c, r = src.width / J.viewBox[2];
+    c.save(); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(src, bx0 * r, by0 * r, bw * r, bh * r, x, y, w, h); c.restore();
+    c.canvas.dataset.art = [x, y, w, h].map((v) => v.toFixed(1)).join(','); // drawn art rect in canvas px (tests)
   }
   G.shopItemIds().forEach((id) => {
     const J = decorArt(id), it = G.shopItem(id); if (!J) return;
@@ -1007,13 +1024,13 @@
       c.restore();
     }
   }
-  function drawDecorCard(c, type, d0) {
-    if (decorType(type).art) { const cw = c.canvas.width, ch = c.canvas.height; c.clearRect(0, 0, cw, ch); c.fillStyle = '#d8c48a'; c.fillRect(0, 78, cw, ch - 78); drawDecorThumb(c, type, cw, 96, d0); return; }
-    c.clearRect(0, 0, 240, 96);
-    c.fillStyle = '#d8c48a'; c.fillRect(0, 78, 240, 18);
+  function drawDecorCard(c, type, d0) { // shop card / sell confirm portrait: 240 x 120 canvas, sand strip along the bottom
+    const cw = c.canvas.width, ch = c.canvas.height;
+    c.clearRect(0, 0, cw, ch); c.fillStyle = '#d8c48a'; c.fillRect(0, ch - 18, cw, 18);
+    if (decorType(type).art) { drawDecorThumb(c, type, cw, ch, d0); return; }
     const t = decorType(type), d = { id: 'card', type, x: 0, y: 0, sh: 1, sw: 1, color: T.decorations.types[type].defaultColor, seed: t.seed };
-    const g = t.card(90); // 90 px "water height" for the card
-    ctxSwap(c, () => t.draw(d, g)); // reuse the tank drawing code
+    const g = t.card(90); // 90 px "water height" for the card, drawn on a 240 x 96 box sitting on the bottom
+    c.save(); c.translate((cw - 240) / 2, ch - 96); ctxSwap(c, () => t.draw(d, g)); c.restore(); // reuse the tank drawing code
   }
   function ctxSwap(c, fn) { const keep = ctx; ctx = c; try { fn(); } finally { ctx = keep; } }
   function renderShop() {
@@ -1045,7 +1062,7 @@
       });
       Object.keys(T.decorations.types).concat(G.shopItemIds()).filter((type) => DECOR_TYPES[type]).forEach((type) => { // leaf, stone, then the ladder
         const card = document.createElement('div'); card.className = 'card'; card.dataset.decor = type;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">${decorHasSlider(type) ? 'Move, size and colour it' : 'Move and size it'}</div>
+        card.innerHTML = `<canvas width="240" height="120"></canvas><div class="n">${decorType(type).name}</div><div class="s">${decorHasSlider(type) ? 'Move, size and colour it' : 'Move and size it'}</div>
           <button class="btn buy" data-buydecor="${type}"><svg><use href="#i-coin"/></svg><span class="price">${G.decorPrice(type)}</span><span class="lbl"></span></button>`;
         $('shop-decor').appendChild(card);
         drawDecorCard(card.querySelector('canvas').getContext('2d'), type);

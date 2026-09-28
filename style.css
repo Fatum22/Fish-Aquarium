@@ -159,6 +159,8 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 @media (min-height: 600px) { .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } #shop-food.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } #shop-decor.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } #shop-scroll { padding-bottom: 60px; } .shop-head h2 { font-size: 22px; } .tab { font-size: 15px; padding: 5px 16px; } }
 .card { background: #ffffff0d; border: 1px solid #ffffff14; border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .card canvas { width: 100%; aspect-ratio: 5 / 2; height: auto; background: radial-gradient(#1f5f86, #0e3552); border-radius: 8px; }
+/* decoration portraits (Art Director): 2:1 so wide art (Sunken Ship) fills the card width and tall art still fits (contain, main.js drawDecorThumb) */
+#shop-decor .card canvas { aspect-ratio: 2 / 1; }
 .card .n { font-weight: 900; font-size: 13px; }
 .card { position: relative; }
 /* rarity tag (AD LANDSCAPE_LAYOUT_V4 7, 2026-09-28): Uncommon / Rare only, never Common (no tag, no frame, no text anywhere).
