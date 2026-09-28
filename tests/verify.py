@@ -1107,8 +1107,8 @@ def main(VW, VH):
         page.click('#shop-decor button[data-buydecor="leaf"]'); page.wait_for_timeout(250)
         ed = page.evaluate("AQ.edit()"); dn = page.evaluate("AQ.decorScreen()")[-1]
         toasts_ = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
-        check("bible 25 / 27 + v6.8 (leaf exception): Decorations tab offers Leaf for 1 gold and Stone for 2 gold; buying places it at the floor centre, opens edit mode, selects it and opens its menu",
-              dec == [["Leaf", "1"], ["Stone", "2"]] and not page.locator("#shop").is_visible() and ed["editing"] and ed["selDecor"] == dn["id"] and ed["menu"] and abs(dn["x"] - 0.5) < 1e-9
+        check("bible 25 / 27 + v6.8 (leaf exception): Decorations tab offers Leaf for 1 gold and Stone for 2 gold (then the 10 shop decorations); buying places it at the floor centre, opens edit mode, selects it and opens its menu",
+              dec[:2] == [["Leaf", "1"], ["Stone", "2"]] and len(dec) == 12 and not page.locator("#shop").is_visible() and ed["editing"] and ed["selDecor"] == dn["id"] and ed["menu"] and abs(dn["x"] - 0.5) < 1e-9
               and "Tap a decoration to change it" in toasts_ and page.locator('.tool[data-tool="brush"]').get_attribute("aria-pressed") == "true", json.dumps([dec, ed, dn["x"], toasts_]))
         page.screenshot(path=shot("edit_mode_menu"))
         mr = ed["menu"]; tk_ = ed["tank"]; dnb = ed["done"]
@@ -1218,7 +1218,7 @@ def main(VW, VH):
         page.click("#shop-close"); snap_d = S()["decor"]
         boot("?speed=1"); after_d = S()["decor"]
         check("v4 7: max 12 decorations (Buy disabled with 'Tank is full of decorations'); decorations keep position, size and colour across a reload",
-              all(d_ and t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
+              all(d_ and (t_ == "Tank is full of decorations" or t_.startswith("Unlocks at Aquarium Lv")) for d_, t_ in full_d) and any(t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
         # fish info side panel geometry + meal bar
         fp = ev("""fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('platy');
           f.level = 3; f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.endMeal = true; f.progress = G.growSec(G.SPECIES.platy, 3); f.deathLeft = G.deathSecFor(G.SPECIES.platy, 3);
@@ -1625,7 +1625,7 @@ def cache_bust():
         browser.close()
     v = next(iter(vers)) if len(vers) == 1 else None
     check(f"cache busting: all {len(tags)} script/CSS tags in index.html carry the same ?v= build id and the page loads them with it",
-          len(tags) == 6 and v is not None and len(loaded) >= 6 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
+          len(tags) == 7 and v is not None and len(loaded) >= 7 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
 
 def home_screen_icons():
     """Home-screen app (Art Director icons): favicon (svg + png), apple-touch-icon 180, manifest.webmanifest with 192 + 512,
@@ -1737,7 +1737,7 @@ def edit_spacing():
             page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
             ev = lambda body: page.evaluate("() => { " + JS + body + " }")
             types = page.evaluate("AQ.decorTypes()")
-            ids = ev("fresh(); G.state.gold = 1000; G.state.decor = []; const out = {}; for (const t of AQ.decorTypes()) out[t] = G.buyDecor(t).id; AQ.setTool('brush'); return out;")
+            ids = ev("fresh(); G.state.gold = 99999; G.state.tank.xp = 1e7; G.state.decor = []; const out = {}; for (const t of AQ.decorTypes()) out[t] = G.buyDecor(t).id; AQ.setTool('brush'); return out;")
             page.wait_for_timeout(150)
             css = page.evaluate("""(() => { const cs = getComputedStyle(document.documentElement), b = document.querySelector('#deco-menu [data-size]');
                 return { vars: ['--rb', '--rb-hit', '--size-gap', '--dpad-gap', '--group-gap', '--menu-w', '--menu-h'].map((v) => cs.getPropertyValue(v).trim()) }; })()""")
@@ -2023,6 +2023,168 @@ def tuning_68():
         page.evaluate("AQ.game.reset(); AQ.game.save()")
         browser.close()
 
+DECOR_SHOTS = os.path.join(HERE, "..", "screenshots", "decor")
+
+def decor_v1():
+    """Job 2 (approved by Maksims, art approved with no extra review): the 10 shop decorations from tuning
+    decorations.shopItems + art/DECOR_V1.md. Shop: leaf, stone, then the 10 in ladder order; locked ones greyed with
+    'Unlocks at Aquarium Lv {N}'; price from tuning; placeXp on the first buy of each type only; sell floor(pricePaid / 2);
+    the same edit menu / drag / resize for every piece; height cap maxHeightScale (castle 1.8); traced hit outline;
+    corals recolour light (0) to dark (100) through coralColors / tintSvg; every asset loads 200 from relative decor/ URLs."""
+    os.makedirs(DECOR_SHOTS, exist_ok=True)
+    tj = merged_tuning(); SI = tj["decorations"]["shopItems"]; items = SI["items"]; ids = [i["id"] for i in items]
+    lvl_xp = tj["tank"]["levelAtXp"]
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"decor-v1 {VW}x{VH}"
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=1)
+            page = ctx.new_page(); errs = []; resp = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.on("response", lambda r: resp.append([r.status, r.url]))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            def shop_cards():
+                return page.evaluate("""[...document.querySelectorAll('#shop-decor .card')].map((c) => { const b = c.querySelector('button');
+                    return { id: b.dataset.buydecor, n: c.querySelector('.n').textContent, price: c.querySelector('.price').textContent, priceHidden: c.querySelector('.price').hidden,
+                      dis: b.disabled, locked: c.classList.contains('locked'), lbl: b.querySelector('.lbl').textContent, filter: getComputedStyle(c).filter, op: +getComputedStyle(c).opacity }; })""")
+            def open_decor_shop():
+                page.evaluate("AQ.openShop(); AQ.setShopTab('decor')"); page.wait_for_timeout(200)
+            # shop at Aquarium Lv 1: leaf, stone, then all 10 in ladder order, all 10 locked (greyed, label, no price, disabled)
+            ev("fresh(); G.state.gold = 99999; G.state.tank.xp = 0;")
+            open_decor_shop(); c1 = shop_cards()
+            exp_ids = ["leaf", "stone"] + ids
+            lab = lambda n: SI["lockedLabel"].replace("{N}", str(n))
+            ok1 = [c["id"] for c in c1] == exp_ids and all(c["n"] == it["name"] and c["price"] == str(it["price"]) for c, it in zip(c1[2:], items)) \
+                and all(c["locked"] and c["dis"] and c["priceHidden"] and c["lbl"] == lab(it["unlockTankLevel"]) and "grayscale" in c["filter"] and c["op"] < 0.7 for c, it in zip(c1[2:], items)) \
+                and not c1[0]["locked"] and not c1[1]["locked"]
+            check("shop at Aquarium Lv 1: Leaf, Stone, then the 10 shop decorations in ladder order with tuning names / prices; all 10 locked: greyed like locked food packs, disabled, 'Unlocks at Aquarium Lv {N}' instead of the price",
+                  ok1, json.dumps(c1[:4]))
+            # the shop fits (no horizontal overflow) and scrolls to the last card
+            fit = page.evaluate("""(() => { const s = document.getElementById('shop-scroll'), r = s.getBoundingClientRect(); const cards = [...document.querySelectorAll('#shop-decor .card')];
+                const over = cards.filter((c) => { const q = c.getBoundingClientRect(); return q.left < r.left - 0.5 || q.right > r.right + 0.5; }).length;
+                s.scrollTop = 1e6; const last = cards[cards.length - 1].getBoundingClientRect(); const lr = s.getBoundingClientRect();
+                return { over, sw: s.scrollWidth, cw: s.clientWidth, sh: s.scrollHeight, ch: s.clientHeight, lastIn: last.top >= lr.top - 0.5 && last.bottom <= lr.bottom + 0.5, vw: innerWidth, vh: innerHeight, sb: lr.bottom }; })()""")
+            page.wait_for_timeout(100)
+            check("decor shop fits the screen (no card cut off sideways, no horizontal scroll) and scrolls to the last card (Sunken Ship fully visible)",
+                  fit["over"] == 0 and fit["sw"] <= fit["cw"] + 1 and fit["lastIn"] and fit["sb"] <= VH + 0.5, json.dumps(fit))
+            page.evaluate("document.getElementById('shop-scroll').scrollTop = 0")
+            # unlock gating per level: at each Aquarium level exactly the items with unlockTankLevel <= level are buyable
+            gate = []
+            for lv in range(1, 8):
+                ev(f"G.state.tank.xp = {lvl_xp[lv - 1]}; AQ.openShop(); AQ.setShopTab('decor');"); page.wait_for_timeout(60)
+                cs = shop_cards()[2:]
+                lvn = ev("return G.tankInfo().level;")
+                gate.append([lvn, [c["id"] for c in cs if not c["locked"] and not c["dis"]], [c["id"] for c in cs if c["locked"]]])
+            ok_g = all(g[0] == lv and g[1] == [it["id"] for it in items if it["unlockTankLevel"] <= lv] and g[2] == [it["id"] for it in items if it["unlockTankLevel"] > lv] for lv, g in zip(range(1, 8), gate))
+            ev(f"G.state.tank.xp = {lvl_xp[3]}; G.state.gold = 1234; AQ.openShop(); AQ.setShopTab('decor');"); page.wait_for_timeout(400)
+            trunc = page.evaluate("[...document.querySelectorAll('#shop-decor .card.locked .lbl')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent)")
+            check("locked labels 'Unlocks at Aquarium Lv {N}' are shown in full (not cut off with an ellipsis)", not trunc, json.dumps(trunc))
+            if VW == 844: page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)  # show the locked row too
+            page.screenshot(path=os.path.join(DECOR_SHOTS, f"shop_{VW}.png"))
+            page.evaluate("document.querySelector('#shop-close').click()")
+            refused = ev(f"""G.state.tank.xp = 0; G.state.gold = 99999; const out = {{}};
+                for (const it of T.decorations.shopItems.items) {{ const g = G.state.gold, r = G.buyDecor(it.id); out[it.id] = [r === null, G.state.gold - g, G.state.decor.length]; }} return out;""")
+            check("unlock gating: at Aquarium Lv 1..7 exactly the items with unlockTankLevel <= level are buyable (the rest locked); buying a locked one is refused (no gold taken, nothing placed)",
+                  ok_g and all(v == [True, 0, 0] for v in refused.values()), json.dumps([gate, refused]))
+            # prices, XP once per type, pricePaid, sell floor(pricePaid / 2), XP never taken back
+            buy = ev("""fresh(); G.state.gold = 999999; G.state.tank.xp = T.tank.levelAtXp[T.tank.levelAtXp.length - 1]; G.state.decorBought = {}; const out = {};
+                for (const it of T.decorations.shopItems.items) { const r = [];
+                  for (let k = 0; k < 2; k++) { if (G.state.decor.length >= 12) G.state.decor.length = 0; const g = G.state.gold, x = G.state.tank.xp, d = G.buyDecor(it.id);
+                    r.push([g - G.state.gold, G.state.tank.xp - x, d.pricePaid, d.color]); const g2 = G.state.gold, x2 = G.state.tank.xp; const ref = G.sellDecor(d.id); r.push([ref, G.state.gold - g2, G.state.tank.xp - x2]); }
+                  out[it.id] = r; } return { out, bought: Object.keys(G.state.decorBought) };""")
+            exp_buy = {it["id"]: [[it["price"], it["placeXp"], it["price"], it.get("defaultColor", 50)], [it["price"] // 2, it["price"] // 2, 0],
+                                  [it["price"], 0, it["price"], it.get("defaultColor", 50)], [it["price"] // 2, it["price"] // 2, 0]] for it in items}
+            check("buying: each shop decoration costs its tuning price (pricePaid stored); placeXp only on the FIRST buy of each type (a rebuy after selling pays 0 XP); selling refunds floor(pricePaid / 2) and never removes XP",
+                  buy["out"] == exp_buy and all(i in buy["bought"] for i in ids), json.dumps({k: buy["out"][k] for k in list(buy["out"])[:3]}))
+            # place all 10, then edit: tap selects via the traced outline, drag moves, d-pad + resize, castle height cap 1.8
+            placed = ev("""fresh(); G.state.gold = 999999; G.state.tank.xp = T.tank.levelAtXp[T.tank.levelAtXp.length - 1]; G.state.decor = []; const out = {};
+                for (const it of T.decorations.shopItems.items) { const d = G.buyDecor(it.id); d.x = -1; out[it.id] = d.id; } G.save(); return out;""")
+            page.wait_for_timeout(2500)
+            art = page.evaluate("AQ.decorArt()")
+            check("all 10 placed pieces get a cached bitmap (SVG rastered once into an offscreen canvas, drawn every frame from the cache)",
+                  all(art["keys"][placed[i]] in art["ready"] for i in ids) and art["pending"] == 0, json.dumps({"ready": len(art["ready"]), "pending": art["pending"]}))
+            cid = placed["castle"]
+            ev(f"G.state.decor.forEach((q) => {{ q.x = q.id === '{cid}' ? 0.35 : -5; q.y = 0.5; }}); AQ.setTool('brush');"); page.wait_for_timeout(150)
+            gq = page.evaluate("AQ.geom()"); tb = page.locator("#tank").bounding_box()
+            z = next(q for q in page.evaluate("AQ.decorScreen()") if q["id"] == cid)
+            J = page.evaluate("DECOR_V1.castle")
+            tx = lambda u: z["bx"] + (u - J["anchor"]["x"]) * z["sx"]; ty = lambda v: z["by"] + (v - J["anchor"]["y"]) * z["sy"]
+            miss = page.evaluate(f"AQ.decorHitAt({tx(385)}, {ty(100)})"); hitc = page.evaluate(f"AQ.decorHitAt({tx(200)}, {ty(300)})")
+            page.mouse.click(tb["x"] + tx(200), tb["y"] + ty(300)); page.wait_for_timeout(120); sel = page.evaluate("AQ.edit()")
+            check("tap test uses the traced hit outline: a tap on the castle tower selects it; a tap inside its box but on empty water (top-right corner) does not",
+                  hitc == cid and miss is None and sel["selDecor"] == cid and sel["menu"], json.dumps([hitc, miss, sel["selDecor"]]))
+            # drag
+            page.mouse.move(tb["x"] + tx(200), tb["y"] + ty(300)); page.mouse.down(); page.mouse.move(tb["x"] + tx(200) + 60, tb["y"] + ty(300) + 5, steps=6); page.mouse.up(); page.wait_for_timeout(80)
+            z2 = next(q for q in page.evaluate("AQ.decorScreen()") if q["id"] == cid)
+            # d-pad
+            page.click('#deco-menu [data-move="left"]'); page.wait_for_timeout(40)
+            z3 = next(q for q in page.evaluate("AQ.decorScreen()") if q["id"] == cid)
+            # resize to the cap
+            for _ in range(8): page.click('#deco-menu [data-size="taller"]'); page.wait_for_timeout(15)  # 1.0 -> 1.8 by real taps
+            page.evaluate("for (let i = 0; i < 6; i++) { document.querySelector('#deco-menu [data-size=\"taller\"]').click(); document.querySelector('#deco-menu [data-size=\"wider\"]').click(); }")
+            for _ in range(4): page.click('#deco-menu [data-size="wider"]'); page.wait_for_timeout(15)  # 1.6 -> 2.0
+            capd = ev(f"const d = G.state.decor.find((q) => q.id === '{cid}'); return [d.sh, d.sw, document.querySelector('#deco-menu [data-size=\"taller\"]').classList.contains('capped'), document.querySelector('#deco-menu [data-size=\"wider\"]').classList.contains('capped'), document.getElementById('dm-scale').textContent];")
+            ev(f"const d = G.state.decor.find((q) => q.id === '{cid}'); d.y = 0; AQ.selectDecor(d.id);"); page.wait_for_timeout(60)
+            zc = next(q for q in page.evaluate("AQ.decorScreen()") if q["id"] == cid)
+            top = zc["by"] - J["heightAboveBasePx"] * 4 * zc["sy"]  # art top = heightAboveBase compact px = x4 units
+            check("castle: drag moves it (+60 px), the d-pad moves it 8 px, Taller stops at maxHeightScale 1.8 (button capped), Wider at 2.0; at the back of the sand at 1.8x its top stays >= 4% of water height below the surface",
+                  abs(z2["bx"] - z["bx"] - 60) < 1.5 and abs(z3["bx"] - z2["bx"] + 8) < 0.6 and capd[:4] == [1.8, 2.0, True, True] and J["maxHeightScale"] == 1.8
+                  and top >= gq["surf"] + 0.04 * gq["waterH"] - 0.5, json.dumps([z["bx"], z2["bx"], z3["bx"], capd, top, gq["surf"] + 0.04 * gq["waterH"]]))
+            others = ev("""const out = {}; for (const d of G.state.decor) { if (d.type === 'castle') continue; d.sh = 1.9; AQ.selectDecor(d.id); for (let i = 0; i < 3; i++) document.querySelector('#deco-menu [data-size="taller"]').click(); out[d.type] = d.sh; } return out;""")
+            check("every other shop decoration goes up to height 2.0 (maxHeightScale 2)", all(v == 2.0 for v in others.values()) and len(others) == 9, json.dumps(others))
+            # same menu for every piece; colour slider only on the corals
+            menus = ev("""const out = {}; for (const d of G.state.decor) { AQ.selectDecor(d.id); const m = document.getElementById('deco-menu').getBoundingClientRect(), c = document.getElementById('dm-color');
+                out[d.type] = [Math.round(m.width), Math.round(m.height), getComputedStyle(c).visibility, document.querySelectorAll('#deco-menu [data-size]').length, document.querySelectorAll('#deco-menu [data-move]').length, document.getElementById('dm-title').textContent]; } return out;""")
+            m0 = menus[ids[0]]
+            check("every piece opens the same edit menu (same size, 4 Move + 4 Size buttons, Sell); title = tuning name; the colour slider shows only on the 4 corals",
+                  all(v[:2] == m0[:2] and v[3:5] == [4, 4] for v in menus.values()) and all((v[2] == "visible") == it["colorSlider"] and v[5] == it["name"] for it in items for k, v in menus.items() if k == it["id"]),
+                  json.dumps(menus))
+            # sell confirm text for the castle
+            ev(f"AQ.selectDecor('{cid}');"); page.wait_for_timeout(50)
+            sb = page.inner_text("#dm-sell"); page.click("#dm-sell"); page.wait_for_timeout(80); st = page.inner_text("#confirm-text"); page.click("#confirm-no")
+            check("castle sell: 'Sell · refund 500 gold' / 'Sell this castle ruins? You get 500 gold back.'", sb == "Sell · refund 500 gold" and st == "Sell this castle ruins? You get 500 gold back.", json.dumps([sb, st]))
+            # coral colour mapping: slider 0 light .. 100 dark, via coralColors / tintSvg; track = shadeRamp, thumb = base
+            cor = page.evaluate("""() => { const out = {}; const L = (h) => { const n = parseInt(h.slice(1), 16), r = (n >> 16) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255; return (Math.max(r, g, b) + Math.min(r, g, b)) / 2; };
+                for (const id of ['coralFan', 'coralStaghorn', 'coralBrain', 'coralTube']) { const J = DECOR_V1[id]; const ls = [0, 25, 50, 75, 100].map((v) => L(coralColors(id, v).base));
+                  out[id] = { ends: [coralColors(id, 0).base, coralColors(id, 50).base, coralColors(id, 100).base], ramp: [J.shadeRamp[0], J.shadeRamp[2], J.shadeRamp[4]], dark: ls.every((l, i) => !i || l < ls[i - 1]),
+                    same50: J.svgTintKeys.base === coralColors(id, 50).base }; } return out; }""")
+            fan = placed["coralFan"]
+            ev(f"G.state.decor.forEach((q) => {{ q.x = q.id === '{fan}' ? 0.3 : -5; q.y = 0.5; q.sh = 1; q.sw = 1; }}); AQ.selectDecor('{fan}');"); page.wait_for_timeout(100)
+            def set_slider(v):
+                page.evaluate(f"(() => {{ const c = document.getElementById('dm-color'); c.value = {v}; c.dispatchEvent(new Event('input', {{ bubbles: true }})); c.dispatchEvent(new Event('change', {{ bubbles: true }})); }})()")
+                page.wait_for_function(f"(() => {{ const a = AQ.decorArt(); return a.last['{fan}'] === a.keys['{fan}']; }})()", timeout=10000); page.wait_for_timeout(80)
+                return page.evaluate(f"""(() => {{ const c = document.getElementById('tank'), k = c.width / AQ.geom().W, z = AQ.decorScreen().find((q) => q.id === '{fan}');
+                    const x0 = Math.round((z.bx - 12) * k), y0 = Math.round((z.by - z.h * 0.6) * k), w = Math.round(24 * k), h = Math.round(z.h * 0.3 * k);
+                    const px = c.getContext('2d').getImageData(x0, y0, w, h).data; let s = 0, n = 0; for (let i = 0; i < px.length; i += 4) {{ s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; n++; }}
+                    const el = document.getElementById('dm-color'); return {{ lum: s / n, color: AQ.game.state.decor.find((q) => q.id === '{fan}').color, track: el.style.getPropertyValue('--track'), thumb: el.style.getPropertyValue('--thumb') }}; }})()""")
+            s0 = set_slider(0); s100 = set_slider(100); s50 = set_slider(50)
+            ramp = page.evaluate("DECOR_V1.coralFan.shadeRamp"); c0 = page.evaluate("coralColors('coralFan', 0).base"); c100 = page.evaluate("coralColors('coralFan', 100).base")
+            hexrgb = lambda h: f"rgb({int(h[1:3], 16)}, {int(h[3:5], 16)}, {int(h[5:7], 16)})"
+            check("coral colour mapping (DECOR_V1 5): for all 4 corals slider 0 / 50 / 100 = shadeRamp stops 0 / 2 / 4, base gets darker at every step, slider 50 = the SVG as drawn",
+                  all(v["ends"] == v["ramp"] and v["dark"] and v["same50"] for v in cor.values()), json.dumps(cor))
+            check("Fan Coral slider in the game: 0 is lighter than 50, 50 lighter than 100 on the tank canvas (re-tinted bitmap); track = shadeRamp gradient, thumb = coralColors(v).base",
+                  s0["color"] == 0 and s100["color"] == 100 and s0["lum"] > s50["lum"] > s100["lum"] and all(hexrgb(r) in s50["track"] or r in s50["track"] for r in ramp)
+                  and (s0["thumb"] in (c0, hexrgb(c0))) and (s100["thumb"] in (c100, hexrgb(c100))), json.dumps([s0["lum"], s50["lum"], s100["lum"], s50["track"], s0["thumb"], s100["thumb"]]))
+            # screenshot: all 10 in the tank (edit mode off)
+            ev("""AQ.setTool('hand'); const P = { castle: [0.86, 0, 1], coralStaghorn: [0.66, 0.05, 1], coralFan: [0.3, 0.02, 1], coralTube: [0.5, 0.12, 1], shipwreck: [0.47, 0.55, 0.9],
+                driftwood: [0.2, 0.9, 0.8], coralBrain: [0.68, 1.05, 1], amphora: [0.12, 0.35, 1], chest: [0.8, 1.3, 1], helmet: [0.35, 1.4, 1] };
+                G.state.decor.forEach((d) => { const q = P[d.type]; d.x = q[0]; d.y = q[1]; d.sh = q[2]; d.sw = q[2]; d.color = 50; }); G.state.dirt.spots = []; G.state.dirt.t = 0; G.save();""")
+            page.wait_for_timeout(2500)
+            page.screenshot(path=os.path.join(DECOR_SHOTS, f"tank_all10_{VW}.png"))
+            # assets: every decor file the game asked for came back 200 from a relative decor/ URL
+            dec = [r for r in resp if "/decor/" in r[1]]
+            svgs = {i for i in ids if any(r[1].split("?")[0].endswith(f"/decor/{i}.svg") for r in dec)}
+            thumbs = {i for i in ids if any(r[1].split("?")[0].endswith(f"/decor/thumbs/{i}-256.png") for r in dec)}
+            rel = page.evaluate("[...document.scripts].map((s) => s.getAttribute('src')).filter((s) => s && s.includes('decor'))")
+            check("assets: decor-v1-data.js, all 10 SVGs and all 10 shop thumbs load with HTTP 200 from relative decor/ URLs (works under a GitHub Pages subpath); no 4xx/5xx",
+                  dec and all(r[0] == 200 for r in dec) and svgs == set(ids) and thumbs == set(ids) and rel == ["decor/decor-v1-data.js?" + rel[0].split("?")[1]] and not any(r[0] >= 400 for r in resp),
+                  json.dumps({"n": len(dec), "bad": [r for r in resp if r[0] >= 400][:3], "svgs": sorted(set(ids) - svgs), "thumbs": sorted(set(ids) - thumbs), "rel": rel}))
+            check("decorations v1: no page errors", not errs, "; ".join(errs[:3]))
+            ev("G.reset(); G.save();")
+            ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -2038,7 +2200,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

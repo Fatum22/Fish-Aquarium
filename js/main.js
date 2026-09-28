@@ -323,7 +323,110 @@
       card(u) { const g = { bx: 120, by: 84, w: V.stone.w * u * 2.3, h: V.stone.h * u * 2.3 }; g.x0 = g.bx - g.w / 2; g.y0 = g.by - g.h * 0.85; return g; },
     },
   };
+  // ---- the 10 shop decorations (art/DECOR_V1.md). Art + data are copied into decor/ (relative URLs, so the build works
+  // under any subpath); window.DECOR_V1[id] (decor/decor-v1-data.js) carries viewBox, anchor, hitBox, hit polygon,
+  // maxHeightScale, portrait crop and the coral colour data. Each piece is drawn from a bitmap cache: the SVG is rastered
+  // ONCE per (type, coral colour, raster res) into an offscreen canvas and that canvas is blitted every frame (never the
+  // SVG itself). Sand drift + contact shadow are baked into the art, so the engine draws neither. Base point = the
+  // anchor, on (d.x * W, floorY(d)) exactly like stone / leaf. Everything else is the shared DECOR_TYPES code.
+  const DECOR_DIR = 'decor/';
+  const decorU = () => WATER_H / 280.86 / 4; // CSS px per SVG unit at scale 1.0 (4 units = 1 px on the compact tank)
+  const decorBmp = new Map();   // 'type|color|res' -> ready canvas
+  const decorLast = new Map();  // decoration id -> key of the last ready bitmap (drawn while a new one rasters)
+  const decorPending = new Map(); // decoration id -> raster job (only the latest per decoration, one raster at a time)
+  const decorSvgText = {}, decorImg = {}, decorThumbs = {};
+  let decorBusy = null, decorRastered = 0;
+  const decorArt = (type) => (window.DECOR_V1 || {})[type];
+  function decorRes(d) { return Math.min(3, Math.max(0.25, Math.ceil(decorU() * DPR * Math.max(d.sh, d.sw) * 4) / 4)); } // raster px per unit
+  function decorKey(d) { const J = decorArt(d.type); return d.type + '|' + (J.colorSlider ? Math.round(d.color) : '') + '|' + decorRes(d); }
+  function decorSvgImage(type, src) { // fixed-colour art: decode the SVG once per type, raster it at any res
+    if (!decorImg[type]) decorImg[type] = (async () => { const img = new Image(); img.src = src; await img.decode(); return img; })();
+    return decorImg[type];
+  }
+  async function rasterDecor(job) {
+    const J = decorArt(job.type), file = DECOR_DIR + J.file;
+    let img, url = null;
+    if (J.colorSlider) { // corals: recolour the slider-50 SVG text (5 hex swaps), then raster
+      if (!decorSvgText[job.type]) decorSvgText[job.type] = await (await fetch(file)).text();
+      url = URL.createObjectURL(new Blob([tintSvg(job.type, decorSvgText[job.type], job.color)], { type: 'image/svg+xml' }));
+      img = new Image(); img.src = url; await img.decode();
+    } else img = await decorSvgImage(job.type, file);
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(J.viewBox[2] * job.res); c.height = Math.ceil(J.viewBox[3] * job.res);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    if (url) URL.revokeObjectURL(url);
+    return c;
+  }
+  function pumpDecor() {
+    if (decorBusy || !decorPending.size) return;
+    const [id, job] = decorPending.entries().next().value; decorPending.delete(id);
+    if (decorBmp.has(job.key)) { pumpDecor(); return; }
+    decorBusy = job;
+    rasterDecor(job).then((c) => { decorBmp.set(job.key, c); decorRastered++; evictDecor(); }, () => {})
+      .finally(() => { decorBusy = null; pumpDecor(); });
+  }
+  function requestDecorBmp(d, key) {
+    if (decorBmp.has(key) || (decorBusy && decorBusy.key === key)) return;
+    decorPending.delete(d.id); // re-insert: only the newest request per decoration is kept (slider drags)
+    decorPending.set(d.id, { key, type: d.type, color: Math.round(d.color), res: decorRes(d) });
+    pumpDecor();
+  }
+  function evictDecor() { // drop bitmaps no decoration uses any more
+    if (decorBmp.size <= 16) return;
+    const keep = new Set(decorLast.values());
+    G.state.decor.forEach((d) => { if (decorArt(d.type)) keep.add(decorKey(d)); });
+    for (const k of [...decorBmp.keys()]) if (!keep.has(k)) decorBmp.delete(k);
+  }
+  function drawShopDecor(d, g) {
+    const J = decorArt(d.type), key = decorKey(d);
+    let bmp = decorBmp.get(key);
+    if (bmp) decorLast.set(d.id, key);
+    else { requestDecorBmp(d, key); const lk = decorLast.get(d.id); bmp = lk && decorBmp.get(lk); }
+    if (!bmp) return; // nothing ready yet: draw nothing this frame
+    ctx.drawImage(bmp, g.bx - J.anchor.x * g.sx, g.by - J.anchor.y * g.sy, J.viewBox[2] * g.sx, J.viewBox[3] * g.sy);
+  }
+  /** point-in-polygon on the traced hit outline (viewBox units) */
+  function inDecorHit(J, g, px, py) {
+    const u = J.anchor.x + (px - g.bx) / g.sx, v = J.anchor.y + (py - g.by) / g.sy, P = J.hit;
+    let inside = false;
+    for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+      const [xi, yi] = P[i], [xj, yj] = P[j];
+      if ((yi > v) !== (yj > v) && u < (xj - xi) * (v - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function decorThumb(type, onload) { // shop / confirm portrait: decor/thumbs/<id>-256.png (the @2x of the 128 crop)
+    let img = decorThumbs[type];
+    if (!img) { img = decorThumbs[type] = new Image(); img.src = DECOR_DIR + decorArt(type).thumb2x; }
+    if (!(img.complete && img.naturalWidth) && onload) img.addEventListener('load', onload, { once: true });
+    return img;
+  }
+  /** shop card / sell confirm portrait: the thumb (corals at slider 50); the sell confirm of a coral crops the portrait
+   *  square from its current tinted bitmap when that is ready. Bottom-aligned, as tall as the canvas allows. */
+  function drawDecorThumb(c, type, cw, ch, d) {
+    const J = decorArt(type), sz = Math.min(cw, ch) - 4, x = (cw - sz) / 2, y = ch - sz - 2;
+    const lk = d && J.colorSlider && decorLast.get(d.id), bmp = lk && decorBmp.get(lk);
+    if (bmp && lk === decorKey(d)) { const p = J.portrait, r = bmp.width / J.viewBox[2]; c.drawImage(bmp, p.x * r, p.y * r, p.size * r, p.size * r, x, y, sz, sz); return; }
+    const img = decorThumb(type, () => drawDecorThumb(c, type, cw, ch, d));
+    if (img.complete && img.naturalWidth) c.drawImage(img, x, y, sz, sz);
+  }
+  G.shopItemIds().forEach((id) => {
+    const J = decorArt(id), it = G.shopItem(id); if (!J) return;
+    DECOR_TYPES[id] = {
+      name: it.name, noun: it.name.toLowerCase(), seed: 1, art: true, maxH: J.maxHeightScale, slider: !!it.colorSlider,
+      geom(d, bx, by) {
+        const u = decorU(), sx = u * d.sw, sy = u * d.sh, hb = J.hitBox, ax = J.anchor.x, ay = J.anchor.y;
+        const x0 = bx + (hb.x0 - ax) * sx, x1 = bx + (hb.x1 - ax) * sx, y0 = by + (hb.y0 - ay) * sy, y1 = by + (hb.y1 - ay) * sy;
+        return { bx, by, sx, sy, w: x1 - x0, h: by - y0, half: Math.max(bx - x0, x1 - bx), x0, x1, y0, y1 };
+      },
+      draw: (d, g) => drawShopDecor(d, g),
+      hit: (d, g, x, y) => inDecorHit(J, g, x, y),
+      colorCss: (c) => (J.colorSlider ? coralColors(id, c).base : '#9aa4ad'),
+    };
+  });
   const decorType = (type) => DECOR_TYPES[type] || DECOR_TYPES.stone;
+  const decorHasSlider = (type) => (DECOR_TYPES[type] && DECOR_TYPES[type].art ? DECOR_TYPES[type].slider : true);
+  const decorHMax = (type) => Math.min(T.decorations.scale.heightMax, decorType(type).maxH || Infinity);
   /** ' (leaf: full)' for the types whose tuning sellRefundOverride is the full pricePaid */
   function fullRefundNote() {
     const o = T.decorations.sellRefundOverride || {}, full = Object.keys(o).filter((t) => o[t] === 'pricePaid' && DECOR_TYPES[t]).map((t) => DECOR_TYPES[t].noun);
@@ -904,7 +1007,8 @@
       c.restore();
     }
   }
-  function drawDecorCard(c, type) {
+  function drawDecorCard(c, type, d0) {
+    if (decorType(type).art) { const cw = c.canvas.width, ch = c.canvas.height; c.clearRect(0, 0, cw, ch); c.fillStyle = '#d8c48a'; c.fillRect(0, 78, cw, ch - 78); drawDecorThumb(c, type, cw, 96, d0); return; }
     c.clearRect(0, 0, 240, 96);
     c.fillStyle = '#d8c48a'; c.fillRect(0, 78, 240, 18);
     const t = decorType(type), d = { id: 'card', type, x: 0, y: 0, sh: 1, sw: 1, color: T.decorations.types[type].defaultColor, seed: t.seed };
@@ -939,9 +1043,9 @@
         drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
         card.querySelector('button').addEventListener('click', () => { G.buyFood(i); renderShop(); });
       });
-      Object.keys(T.decorations.types).filter((type) => DECOR_TYPES[type]).forEach((type) => {
+      Object.keys(T.decorations.types).concat(G.shopItemIds()).filter((type) => DECOR_TYPES[type]).forEach((type) => { // leaf, stone, then the ladder
         const card = document.createElement('div'); card.className = 'card'; card.dataset.decor = type;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">Move, size and colour it</div>
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">${decorHasSlider(type) ? 'Move, size and colour it' : 'Move and size it'}</div>
           <button class="btn buy" data-buydecor="${type}"><svg><use href="#i-coin"/></svg><span class="price">${G.decorPrice(type)}</span><span class="lbl"></span></button>`;
         $('shop-decor').appendChild(card);
         drawDecorCard(card.querySelector('canvas').getContext('2d'), type);
@@ -973,10 +1077,13 @@
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
-      const poor = G.state.gold < G.decorPrice(b.dataset.buydecor);
-      b.disabled = dfull || poor; b.classList.toggle('poor', poor && !dfull);
-      b.querySelector('.price').hidden = dfull; b.querySelector('svg').style.display = dfull ? 'none' : '';
-      b.querySelector('.lbl').textContent = dfull ? 'Tank is full of decorations' : '';
+      // shop decorations: locked ones stay visible, greyed like locked food packs, 'Unlocks at Aquarium Lv {N}' where the price was
+      const type = b.dataset.buydecor, locked = !G.decorUnlocked(type), poor = G.state.gold < G.decorPrice(type);
+      b.disabled = locked || dfull || poor; b.classList.toggle('poor', poor && !dfull && !locked);
+      b.closest('.card').classList.toggle('locked', locked);
+      b.querySelector('.price').hidden = locked || dfull; b.querySelector('svg').style.display = locked || dfull ? 'none' : '';
+      b.querySelector('.lbl').textContent = locked ? String(T.decorations.shopItems.lockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', G.decorUnlockLevel(type))
+        : dfull ? 'Tank is full of decorations' : '';
     });
     const dead = G.state.fish.length - G.living();
     $('shop-note').textContent = shopTab === 'fish'
@@ -1036,13 +1143,15 @@
     const S = T.decorations.scale, eps = 1e-6;
     $('dm-title').textContent = decorType(d.type).name;
     $('dm-scale').textContent = `H ${d.sh.toFixed(1)}x  W ${d.sw.toFixed(1)}x`;
-    const cap = { taller: d.sh >= S.heightMax - eps, shorter: d.sh <= S.heightMin + eps, wider: d.sw >= S.widthMax - eps, narrower: d.sw <= S.widthMin + eps };
+    const cap = { taller: d.sh >= decorHMax(d.type) - eps, shorter: d.sh <= S.heightMin + eps, wider: d.sw >= S.widthMax - eps, narrower: d.sw <= S.widthMin + eps };
     document.querySelectorAll('#deco-menu [data-size]').forEach((b) => b.classList.toggle('capped', cap[b.dataset.size]));
     const c = $('dm-color'); if (document.activeElement !== c) c.value = d.color;
+    c.style.visibility = decorHasSlider(d.type) ? '' : 'hidden'; // fixed-colour pieces: same menu, same spacing, no slider
     c.style.setProperty('--track', decorGradientCss(d.type)); c.style.setProperty('--thumb', decorColorCss(d));
     $('dm-sell').textContent = `Sell · refund ${G.decorRefund(d)} gold`;
   }
   function clampDecor(d) {
+    d.sh = Math.min(d.sh, decorHMax(d.type)); // per-type height cap (castle 1.8x, DECOR_V1.md 2)
     const g = decorGeom(d), half = g.half, lo = (INSET + half) / W, hi = (W - INSET - half) / W;
     d.x = lo > hi ? 0.5 : Math.max(lo, Math.min(hi, d.x));
     // back / upper limit: the sand's back edge (y 0). Front / lower limit (Maksims 20:12): the BASE may reach the sand's
@@ -1061,7 +1170,7 @@
   function sizeDecor(kind) {
     const d = decorById(selDecor); if (!d) return;
     const S = T.decorations.scale, st = S.stepPerTap, q = (v) => Math.round(v * 10) / 10;
-    if (kind === 'taller') d.sh = q(Math.min(S.heightMax, d.sh + st)); else if (kind === 'shorter') d.sh = q(Math.max(S.heightMin, d.sh - st));
+    if (kind === 'taller') d.sh = q(Math.min(decorHMax(d.type), d.sh + st)); else if (kind === 'shorter') d.sh = q(Math.max(S.heightMin, d.sh - st));
     else if (kind === 'wider') d.sw = q(Math.min(S.widthMax, d.sw + st)); else if (kind === 'narrower') d.sw = q(Math.max(S.widthMin, d.sw - st));
     clampDecor(d); renderMenu(); placeMenu(); G.save();
   }
@@ -1084,7 +1193,7 @@
     const d = decorById(selDecor); if (!d) return;
     const noun = decorType(d.type).noun;
     confirmBox(`Sell this ${noun}? You get ${G.decorRefund(d)} gold back.`, 'Sell', () => { G.sellDecor(d.id); deselectDecor(); G.save(); },
-      (pc) => { const c = pc.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pc.width, pc.height); drawDecorCard(c, d.type); }, 'danger');
+      (pc) => { const c = pc.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pc.width, pc.height); drawDecorCard(c, d.type, d); }, 'danger');
   });
   /** drag (edit mode): the base follows the finger / mouse from where it was pressed, clamped like the d-pad moves.
    *  A press that moves less than DRAG_SLOP px is just a tap (select). Moving pays or charges nothing. */
@@ -1103,7 +1212,9 @@
     const list = G.state.decor.slice().sort((a, b) => b.y - a.y); // front first
     for (const d of list) {
       const g = decorGeom(d), padX = Math.max(0, (44 - (g.x1 - g.x0)) / 2), padY = Math.max(0, (44 - (g.y1 - g.y0)) / 2);
-      if (x >= g.x0 - padX && x <= g.x1 + padX && y >= g.y0 - padY && y <= g.y1 + padY) return d;
+      const inBox = x >= g.x0 - padX && x <= g.x1 + padX && y >= g.y0 - padY && y <= g.y1 + padY, t = decorType(d.type);
+      // shop decorations: the traced hit outline, plus the 44 x 44 minimum box when the piece is smaller than that
+      if (t.hit ? (t.hit(d, g, x, y) || ((padX > 0 || padY > 0) && inBox)) : inBox) return d;
     }
     return null;
   }
@@ -1534,6 +1645,9 @@
       return [...document.querySelectorAll('#deco-menu button')].filter((b) => b.offsetParent).map((b) => ({ id: b.id || b.dataset.size || b.dataset.move || b.className, kind: b.dataset.size ? 'size' : b.dataset.move ? 'move' : 'other', ...rect(b) }));
     },
     decorTypes() { return Object.keys(DECOR_TYPES); },
+    decorArt() { return { ready: [...decorBmp.keys()], pending: decorPending.size, busy: !!decorBusy, rastered: decorRastered,
+      last: Object.fromEntries(decorLast), keys: Object.fromEntries(G.state.decor.filter((d) => decorArt(d.type)).map((d) => [d.id, decorKey(d)])) }; },
+    decorHitAt(x, y) { const d = hitDecor(x, y); return d ? d.id : null; },
     edit() { return { editing, selDecor, dragging: !!(drag && drag.moved), menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },

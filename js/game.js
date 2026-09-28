@@ -483,8 +483,26 @@
   // XP decorations.placeXp[type] (1) only for the first copy of each type on this tank (decorBought, until a reset).
   // Selling refunds floor(pricePaid / 2) (decorations.sellRefund, per-type sellRefundOverride: leaf = full pricePaid) and never takes XP back. Moving / resizing / recolouring is free.
   function decorFull() { return S.decor.length >= T.decorations.maxInTank; }
-  function decorPrice(type) { const p = T.decorations.price; return typeof p === 'number' ? p : (p && p[type]) || 0; }
-  function decorFirstXp(type) { const x = T.decorations.placeXp; return S.decorBought[type] ? 0 : (typeof x === 'number' ? x : (x && x[type]) || 0); }
+  /** shop decorations (tuning decorations.shopItems.items, ladder order): driftwood .. shipwreck, each with its own
+   *  unlockTankLevel, price, placeXp (first buy of that type only) and colorSlider (corals). */
+  function shopItem(type) { const si = T.decorations.shopItems; return (si && si.items || []).find((x) => x.id === type) || null; }
+  function shopItemIds() { const si = T.decorations.shopItems; return (si && si.items || []).map((x) => x.id); }
+  function decorKnown(type) { return !!(T.decorations.types[type] || shopItem(type)); }
+  function decorPrice(type) {
+    const it = shopItem(type); if (it) return it.price;
+    const p = T.decorations.price; return typeof p === 'number' ? p : (p && p[type]) || 0;
+  }
+  function decorFirstXp(type) {
+    if (S.decorBought[type]) return 0;
+    const it = shopItem(type); if (it) return it.placeXp || 0;
+    const x = T.decorations.placeXp; return typeof x === 'number' ? x : (x && x[type]) || 0;
+  }
+  function decorUnlockLevel(type) { const it = shopItem(type); return (it && it.unlockTankLevel) || 1; }
+  function decorUnlocked(type) { return tankLevelFor(S.tank.xp) >= decorUnlockLevel(type); }
+  function decorDefaultColor(type) {
+    const t = T.decorations.types[type]; if (t) return t.defaultColor;
+    const it = shopItem(type); return it && it.defaultColor != null ? it.defaultColor : 50;
+  }
   /** sell refund: decorations.sellRefundOverride[type] ('pricePaid' = the full price paid, e.g. leaf), default
    *  decorations.sellRefund floor(pricePaid / 2). Old free pieces (pricePaid 0) always refund 0. */
   function decorRefund(d) {
@@ -494,7 +512,8 @@
   /** buy a decoration: base at the floor centre, or the nearest free x (no other base within 0.06 of the width) */
   function buyDecor(type) {
     const D = T.decorations;
-    if (!D.types[type]) return null;
+    if (!decorKnown(type)) return null;
+    if (!decorUnlocked(type)) { emit('msg', { text: String(D.shopItems.lockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', decorUnlockLevel(type)) }); return null; }
     if (decorFull()) { emit('msg', { text: 'Tank is full of decorations' }); return null; }
     const price = decorPrice(type);
     if (S.gold < price) { emit('msg', { text: 'Not enough gold' }); return null; }
@@ -507,7 +526,7 @@
     S.gold -= price;
     const xp = decorFirstXp(type);
     S.decorBought[type] = true;
-    const d = { id: 'd' + S.nextId++, type, x, y: 0.5, sh: D.scale.default, sw: D.scale.default, color: D.types[type].defaultColor, pricePaid: price, seed: Math.floor(Math.random() * 1000) };
+    const d = { id: 'd' + S.nextId++, type, x, y: 0.5, sh: D.scale.default, sw: D.scale.default, color: decorDefaultColor(type), pricePaid: price, seed: Math.floor(Math.random() * 1000) };
     S.decor.push(d);
     emit('decorbought', { decor: d, gold: price, xp });
     addXp(xp, 'decor');
@@ -599,7 +618,7 @@
       S.fish.forEach((f) => { if (f.state === 'WAITING') { f.state = 'GROWING'; f.progress = 0; f.hungerDone = false; f.fed = 0; f.deathLeft = null; } });
       // v6.3: a pre-v6.3 fish hungry for a level-up start meal (0%, mid meal still ahead) is not hungry any more
       S.fish.forEach((f) => { if (f.state === 'HUNGRY' && !f.hungerDone && !f.endMeal && f.progress === 0) { f.state = 'GROWING'; f.fed = 0; f.deathLeft = null; } });
-      S.decor = Array.isArray(d.decor) ? d.decor.filter((x) => T.decorations.types[x.type]) : defaultDecor();
+      S.decor = Array.isArray(d.decor) ? d.decor.filter((x) => decorKnown(x.type)) : defaultDecor();
       // v6.8 existing saves (tuning decorations.existingSaves): a save from before v6.8 (no decorBought) keeps its placed
       // stone / leaf, each counted as bought for 0 gold (pricePaid 0 -> sells for 0), and their types count as already
       // bought (no first-copy XP). pricePaid replaces the old 'paid' field.
@@ -654,7 +673,7 @@
     get state() { return S; },
     on(fn) { listeners.push(fn); },
     tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, deadFishGold, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
-    decorPrice, decorFirstXp, decorRefund,
+    decorPrice, decorFirstXp, decorRefund, shopItem, shopItemIds, decorUnlocked, decorUnlockLevel, decorDefaultColor,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
     fishInfo, portion, mealsOf, mealFor, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER, END_HUNGER,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,
