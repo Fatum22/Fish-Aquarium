@@ -752,9 +752,9 @@
   let selectedId = null;
   function openPanel(id) { selectedId = id; closeShop(); $('panel').hidden = false; renderPanel(true); }
   function closePanel() { selectedId = null; $('panel').hidden = true; }
-  /** v6: L1 has one meal (the mid meal; no start meal after buying), L2 / L3 have two (start at 0%, mid at 50%) */
-  function mealCount(f) { return f.level <= 1 ? 1 : (T.mealsPerLevel || 2); }
-  function mealIndex(f) { return f.state === 'HUNGRY' ? (f.level <= 1 || f.progress > 0 ? mealCount(f) : 1) : null; }
+  /** v6.3: L1-L3 each have two meals (mid at 50%, end at 100%; the level-up follows the end meal); adults one */
+  function mealCount(f) { return f.level >= T.maxLevel ? 1 : 2; }
+  function mealIndex(f) { return f.state === 'HUNGRY' ? (f.endMeal ? 2 : 1) : null; }
   function renderPanel() {
     if (selectedId == null) return;
     const f = G.state.fish.find((x) => x.id === selectedId);
@@ -775,7 +775,8 @@
       if (f.state === 'WAITING') { gEl.textContent = 'Not started'; gEl.classList.add('warn'); hEl.textContent = 'Waiting for its first meal'; hEl.classList.add('warn'); }
       else if (f.state === 'GROWING') {
         gEl.textContent = `L${f.level} · next level in ${fmt(i.growLeft)}${realNote(i.growLeft)}`;
-        hEl.textContent = i.midHungerIn != null ? `Fed · hungry in ${fmt(i.midHungerIn)}` : 'Fed'; hEl.classList.add('ok');
+        const hin = i.midHungerIn != null ? i.midHungerIn : i.endHungerIn;
+        hEl.textContent = hin != null ? `Fed · hungry in ${fmt(hin)}` : 'Fed'; hEl.classList.add('ok');
       } else if (f.state === 'HUNGRY') {
         gEl.textContent = `L${f.level} · Growth paused`; gEl.classList.add('danger');
         hEl.textContent = `Hungry! Growth paused · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
@@ -874,7 +875,7 @@
         c.translate(120, 50); FishArt.drawFish(c, sp.id, 120, 0.6, {});
         card.querySelector('button').addEventListener('click', () => {
           const f = G.buyFish(sp.id);
-          if (f) { toast(`${sp.name} added`, 'good'); renderShop(); } // v6: grows at once, no start meal
+          if (f) { toast(`${sp.name} added`, 'good'); renderShop(); } // v6.3: grows at once, not hungry
         });
       });
       T.foodPacks.forEach((p, i) => {

@@ -30,16 +30,23 @@
   }
   /** v6 NUMBERS 3a: death timer by rarity and by the fish's level at the moment it gets hungry:
    *  deathSecByRarity[rarity][level-1] (common / uncommon 12 / 14 / 18 / 20 h, rare 18 / 21 / 27 / 30 h).
-   *  A fish hungry for its start meal right after a level-up uses its NEW level's value.
+   *  v6.3: a fish hungry for its end meal at 100% is still at its current level and uses that level's value.
    *  Fallbacks: the species' own deathSec copy, then the global deathSec (a plain number = one timer for every level). */
   function deathSecFor(sp, level) {
     const byR = T.deathSecByRarity, d = (byR && sp && byR[sp.rarity]) || (sp && sp.deathSec) || T.deathSec;
     return Array.isArray(d) ? d[Math.max(1, Math.min(d.length, level || 1)) - 1] : d;
   }
-  /** v4: food per meal by species and level (mealFood[level-1]) x rarity food multiplier, rounded up */
+  /** v6.3 (NUMBERS 3.7, tuning mealSplit): mealFood[level-1] is the TOTAL food for L1-L3 (mid + end meal) and one adult
+   *  meal at L4. portion() = that per-level value (x rarity food multiplier, 1 since v5.1). */
   function portion(sp, level) { return Math.ceil(sp.mealFood[Math.min(level, sp.mealFood.length) - 1] * rarityFoodMult(sp.rarity)); }
-  /** v4: the mid-level meal comes at hungerPoints[1] (0.5) of the level; the start meal (hungerPoints[0] = 0) is at level start */
-  const MID_HUNGER = T.hungerPoints ? T.hungerPoints[T.hungerPoints.length - 1] : 0.5;
+  /** v6.3: the meals of a level: L1-L3 [mid = floor(total / 2), end = the rest] (5 -> 2 + 3); L4 [one adult meal] */
+  function mealsOf(sp, level) { const tot = portion(sp, level); if (level >= T.maxLevel) return [tot]; const mid = Math.floor(tot / 2); return [mid, tot - mid]; }
+  /** food for the fish's current (or next, while growing) meal: the end meal once it has reached 100% of its level */
+  function mealFor(f) { const m = mealsOf(SPECIES[f.sp], f.level); return m.length === 1 ? m[0] : f.endMeal ? m[1] : m[0]; }
+  /** v6.3 hungerPoints [0.5, 1.0]: mid meal at 50% of the level, end meal at 100% (the level-up waits for it).
+   *  (Before v6.3 this read the LAST entry as the mid meal: with [0.5, 1.0] that would have put the only meal at 100%.) */
+  const HP = T.hungerPoints && T.hungerPoints.length ? T.hungerPoints : [0.5, 1.0];
+  const MID_HUNGER = HP[0], END_HUNGER = HP[HP.length - 1];
   function tapsFor(food) { return Math.ceil(food / T.foodPerTap); }
   /** v6 (NUMBERS 2, rarity.sellFormula): sell = (price / 2) x fish level, integer, for every species (L1 = half the price,
    *  L4 = 2 x price). tuning.json's per-species sell tables hold the same numbers; verify.py checks they agree. */
@@ -155,22 +162,28 @@
       f.sinceFed += dt;
       if (f.state === 'GROWING') {
         const need = growSec(sp, f.level);
-        const hungerAt = need * MID_HUNGER; // mid-level meal
+        const hungerAt = need * MID_HUNGER, endAt = need * END_HUNGER; // v6.3: mid meal at 50%, end meal at 100%
         if (!f.hungerDone && f.progress + dt >= hungerAt) {
           dt -= Math.max(0, hungerAt - f.progress);
           f.sinceFed -= dt; // re-added by the next loop iteration
           f.progress = hungerAt;
           f.hungerDone = true;
+          f.endMeal = false;
           f.state = 'HUNGRY';
           f.fed = 0;
           f.deathLeft = deathSecFor(sp, f.level);
           emit('hungry', { fish: f });
           continue;
         }
-        if (f.progress + dt >= need) {
-          dt -= need - f.progress;
+        if (f.progress + dt >= endAt) { // v6.3 (NUMBERS 3.3): hungry for the end meal, stays at this level until it is eaten
+          dt -= Math.max(0, endAt - f.progress);
           f.sinceFed -= dt;
-          levelUp(f);
+          f.progress = endAt;
+          f.endMeal = true;
+          f.state = 'HUNGRY';
+          f.fed = 0;
+          f.deathLeft = deathSecFor(sp, f.level);
+          emit('hungry', { fish: f, end: true });
           continue;
         }
         f.progress += dt; dt = 0;
@@ -195,9 +208,9 @@
     }
   }
 
-  /** v6 (NUMBERS 3.3-3.4): at 100% the fish goes up a level and pays level-up gold + XP. At L2 / L3 it is immediately
-   *  hungry for that level's start meal with the death timer running. At L4 it is NOT hungry: the adult hunger wait
-   *  (adultHungerSec, 4 x L3 grow) starts now and no death timer runs until it ends. */
+  /** v6.3 (NUMBERS 3.4-3.5): called when the end meal is complete. The fish goes up a level and pays level-up gold + XP.
+   *  It is NOT hungry: L2 / L3 grow from 0% (next meal at 50%), L4 starts the adult wait (adultHungerSec, 4 x L3 grow).
+   *  No death timer runs until the next meal is due. */
   function levelUp(f) {
     const sp = SPECIES[f.sp];
     f.level++;
@@ -207,14 +220,14 @@
     S.gold += g;
     S.stats.levelUps++;
     const adult = f.level >= T.maxLevel;
-    f.state = adult ? 'ADULT' : 'HUNGRY';
+    f.state = adult ? 'ADULT' : 'GROWING';
+    f.endMeal = false;
     f.fed = 0;
-    f.deathLeft = adult ? null : deathSecFor(sp, f.level);
+    f.deathLeft = null;
     f.sinceFed = 0;
     const xp = xpFor('fishLevelUp', { sp, level: f.level });
     emit('levelup', { fish: f, gold: g, xp });
     addXp(xp, 'levelup');
-    if (!adult) emit('hungry', { fish: f, start: true });
   }
 
   /** v2: a dead fish stays in the tank (belly-up) until removed; part-eaten food is lost */
@@ -392,12 +405,13 @@
       const d = Math.hypot(f.x * W - px, f.y * H - py);
       if (d < bestD - 1e-6 || (Math.abs(d - bestD) <= 1e-6 && dl(f) < dl(best))) { best = f; bestD = d; }
     }
-    const f = best, sp = SPECIES[f.sp], need = portion(sp, f.level);
+    const f = best, sp = SPECIES[f.sp], need = mealFor(f);
     const give = Math.min(T.foodPerTap, S.food);
     S.food -= give; f.fed = (f.fed || 0) + give;
     S.stats.taps++;
     let gold = 0;
     const full = f.fed >= need;
+    const levelsUp = full && f.state === 'HUNGRY' && !!f.endMeal; // v6.3: the end meal completes the level
     if (full) {
       if (f.state === 'WAITING') { f.state = 'GROWING'; f.progress = 0; f.hungerDone = false; }
       else if (f.state === 'HUNGRY') f.state = 'GROWING';
@@ -406,7 +420,7 @@
       gold = T.feedGoldPerFish; S.gold += gold;
       S.stats.feeds++;
     }
-    const r = { ok: true, fish: f, spent: give, full, gold, fed: full ? need : f.fed, need, xp: 0, dirtAdded: 0 };
+    const r = { ok: true, fish: f, spent: give, full, gold, fed: full ? need : f.fed, need, xp: 0, dirtAdded: 0, levelUp: levelsUp };
     emit('tapfed', r);
     if (full) {
       // v4 4.5 / 4.6: a completed meal gives the species' feed XP and moves the dirt clock forward (partial food doesn't).
@@ -416,6 +430,7 @@
       if (r.dirtAdded) tickDirt(r.dirtAdded);
       emit('fed', { fish: f, gold, xp: r.xp, dirtAdded: r.dirtAdded });
       addXp(r.xp, 'feed');
+      if (levelsUp) levelUp(f); // right after the end meal, even with a full or dirty tank (NUMBERS 11.6)
     }
     checkStarterGrant();
     return r;
@@ -520,7 +535,7 @@
   function fishInfo(f) {
     const sp = SPECIES[f.sp];
     const need = growSec(sp, f.level);
-    const food = portion(sp, f.level);
+    const food = mealFor(f); // the current meal (or the next one while growing)
     return {
       species: sp, level: f.level, state: f.state, maxLevel: T.maxLevel, dead: isDead(f),
       growNeed: need, growLeft: need != null ? need - f.progress : null,
@@ -531,6 +546,8 @@
       needLeft: needsFood(f) ? Math.max(0, food - (f.fed || 0)) : 0, // food still needed for the current meal
       needsFood: needsFood(f),
       midHungerIn: f.state === 'GROWING' && !f.hungerDone ? need * MID_HUNGER - f.progress : null,
+      endHungerIn: f.state === 'GROWING' && f.hungerDone ? need * END_HUNGER - f.progress : null, // v6.3 end meal at 100%
+      endMeal: !!f.endMeal, meals: mealsOf(sp, f.level),
       adultHungerIn: f.state === 'ADULT' ? adultHungerSec(sp) - f.sinceFed : null,
     };
   }
@@ -556,6 +573,8 @@
       S.fish = (d.fish || []).filter((f) => SPECIES[f.sp]).map((f) => Object.assign({ fed: 0 }, f));
       // v6: a pre-v6 fish still waiting for its L1 start meal starts growing from 0% (no start meal any more)
       S.fish.forEach((f) => { if (f.state === 'WAITING') { f.state = 'GROWING'; f.progress = 0; f.hungerDone = false; f.fed = 0; f.deathLeft = null; } });
+      // v6.3: a pre-v6.3 fish hungry for a level-up start meal (0%, mid meal still ahead) is not hungry any more
+      S.fish.forEach((f) => { if (f.state === 'HUNGRY' && !f.hungerDone && !f.endMeal && f.progress === 0) { f.state = 'GROWING'; f.fed = 0; f.deathLeft = null; } });
       S.decor = Array.isArray(d.decor) ? d.decor.filter((x) => T.decorations.types[x.type]) : defaultDecor();
       return true;
     } catch (e) { return false; }
@@ -571,17 +590,17 @@
   /** Designer's required checks:
    *  (a) cleaning at stage 1 earns the most gold per day (cleanGold[n] * 24 h / stage n time), never rising with the stage (v6.1: 32/32/24/16/10);
    *  (b) v6: per species, selling at L4 is a profit and beats selling at L3 (L3 may now show a profit: sell = 1.5 x price).
-   *      profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L. Food eaten before selling at L = the meals
-   *      of every finished level: L1 mid only (no start meal since v6), then start + mid of L2 and L3 (5 meals to L4).
+   *      profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L. Food eaten before selling at L = the
+   *      mid + end meals of every finished level (v6.3: 2 meals = mealFood[L-1] food per level; 6 meals to L4).
    *      Food is valued at 0.5 gold (the dearest pack per food, as in NUMBERS 10); noFood = the same without food. */
-  function mealsBefore(lv) { return lv <= 1 ? [0.5] : T.hungerPoints || [0, 0.5]; } // v6: L1 has only the mid meal
+  function mealsBefore(lv) { return HP.slice(0, 2); } // v6.3: every level L1-L3 has a mid and an end meal (together mealFood[lv-1])
   function balanceChecks() {
     const L = T.maxLevel, foodVal = Math.max(...T.foodPacks.map((p) => p.gold / p.food));
     const sell = T.species.map((sp) => {
       const rows = [];
       let lvlGold = 0, food = 0, feeds = 0, time = 0;
       for (let lv = 1; lv <= L; lv++) {
-        if (lv > 1) { const n = mealsBefore(lv - 1).length; lvlGold += levelUpGold(sp, lv); time += growSec(sp, lv - 1); food += n * portion(sp, lv - 1); feeds += n; }
+        if (lv > 1) { const n = mealsBefore(lv - 1).length; lvlGold += levelUpGold(sp, lv); time += growSec(sp, lv - 1); food += portion(sp, lv - 1); feeds += n; }
         const noFood = sellPrice(sp, lv) + lvlGold - sp.price;
         const profit = noFood + feeds * T.feedGoldPerFish - food * foodVal;
         rows.push({ level: lv, profit: +profit.toFixed(2), noFood, food, meals: feeds, hours: time / 3600 });
@@ -604,7 +623,7 @@
     on(fn) { listeners.push(fn); },
     tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
-    fishInfo, portion, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER,
+    fishInfo, portion, mealsOf, mealFor, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER, END_HUNGER,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,
     /** debug +50 XP button (NUMBERS.md 9.13): the normal XP path (addXp), so tank level-ups/unlock toasts/saves behave as in play; no gold */
     debugAddXp(n) { addXp(n, 'debug'); return tankInfo(); },

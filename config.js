@@ -47,7 +47,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6.1",
+    "version": "6.3",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -99,10 +99,10 @@ window.AQUARIUM_CONFIG = {
           40
         ],
         "mealFood": [
-          1,
-          1,
-          1,
-          2
+          2,
+          3,
+          4,
+          5
         ],
         "feedXp": 1,
         "sellXp": [
@@ -148,10 +148,10 @@ window.AQUARIUM_CONFIG = {
           80
         ],
         "mealFood": [
-          1,
           2,
-          2,
-          3
+          3,
+          4,
+          5
         ],
         "feedXp": 2,
         "sellXp": [
@@ -199,8 +199,8 @@ window.AQUARIUM_CONFIG = {
         "mealFood": [
           2,
           3,
-          3,
-          4
+          4,
+          5
         ],
         "feedXp": 3,
         "sellXp": [
@@ -246,8 +246,8 @@ window.AQUARIUM_CONFIG = {
           280
         ],
         "mealFood": [
+          2,
           3,
-          5,
           5,
           6
         ],
@@ -295,9 +295,9 @@ window.AQUARIUM_CONFIG = {
           200
         ],
         "mealFood": [
-          3,
+          2,
+          4,
           5,
-          6,
           7
         ],
         "feedXp": 5,
@@ -344,9 +344,9 @@ window.AQUARIUM_CONFIG = {
           300
         ],
         "mealFood": [
+          2,
           4,
           7,
-          8,
           9
         ],
         "feedXp": 7,
@@ -393,8 +393,8 @@ window.AQUARIUM_CONFIG = {
           580
         ],
         "mealFood": [
+          2,
           5,
-          8,
           9,
           12
         ],
@@ -442,8 +442,8 @@ window.AQUARIUM_CONFIG = {
           320
         ],
         "mealFood": [
+          2,
           4,
-          5,
           6,
           8
         ],
@@ -491,9 +491,9 @@ window.AQUARIUM_CONFIG = {
           480
         ],
         "mealFood": [
+          2,
           5,
           7,
-          8,
           10
         ],
         "feedXp": 12,
@@ -540,9 +540,9 @@ window.AQUARIUM_CONFIG = {
           720
         ],
         "mealFood": [
-          7,
-          8,
-          10,
+          2,
+          6,
+          9,
           13
         ],
         "feedXp": 18,
@@ -589,8 +589,8 @@ window.AQUARIUM_CONFIG = {
           680
         ],
         "mealFood": [
-          6,
-          8,
+          2,
+          5,
           9,
           12
         ],
@@ -638,9 +638,9 @@ window.AQUARIUM_CONFIG = {
           1540
         ],
         "mealFood": [
-          9,
-          12,
-          14,
+          2,
+          7,
+          11,
           16
         ],
         "feedXp": 38,
@@ -687,9 +687,9 @@ window.AQUARIUM_CONFIG = {
           1440
         ],
         "mealFood": [
-          9,
-          12,
-          14,
+          2,
+          7,
+          11,
           16
         ],
         "feedXp": 36,
@@ -736,9 +736,9 @@ window.AQUARIUM_CONFIG = {
           2880
         ],
         "mealFood": [
-          12,
-          15,
-          16,
+          2,
+          7,
+          11,
           16
         ],
         "feedXp": 72,
@@ -880,13 +880,14 @@ window.AQUARIUM_CONFIG = {
     ],
     "mealsPerLevel": 2,
     "hungerPoints": [
-      0.0,
-      0.5
+      0.5,
+      1.0
     ],
     "levelStartHunger": {
       "onBuy": "growingNotHungry",
-      "L1At50Percent": "hungryWithDeathTimer",
-      "onLevelUpL2orL3": "hungryWithDeathTimer",
+      "at50Percent": "hungryMidMeal",
+      "at100Percent": "hungryEndMeal_levelUpAfterFed",
+      "onLevelUpL2orL3": "notHungryGrowFrom0",
       "onReachL4": "notHungryStartAdultWait",
       "adultAfterWait": "hungryWithDeathTimer"
     },
@@ -920,7 +921,7 @@ window.AQUARIUM_CONFIG = {
         "later": true
       },
       "mealFoodCap": 16,
-      "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built",
+      "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built; v6.2: mealFood set directly per species (mealFoodRule), rarity m no longer used",
       "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 \u2026 L4=2*price"
     },
     "decorations": {
@@ -1095,7 +1096,15 @@ window.AQUARIUM_CONFIG = {
       ]
     },
     "adultHungerMultOfL3Grow": 4,
-    "hungerPointsNote": "L1 after buy: only 0.5 (mid). L2/L3 after level-up: 0.0 then 0.5. L4 after reach: neither until adultHungerSec elapses."
+    "hungerPointsNote": "v6.3: L1-L3 each have 2 meals, mid at 50% and end at 100%. Growth pauses while hungry. The level-up happens only when the end meal is complete. No meal on buy or on level-up. L4: one meal of mealFood[3] each time adultHungerSec runs out.",
+    "mealFoodRule": "v6.3 (Maksims): mealFood[L1..L3] = total food per level, split mid/end; L1 total = 2 (1+1) for every species; L1 < L2 < L3 < L4 strictly, rares included",
+    "mealSplit": {
+      "appliesTo": "L1-L3",
+      "meaning": "mealFood[L] is the total food for that level",
+      "midMeal": "floor(mealFood[L] / 2)",
+      "endMeal": "mealFood[L] - midMeal",
+      "L4": "mealFood[3] is one adult meal per adult wait"
+    }
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 
