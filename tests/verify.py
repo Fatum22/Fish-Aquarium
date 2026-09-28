@@ -201,11 +201,11 @@ def main(VW, VH):
           fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.5); const partial = G.state.gold - g0;
           return { out, partial };""")
         cg = tj["dirt"]["cleanGold"]
-        check("v6.4 full clean pays cleanGold by stage (3/6/12/24/48: 3 gold doubling each stage) + 5 XP and restarts the dirt clock (first clean already used)", cg == [3, 6, 12, 24, 48] and tj["version"] == "6.4" and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
+        check("v6.5 full clean pays cleanGold by stage (4/7/12/20/32) + 5 XP and restarts the dirt clock (first clean already used)", cg == [4, 7, 12, 20, 32] and tj["version"] == "6.5" and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
         c2 = ev("""fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.3); const partial = G.state.gold - g0, rs = G.state.dirt.rubStage;
           G.state.dirt.t = T.dirt.stageAtSec[3] - 0.5; G.tick(1); const midStage = G.dirtStage(), spots = G.state.dirt.spots.length;
           const r = rubAll(1.01); return { partial, rs, midStage, spots, gold: G.state.gold - g0, payStage: r && r.stage, stageNow: r && r.stageNow, rsAfter: G.state.dirt.rubStage };""")
-        check("clean pays by the stage when the rub STARTED (start at 3, tank reaches 4 mid-rub -> pays cleanGold[2] = 12, not 24)",
+        check("clean pays by the stage when the rub STARTED (start at 3, tank reaches 4 mid-rub -> pays cleanGold[2] = 12, not 20)",
               c2["partial"] == 0 and c2["rs"] == 3 and c2["midStage"] == 4 and c2["spots"] >= 1 and c2["gold"] == cg[2] == 12 and c2["payStage"] == 3 and c2["stageNow"] == 4 and c2["rsAfter"] == 0, json.dumps(c2))
         check("partial rubbing pays nothing", c["partial"] == 0)
         fc = ev("""G.reset(); G.tick(1); const g0 = G.state.gold, f0 = G.state.food, x0 = G.state.tank.xp, grant0 = G.state.starterGrantUsed;
@@ -280,7 +280,7 @@ def main(VW, VH):
           return out;""")
         check("v6.3 food per level = mealFood (Guppy 2/3/4/5, Danio 2/3/4/5, Discus 2/7/11/16), 1 food per tap",
               f["meal"] == [s_["mealFood"] for s_ in tj["species"]] and f["meal"][0] == [2, 3, 4, 5] and f["meal"][1] == [2, 3, 4, 5] and f["meal"][-1] == [2, 7, 11, 16] and tj["foodPerTap"] == 1
-              and tj["version"] in ("6.3", "6.4"), json.dumps(f["meal"]))
+              and tj["version"] in ("6.3", "6.4", "6.5"), json.dumps(f["meal"]))
         split_ok = all(sp_[lv] == [s_["mealFood"][lv] // 2, s_["mealFood"][lv] - s_["mealFood"][lv] // 2] and min(sp_[lv]) >= 1 for sp_, s_ in zip(f["split"], tj["species"]) for lv in range(3))
         check("v6.3 mealSplit: L1-L3 mid = floor(total / 2), end = the rest (Guppy L3 4 -> 2+2, Ram L3 5 -> 2+3), every meal >= 1, every L1 = 1+1; L4 one meal of mealFood[3]",
               split_ok and all(sp_[0] == [1, 1] for sp_ in f["split"]) and all(sp_[3] == [s_["mealFood"][3]] for sp_, s_ in zip(f["split"], tj["species"]))
@@ -619,7 +619,7 @@ def main(VW, VH):
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]
         ok = rub_clean(); s = S()
         fl = page.evaluate("AQ.floats(true)")
-        check(f"sponge mouse rub cleans stage 3: +{cg[2]} gold (v6.4), +5 XP, 'Sparkling! +{cg[2]} gold' float", ok and s["gold"] == gold_b + cg[2] and s["tank"]["xp"] == xp_b + 5 and f"Sparkling! +{cg[2]} gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
+        check(f"sponge mouse rub cleans stage 3: +{cg[2]} gold (v6.5), +5 XP, 'Sparkling! +{cg[2]} gold' float", ok and s["gold"] == gold_b + cg[2] and s["tank"]["xp"] == xp_b + 5 and f"Sparkling! +{cg[2]} gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
         tool("hand"); page.wait_for_timeout(400)
         page.screenshot(path=shot("after_clean"))
         # L1 release and L2 sell with the Net (both confirmed)
@@ -1165,8 +1165,8 @@ def main(VW, VH):
         bc = page.evaluate("AQ.game.balanceChecks()")
         # Designer check (a): gold per day if you always clean at stage n = cleanGold[n] * 24 h / stage-n time; stage 1 earns the most
         per_day = [tj["dirt"]["cleanGold"][i] * 86400 / t for i, t in enumerate(tj["dirt"]["stageAtSec"])]
-        check("Designer check (a, v6.4): every cleaning rhythm earns 48 gold a day (3/6/12/24/48 over 1.5/3/6/12/24 h); stage 1 is never beaten, never rising with the stage",
-              per_day == [48, 48, 48, 48, 48] and all(per_day[i] <= per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
+        check("Designer check (a, v6.5): cleaning at stage 1 earns the most gold per day, 64/56/48/40/32 (4/7/12/20/32 over 1.5/3/6/12/24 h), falling with every stage",
+              per_day == [64, 56, 48, 40, 32] and all(per_day[i] < per_day[i - 1] for i in range(1, 5)) and all(per_day[i] <= per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
         # Designer check (b, v6 10): profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L.
         # v6.3 food to level L: mid + end meal (= mealFood[L-1] total) of every finished level (6 meals to L4). Food at 0.5 g.
         # L4 must profit and beat L3 for every species.
@@ -1307,7 +1307,7 @@ def main(VW, VH):
                         x_ = ax + (bx - ax) * t / 6; y_ = ay + (by - ay) * t / 6
                         cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tb["x"] + x_, "y": tb["y"] + y_}]})
                 cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        check("touch drags rub the tank clean (touch emulation), stage 1 pays +3 gold (v6.4)", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
+        check("touch drags rub the tank clean (touch emulation), stage 1 pays +4 gold (v6.5)", st0 == 1 and tp.evaluate("AQ.game.dirtStage()") == 0 and tp.evaluate("AQ.game.state.gold") == gold0 + tj["dirt"]["cleanGold"][0],
               f"stage {st0}->{tp.evaluate('AQ.game.dirtStage()')}")
         # Maksims 2026-09-28: on touch the fingertip holds the wooden handle 60-70% of the way down it; the hoop sits up and
         # left of the finger; targeting uses the hoop centre; the mouse still centres the hoop on the cursor (checked above)
