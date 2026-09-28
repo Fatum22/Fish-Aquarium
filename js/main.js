@@ -75,8 +75,10 @@
     return Math.min(W, WATER_H * 0.8) * V.fishSizeFrac * (V.speciesSize[f.sp] || 1) * V.levelSizeScale[f.level - 1];
   }
   function bounds(f) { // swim area: inside the glass lines, top = surface + 4% of the water height, bottom = sand
-    const L = fishLen(f);
-    return { x0: INSET + L * 0.6, x1: W - INSET - L * 0.6, y0: SURF + WATER_H * 0.04 + L * 0.3, y1: SAND - L * 0.35 };
+    // V7 6: clamp with the drawn extent (stage.bounds: fins, tail, sword, feelers), either facing; capped so big adults still swim
+    const L = fishLen(f), e = FishArt.extent(f.sp, L, f.level);
+    const mx = Math.min(Math.max(-e.x0, e.x1), (W - 2 * INSET) * 0.3), my0 = Math.min(-e.y0, WATER_H * 0.3), my1 = Math.min(e.y1, WATER_H * 0.3);
+    return { x0: INSET + mx, x1: W - INSET - mx, y0: SURF + WATER_H * 0.04 + my0, y1: SAND - my1 };
   }
   function pickTarget(m, f) {
     const b = bounds(f);
@@ -336,16 +338,23 @@
       ctx.scale(m.faceAnim >= 0 ? Math.max(0.08, m.faceAnim) : Math.min(-0.08, m.faceAnim), 1);
       ctx.rotate(tilt);
       if (hungry && !editing) ctx.globalAlpha = 0.9;
-      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, dead, level: f.level });
+      FishArt.drawFish(ctx, f.sp, L, m.phase, { hungry, dead, level: f.level, t: realTime + f.id * 0.77 }); // t: per-fish phase of the rare sheen / sparkles
       if (tool === 'net' && !editing && net.target && net.target.id === f.id && (net.on || net.dip >= 0)) drawNetTargetGlow(f, L);
       ctx.restore();
       if (!editing) drawStatusIcon(f, L, m);
       ctx.restore();
     });
   }
-  /** hunger / waiting icon (AD v4 5): centre y = -(body half-depth) - 12, x = +0.25 L toward the head; r 8 (Large 10) */
-  const bodyHalfDepth = (L) => L * 0.21;
-  function statusIconPos(f, L, m) { return { x: (m.faceAnim >= 0 ? 1 : -1) * 0.25 * L, y: -bodyHalfDepth(L) - 12 }; }
+  /** hunger / waiting icon (AD v4 5): centre y = -(body half-depth) - 12, x = +0.25 L toward the head; r 8 (Large 10).
+   *  V7: body half-depth = the top of the species' body outline at this level (stage.body.top) */
+  const bodyHalfDepth = (L, f) => (f ? -FishArt.bodyBox(f.sp, L, f.level).top : L * 0.21);
+  function statusIconPos(f, L, m) { return { x: (m.faceAnim >= 0 ? 1 : -1) * 0.25 * L, y: -bodyHalfDepth(L, f) - 12 }; }
+  /** V6/V7 tap target: the body only (fins, tail, feelers, sword excluded), never under 44 x 44 px; an ellipse in screen px */
+  function bodyTarget(f, L, m) {
+    const b = FishArt.bodyBox(f.sp, L, f.level), face = m.faceAnim >= 0 ? 1 : -1;
+    return { cx: m.x + face * (b.nose + b.tail) / 2, cy: m.y + (b.top + b.bottom) / 2, rx: Math.max(22, (b.nose - b.tail) / 2), ry: Math.max(22, (b.bottom - b.top) / 2) };
+  }
+  function inBody(f, L, m, x, y) { const q = bodyTarget(f, L, m), dx = (x - q.cx) / q.rx, dy = (y - q.cy) / q.ry; return dx * dx + dy * dy <= 1; }
   function drawStatusIcon(f, L, m) {
     if (f.state === 'DEAD') return;
     let color = null, glyph = null;
@@ -765,6 +774,8 @@
     $('p-name').textContent = sp.name;
     $('p-latin').textContent = sp.latin;
     $('p-rarity').textContent = sp.rarity[0].toUpperCase() + sp.rarity.slice(1);
+    $('p-rarity').hidden = sp.rarity === 'common'; // V6 2/4: never print "common"; chip only for uncommon / rare
+    $('p-rarity').className = 'chip' + (sp.rarity === 'common' ? '' : ' rar-' + sp.rarity);
     $('p-level').textContent = i.dead ? 'Dead' : f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
     $('p-worth').textContent = i.dead ? 'Worth 0 gold' : `Worth ${i.sell} gold`;
     if (!i.dead) {
@@ -800,9 +811,16 @@
   function drawPortrait(pc, f) {
     const p = pc.getContext('2d');
     p.setTransform(1, 0, 0, 1, 0, 0); p.clearRect(0, 0, pc.width, pc.height);
-    p.translate(pc.width * 0.52, pc.height * 0.52);
-    const dead = f.state === 'DEAD';
-    FishArt.drawFish(p, f.sp, pc.width * 0.5, dead ? 0 : realTime * 5, { hungry: f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY', dead, level: f.level });
+    const dead = f.state === 'DEAD', q = fitFish(f.sp, f.level, pc.width, pc.height, 0.5, 0.86, dead);
+    p.translate(q.x, q.y);
+    FishArt.drawFish(p, f.sp, q.L, dead ? 0 : realTime * 5, { hungry: f.state === 'HUNGRY' || f.state === 'ADULT_HUNGRY', dead, level: f.level, t: realTime });
+  }
+  /** fit a fish (drawn extent, V7 stage.bounds) into a w x h box: length up to maxLenFrac of w, whole fish inside frac of the box, centred */
+  function fitFish(id, level, w, h, maxLenFrac, frac, dead) {
+    const e = FishArt.extent(id, 100, level), bw = (e.x1 - e.x0) / 100, bh = (e.y1 - e.y0) / 100;
+    const L = Math.min(w * maxLenFrac, (w * frac) / bw, (h * frac) / bh);
+    const cy = dead ? -(e.y0 + e.y1) / 2 : (e.y0 + e.y1) / 2;
+    return { L, x: w / 2 - ((e.x0 + e.x1) / 2) * L / 100, y: h / 2 - cy * L / 100 };
   }
   // confirm windows (AD v4 8): centred, portrait, one line of text, Cancel left, action right
   function confirmBox(text, yesLabel, onYes, portrait, yesClass) {
@@ -867,12 +885,13 @@
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
         const rar = sp.rarity && sp.rarity !== 'common' ? `<span class="rar rar-${sp.rarity}">${sp.rarity === 'rare' ? 'Rare' : 'Uncommon'}</span>` : '';
+        if (sp.rarity === 'rare') card.classList.add('rare'); // V6 4: rare cards get a 2 px #b884ff border
         card.innerHTML = `<canvas width="240" height="96"></canvas>${rar}<div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
           <div class="s">Adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
           <button class="btn buy" data-buy="${sp.id}"><svg><use href="#i-coin"/></svg><span class="price">${sp.price}</span><span class="lbl"></span></button>`;
         list.appendChild(card);
         const c = card.querySelector('canvas').getContext('2d');
-        c.translate(120, 50); FishArt.drawFish(c, sp.id, 120, 0.6, {});
+        const q = fitFish(sp.id, T.maxLevel, 240, 96, 0.5, 0.9); c.translate(q.x, q.y); FishArt.drawFish(c, sp.id, q.L, 0.6, { t: 0.3 });
         card.querySelector('button').addEventListener('click', () => {
           const f = G.buyFish(sp.id);
           if (f) { toast(`${sp.name} added`, 'good'); renderShop(); } // v6.3: grows at once, not hungry
@@ -1062,8 +1081,7 @@
     const fish = G.state.fish;
     for (let i = fish.length - 1; i >= 0; i--) {
       const m = anim.get(fish[i].id); if (!m) continue;
-      const L = fishLen(fish[i]), dx = (x - m.x) / (L * 0.5), dy = (y - m.y) / Math.max(4, bodyHalfDepth(L));
-      if (dx * dx + dy * dy <= 1) return fish[i];
+      if (inBody(fish[i], fishLen(fish[i]), m, x, y)) return fish[i];
     }
     let best = null, bestD = netR();
     for (const f of fish) { const m = anim.get(f.id); if (!m) continue; const d = Math.hypot(x - m.x, y - m.y); if (d < bestD) { bestD = d; best = f; } }
@@ -1086,11 +1104,11 @@
   function drawNetTargetGlow(f, L) { // called inside the fish's own transform: body outline only (fins and tail excluded)
     ctx.save();
     ctx.lineJoin = 'round';
-    FishArt.bodyOutline(ctx, f.sp, L, { dead: f.state === 'DEAD' });
+    const body = FishArt.bodyPath(f.sp, L, f.level, f.state === 'DEAD');
     ctx.shadowColor = 'rgba(255,255,255,0.35)'; ctx.shadowBlur = 6 * DPR;
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 6; ctx.stroke(body);
     ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke(body);
     ctx.restore();
   }
   function drawNetCursor(dt) {
@@ -1132,9 +1150,7 @@
     const fish = G.state.fish;
     for (let i = fish.length - 1; i >= 0; i--) {
       const m = anim.get(fish[i].id); if (!m) continue;
-      const L = fishLen(fish[i]);
-      const dx = (x - m.x) / Math.max(22, L * 0.7 + 10), dy = (y - m.y) / Math.max(22, L * 0.35 + 12); // tap target >= 44 x 44
-      if (dx * dx + dy * dy <= 1) return fish[i];
+      if (inBody(fish[i], fishLen(fish[i]), m, x, y)) return fish[i]; // V6/V7: body only, tap target >= 44 x 44
     }
     let best = null, bestD = 44; // forgiving tap: nearest fish centre within 44px
     for (const f of fish) { const m = anim.get(f.id); if (!m) continue; const d = Math.hypot(x - m.x, y - m.y); if (d < bestD) { bestD = d; best = f; } }
@@ -1416,7 +1432,34 @@
         dirt: rect($('dirt-win')), badge: rect($('food-badge')), foodIcon: rect($('food-icon')),
         scrollW: document.documentElement.scrollWidth, scrollH: document.documentElement.scrollHeight };
     },
-    fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L) }; },
+    fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L, f) }; },
+    fishBody(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); return f && m ? bodyTarget(f, fishLen(f), m) : null; },
+    fishBounds(id) { const f = G.state.fish.find((x) => x.id === id); return f ? bounds(f) : null; },
+    /** V7 debug grid: all 14 species x L1-L4 drawn by the in-game renderer (sprite cache path) at in-game size x zoom; returns a canvas */
+    fishGrid(zoom = 3, opts = {}) {
+      const ids = T.species.map((s) => s.id), colW = 348, labelW = 300, head = 36, rows = [];
+      ids.forEach((id) => { let h = 0; for (let lv = 1; lv <= 4; lv++) { const L = fishLen({ sp: id, level: lv }) * zoom, e = FishArt.extent(id, L, lv); h = Math.max(h, e.y1 - e.y0 + 24); } rows.push(Math.ceil(Math.max(64, h))); });
+      const cv = document.createElement('canvas'); cv.width = labelW + colW * 4; cv.height = head + rows.reduce((a, b) => a + b, 0);
+      const c = cv.getContext('2d'); c.fillStyle = '#062032'; c.fillRect(0, 0, cv.width, cv.height);
+      c.fillStyle = '#0c3048'; c.fillRect(0, 0, cv.width, head); c.font = '600 13px system-ui'; c.fillStyle = '#9ec9e0'; c.textBaseline = 'middle';
+      ['SPECIES', 'L1 · FRY', 'L2 · JUVENILE', 'L3 · YOUNG', 'L4 · ADULT'].forEach((h, i) => { c.textAlign = i ? 'center' : 'left'; c.fillText(h, i ? labelW + colW * (i - 1) + colW / 2 : 14, head / 2); });
+      let y = head;
+      ids.forEach((id, r) => {
+        const sp = G.SPECIES[id], h = rows[r];
+        c.fillStyle = '#0a2840'; c.fillRect(0, y, labelW, h); c.fillStyle = '#0a2a3d'; c.fillRect(labelW, y, colW * 4, h);
+        c.strokeStyle = '#1a4058'; c.lineWidth = 1; c.beginPath(); c.moveTo(0, y + 0.5); c.lineTo(cv.width, y + 0.5); for (let i = 0; i <= 4; i++) { c.moveTo(labelW + colW * i + 0.5, y); c.lineTo(labelW + colW * i + 0.5, y + h); } c.stroke();
+        c.textAlign = 'left'; c.fillStyle = '#f0f6fa'; c.font = '650 15px system-ui'; c.fillText(sp.name + (sp.rarity !== 'common' ? ' · ' + sp.rarity : ''), 16, y + h / 2 - 8);
+        c.font = '12px system-ui'; c.fillStyle = sp.rarity === 'rare' ? '#b884ff' : sp.rarity === 'uncommon' ? '#5dca7a' : '#7a9aaa'; c.fillText('size ' + (V.speciesSize[id] || 1).toFixed(2), 16, y + h / 2 + 12);
+        for (let lv = 1; lv <= 4; lv++) {
+          // like the AD sheet: length = in-game length x zoom (1 px lines stay 1 px), whole-pixel origin
+          const L = fishLen({ sp: id, level: lv }) * zoom, e = FishArt.extent(id, L, lv);
+          c.save(); c.translate(Math.round(labelW + colW * (lv - 1) + colW / 2 - (e.x0 + e.x1) / 2), Math.round(y + h / 2 - (e.y0 + e.y1) / 2));
+          FishArt.drawFish(c, id, L, 0, { level: lv, t: opts.t != null ? opts.t : 0.35 }); c.restore();
+        }
+        y += h;
+      });
+      return cv;
+    },
     decorScreen() { return G.state.decor.map((d) => ({ id: d.id, type: d.type, ...decorGeom(d), sh: d.sh, sw: d.sw, color: d.color, x: d.x, y: d.y })); },
     net() { return { on: net.on, x: net.x, y: net.y, fx: net.fx, fy: net.fy, touch: net.touch, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR(),
       handleA: NET_HANDLE_A, handleLen: NET_HANDLE_LEN, grip: NET_TOUCH_GRIP }; },

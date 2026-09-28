@@ -1127,8 +1127,8 @@ window.AQUARIUM_CONFIG = {
   VISUAL: {
     levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
     flakesPerTap: 16,                       // food flakes in one tap's shower (visual only; still 1 food per tap)
-    speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0, // v5.1 sizes: AD NEW_FISH_V5_1.md 1
-      ram: 0.88, rasbora: 0.85, dwarfgourami: 0.95, swordtail: 1.05, cherrybarb: 0.85, angelfish: 1.0, pearlgourami: 1.05, clownloach: 1.1, rainbowfish: 1.05, discus: 1.15 },
+    speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0, // V7 sizes (NEW_FISH_V7.md 6 = V6 3: ram 0.97, clown loach 1.18)
+      ram: 0.97, rasbora: 0.85, dwarfgourami: 0.95, swordtail: 1.05, cherrybarb: 0.85, angelfish: 1.0, pearlgourami: 1.05, clownloach: 1.18, rainbowfish: 1.05, discus: 1.15 },
     // Landscape tank geometry (Art Director LANDSCAPE_LAYOUT_V4.md 4)
     airFrac: 0.07, airMinPx: 16,          // top 7% of the tank (min 16 px) is air; the water surface is under it
     sandFrac: 0.86, sandMinPx: 36,        // sand top edge at 86% of tank height (sand band at least 36 px)

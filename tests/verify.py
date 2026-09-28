@@ -1212,13 +1212,6 @@ def main(VW, VH):
           }
           const looks = V.dirtStages.map((l) => l.look);
           const later = spots.filter((s) => s.stage >= 2), ov = later.filter((s) => s.over != null);
-          const k1 = FishArt.growth(1), k4 = FishArt.growth(4);
-          const tail = (lv) => { const c = document.createElement('canvas'); c.width = 400; c.height = 300; const x = c.getContext('2d');
-            x.translate(260, 150); FishArt.drawFish(x, 'guppy', 200, 0, { level: lv });
-            const tl = FishArt.ART.guppy.tailLen * FishArt.growth(lv).tl * 200, cx = 260 - 0.31 * 200 - tl * 0.55;
-            const d = x.getImageData(Math.round(cx - 6), 140, 12, 20).data; let al = 0, sat = 0, n = 0;
-            for (let i = 0; i < d.length; i += 4) { al += d[i + 3] / 255; if (d[i + 3] > 0) { sat += (Math.max(d[i], d[i+1], d[i+2]) - Math.min(d[i], d[i+1], d[i+2])) / 255; n++; } }
-            return { alpha: +(al / (d.length / 4)).toFixed(3), sat: +(sat / Math.max(1, n)).toFixed(3) }; };
           const res = {
             looks, alphas: V.dirtStages.map((l) => l.alpha), radii: V.dirtStages.map((l) => l.r),
             everyStageStyled: spots.every((s) => s.stage >= 1 && s.stage <= 5 && !!looks[s.stage - 1]),
@@ -1226,18 +1219,9 @@ def main(VW, VH):
             countsOk: counts.every(Boolean), stage1NeverOver: spots.filter((s) => s.stage === 1).every((s) => s.over == null),
             overlapRate: +(ov.length / later.length).toFixed(2),
             overlapDistOk: ov.every((s) => s.d >= 0.4 - 1e-6 && s.d <= 1.6 + 1e-6 && s.olderOk),
-            l1Clear: k1.clear && k1.sat === 0.3 && k1.tl === 0.45 && k4.fin === 1 && k4.sat === 1,
-            tailL1: tail(1), tailL4: tail(4), layer: V.dirtLayer, tint: [V.dirtStages[3].tintHalf, V.dirtStages[3].tintMix],
+            layer: V.dirtLayer, tint: [V.dirtStages[3].tintHalf, V.dirtStages[3].tintMix],
             film: { rgb: V.dirtFilm.rgb, centre: V.dirtFilm.centre, edge: V.dirtFilm.edge, scum: [V.dirtFilm.scumFrac, V.dirtFilm.scumAlpha] },
           };
-          const px = (sp, lv, fx, fy) => { const c = document.createElement('canvas'); c.width = 400; c.height = 300; const x = c.getContext('2d');
-            x.translate(200, 150); FishArt.drawFish(x, sp, 200, 0, { level: lv }); const hh = FishArt.ART[sp].depth * 100;
-            const d = x.getImageData(Math.round(200 + fx * 200), Math.round(150 + fy * hh), 1, 1).data; return [d[0], d[1], d[2], +(d[3] / 255).toFixed(2)]; };
-          const stripeY = 0.14 * 0.8125, stripeX = -0.015;
-          res.danioL1 = px('danio', 1, stripeX, stripeY); res.danioL1off = px('danio', 1, stripeX, stripeY + 0.12); res.danioL3 = px('danio', 3, stripeX, stripeY);
-          res.danioStripes = FishArt.LOOK.danioStripes.map((a) => a.length);
-          res.neonL2 = FishArt.LOOK.neonL2LineAlpha;
-          res.platyFinL2 = px('platy', 2, -0.04, -1.2); res.platyFinL4 = px('platy', 4, -0.04, -1.2);
           res.hair = [V.dirtStages[3].alpha, V.dirtStages[3].strandAlpha];
           fresh(); return res;""")
         rr = a["radii"]
@@ -1248,23 +1232,8 @@ def main(VW, VH):
               a["layer"][0] == {"wash": "rgba(95,110,40,0.03)"} and [l and l.get("wash") for l in a["layer"][1:4]] == ["rgba(95,110,40,0.04)", "rgba(95,110,40,0.08)", "rgba(108,116,38,0.12)"] and a["layer"][4] == {"film": True}
               and a["film"] == {"rgb": [70, 110, 40], "centre": 0.28, "edge": 0.42, "scum": [0.08, 0.45]} and a["tint"] == ["#5A5228", 0.6], json.dumps([a["layer"], a["film"], a["tint"]]))
         check("dirt: stage 2+ spots overlap an older spot about half the time, within 0.6 R of its edge", 0.3 <= a["overlapRate"] <= 0.7 and a["overlapDistOk"] and a["stage1NeverOver"], f"rate={a['overlapRate']}")
-        dl1, dof, dl3 = a["danioL1"], a["danioL1off"], a["danioL3"]
-        check("AD ruling 1: zebra danio L1 has no stripe (stripes from L2)", a["danioStripes"] == [0, 2, 4, 4] and dl1[0] >= dl1[2] and max(abs(dl1[i] - dof[i]) for i in range(3)) < 12 and dl3[2] > dl3[0] + 30, f"L1 {dl1} off {dof} L3 {dl3}")
-        ns = ev("""const V = G.CFG.VISUAL, L = AQ.fishLen('neon', 2), depth = FishArt.ART.neon.depth * L, sc = 4;
-          const meas = (lv) => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const x = c.getContext('2d');
-            x.translate(300, 200); x.scale(sc, sc); FishArt.drawFish(x, 'neon', L, 0, { level: lv });
-            const d = x.getImageData(300, 0, 1, 400).data; let n = 0, best = null;
-            for (let y = 0; y < 400; y++) { const i = y * 4; if (d[i + 3] > 128 && d[i + 2] - d[i] > 90) { n++; if (!best || d[i + 2] - d[i] > best[2] - best[0]) best = [d[i], d[i + 1], d[i + 2]]; } }
-            return { px: +(n / sc).toFixed(2), best }; };
-          return { L: +L.toFixed(1), depth: +depth.toFixed(2), l1: meas(1), l2: meas(2), look: FishArt.LOOK };""")
-        need = max(2, 0.12 * ns["depth"])
-        check("AD ruling (neon L2): line 85% in the adult stripe blue, no glow, >= max(2 px, 12% body depth) thick at tank size",
-              ns["look"]["neonL2LineAlpha"] == 0.85 and ns["look"]["neonStripe"] == ["#5ff6ff", "#2aa8ff", "#2a6bff"] and ns["l1"]["px"] == 0
-              and need <= ns["l2"]["px"] <= need + 2.5 and ns["l2"]["best"][2] > 200, f"tank L={ns['L']}px depth={ns['depth']}px need>={need:.2f}px measured={ns['l2']['px']}px colour={ns['l2']['best']}")
-        f2, f4 = a["platyFinL2"], a["platyFinL4"]
-        check("AD ruling 5b: platy L2 fin keeps its own orange hue at ~65% opacity", f2[0] > 230 and f2[0] - f2[2] > 150 and abs(f2[1] - f4[1]) < 25 and 0.58 < f2[3] < 0.72 and f4[3] > 0.75, f"L2 {f2} L4 {f4}")
         check("AD ruling 3 + v2: hair-algae patch 0.40, strands 0.5", a["hair"] == [0.40, 0.5], str(a["hair"]))
-        check("fish: L1 tail clear/uncoloured, L4 tail full colour (growth table)", a["l1Clear"] and a["tailL1"]["alpha"] < 0.35 and a["tailL1"]["sat"] < 0.15 and a["tailL4"]["alpha"] > 0.6 and a["tailL4"]["sat"] > 0.4, f"L1 {a['tailL1']} L4 {a['tailL4']}")
+        fish_v7(page, ev, shot, box, tool, click_fish, tj)
 
         # stage 5 film: only at stage 5, fades with the grime, gone after the last spot, guard <= 0.6
         ev("fresh(); G.state.gold = 1000; G.state.speed = 1; toStage(4);"); page.wait_for_timeout(200)
@@ -1451,6 +1420,117 @@ def fluid_layout():
         browser.close()
     print("   tank sizes:", json.dumps(sizes))
 
+SHOTS7 = os.path.join(HERE, "..", "screenshots", "v7")
+REF_RENDER = "/workspace/studio/briefs/aquarium/art/fish-v7/render.js"
+
+def fish_v7(page, ev, shot, box, tool, click_fish, tj):
+    """Art Director NEW_FISH_V7.md (owner-approved FISH_REVIEW_SHEET_V7): all 14 fish drawn from the fish-v7 vector data."""
+    import base64, re
+    os.makedirs(SHOTS7, exist_ok=True)
+    view = VIEW[0].split("] ")[-1] if VIEW[0] else "view"
+    ids = [s_["id"] for s_ in tj["species"]]
+    d = ev("""const V = G.CFG.VISUAL, D = FishArt.V7;
+      return { ids: Object.keys(D), v: Object.values(D).map((s) => s.v), stages: Object.values(D).map((s) => s.stages.length),
+        size: V.speciesSize, dataSize: Object.fromEntries(Object.entries(D).map(([k, s]) => [k, s.speciesSize])),
+        rarity: Object.fromEntries(Object.entries(D).map(([k, s]) => [k, s.rarity])),
+        fx: Object.fromEntries(Object.keys(D).map((k) => [k, [1, 2, 3, 4].map((lv) => { const f = FishArt.fxOf(k, lv), st = FishArt.stage(k, lv);
+          return { sheen: !!(f && f.sheen), sparkles: f ? f.sparkles.length : 0, aura: st.layers.some((l) => l.n === 'aura'), rim: st.layers.some((l) => l.n === 'rim'), irid: st.layers.some((l) => l.n === 'iridescence') }; })])),
+        discus: (() => { const b = FishArt.stage('discus', 4).body, bb = FishArt.stage('discus', 4).bounds; return { ratio: +((b.bottom - b.top) / (b.nose - b.tail)).toFixed(2), lobesBehind: bb[0] < b.tail - 20, tall: bb[3] - bb[1] > 1.3 * (b.bottom - b.top) }; })() };""")
+    sizes = {"guppy": 0.82, "danio": 0.95, "neon": 0.85, "ram": 0.97, "platy": 1.0, "rasbora": 0.85, "dwarfgourami": 0.95, "swordtail": 1.05, "cherrybarb": 0.85, "angelfish": 1.0, "pearlgourami": 1.05, "clownloach": 1.18, "rainbowfish": 1.05, "discus": 1.15}
+    check("V7 data: all 14 species x L1-L4 from fish-v7 (v 7), in shop order; speciesSize = V7 6 table (ram 0.97, clown loach 1.18) in game and data; rarities = tuning",
+          d["ids"] == ids and set(d["v"]) == {7} and set(d["stages"]) == {4} and d["size"] == sizes and d["dataSize"] == sizes
+          and d["rarity"] == {s_["id"]: s_["rarity"] for s_ in tj["species"]}, json.dumps({"ids": d["ids"], "size": d["size"]}))
+    fx = d["fx"]; rar = d["rarity"]
+    ok_fx = True
+    for k, lv4 in fx.items():
+        r = rar[k]
+        for i, e in enumerate(lv4):
+            if i < 3: ok_fx &= not e["sheen"] and e["sparkles"] == 0 and not e["aura"] and not e["rim"]
+            elif r == "rare": ok_fx &= e["sheen"] and e["sparkles"] == 3 and e["aura"] and e["rim"]
+            elif r == "uncommon": ok_fx &= e["sheen"] and e["sparkles"] == 0 and not e["aura"] and not e["rim"]
+            else: ok_fx &= not e["sheen"] and e["sparkles"] == 0 and not e["aura"] and not e["rim"]
+            if r != "common" and i >= 2: ok_fx &= e["irid"]
+            if r == "common": ok_fx &= not e["irid"]
+    check("V7 5 rarity cues: rares at L4 aura + sheen + 1 px rim + 3 sparkles, iridescence from L3; uncommons sheen + iridescence only; commons none; no FX below L4",
+          ok_fx, json.dumps({k: fx[k][3] for k in ("ram", "rasbora", "guppy", "discus")}))
+    check("V7 check 1: Discus is a disc (body height / length >= 0.8) with the dorsal/anal lobes trailing past the body and fins far above/below it (not a ball)",
+          d["discus"]["ratio"] >= 0.8 and d["discus"]["lobesBehind"] and d["discus"]["tall"], json.dumps(d["discus"]))
+    # the in-game renderer (sprite cache: under + wagging tail + body) against the Art Director's reference render.js, all 56 stages
+    page.add_script_tag(content=open(REF_RENDER).read())
+    cmp_ = ev("""const out = []; const L = 150;
+      for (const id of Object.keys(FishArt.V7)) for (let lv = 1; lv <= 4; lv++) {
+        const st = FishArt.stage(id, lv), b = st.bounds, s = L / 100, w = Math.ceil((b[2] - b[0]) * s + 40), h = Math.ceil((b[3] - b[1]) * s + 40);
+        const mk = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#0a2a3d'; x.fillRect(0, 0, w, h); x.translate(Math.round(20 - b[0] * s), Math.round(20 - b[1] * s)); return x; }; // whole-pixel origin: a sprite is blitted 1:1
+        const x1 = mk(); drawFishV7(x1, Object.assign({}, st, { layers: st.layers.filter((l) => l.n !== 'sheen' && l.n !== 'sparkle') }), L);
+        const x2 = mk(); FishArt.drawFish(x2, id, L, 0, { level: lv, noFx: true });
+        const p = x1.getImageData(0, 0, w, h).data, q = x2.getImageData(0, 0, w, h).data; let sum = 0, big = 0;
+        for (let i = 0; i < p.length; i += 4) { const e = Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]); sum += e; if (e > 60) big++; }
+        out.push([id, lv, +(sum / (p.length / 4) / 3).toFixed(2), +(big / (p.length / 4)).toFixed(4)]); }
+      return out;""")
+    worst = sorted(cmp_, key=lambda r_: -r_[2])[:3]
+    check("V7 port: every species at L1-L4 drawn in game (cached sprites) matches the AD reference renderer render.js pixel for pixel (mean < 1/255, < 0.5% of pixels off by > 60)",
+          len(cmp_) == 56 and all(r_[2] < 1 and r_[3] < 0.005 for r_ in cmp_), json.dumps(worst))
+    # live FX: the rare sheen sweeps and sparkles twinkle (drawn per frame, not baked); commons draw the same at any time
+    lv_ = ev("""const pix = (id, t) => { const c = document.createElement('canvas'); c.width = 300; c.height = 240; const x = c.getContext('2d'); x.translate(150, 120);
+        FishArt.drawFish(x, id, 180, 0, { level: 4, t }); const d = x.getImageData(0, 0, 300, 240).data; let h = 0; for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]) >>> 0; return h; };
+      return { ramSweep: pix('ram', 0.3) !== pix('ram', 2.0), ramSpark: pix('ram', 2.0) !== pix('ram', 2.9), rasSweep: pix('rasbora', 0.3) !== pix('rasbora', 2.0),
+               guppySame: pix('guppy', 0.3) === pix('guppy', 2.0) && pix('guppy', 2.0) === pix('guppy', 2.9) };""")
+    check("V7 3 live FX: a rare adult's sheen sweeps and its sparkles twinkle over time, an uncommon's mild sheen sweeps, a common adult has no FX",
+          lv_["ramSweep"] and lv_["ramSpark"] and lv_["rasSweep"] and lv_["guppySame"], json.dumps(lv_))
+    # debug grid: 14 species x L1-L4 by the in-game renderer at in-game size (x3 zoom, like the sheet) -> screenshots/v7/grid*.png
+    url = ev("return AQ.fishGrid(3).toDataURL('image/png');")
+    png = base64.b64decode(url.split(",")[1])
+    open(os.path.join(SHOTS7, f"grid_{view}.png"), "wb").write(png)
+    if view == "844x390": open(os.path.join(SHOTS7, "grid.png"), "wb").write(png)
+    gw, gh, _px = png_rgb(png)
+    check("V7 debug grid: all 14 species x 4 levels rendered in game (x3) and saved to screenshots/v7/grid.png", gw == 300 + 348 * 4 and gh > 14 * 64, f"{gw}x{gh} -> screenshots/v7/grid_{view}.png")
+    # in-tank: adults of every species, a growth row (L1-L4), rares up close; sprite cache stays warm (no per-frame path drawing)
+    def tank_scene(spec):
+        return ev(f"""fresh(); G.state.tank.xp = 99999; G.state.gold = 99999; G.state.speed = 1; G.state.fish.length = 0; const out = [];
+          {json.dumps(spec)}.forEach(([id, lv, x, y]) => {{ // placed straight into the tank (more fish than the capacity, for the pictures)
+            const f = {{ id: G.state.nextId++, sp: id, level: lv, state: 'GROWING', progress: 0, hungerDone: false, deathLeft: null, sinceFed: 0, fed: 0, boughtAt: G.state.gameTime, x, y }};
+            G.state.fish.push(f); f.level = lv; f.state = lv >= 4 ? 'ADULT' : 'GROWING'; f.progress = 0; f.hungerDone = false; f.sinceFed = 0; AQ.pinFish(f.id, x, y); out.push(f.id); }});
+          return out;""")
+    adults = [[id_, 4, 0.12 + 0.19 * (i % 5), 0.2 + 0.2 * (i // 5)] for i, id_ in enumerate(ids)]
+    got = tank_scene(adults)
+    page.wait_for_timeout(600); m0 = ev("return FishArt.cacheInfo();"); page.wait_for_timeout(1200); m1 = ev("return FishArt.cacheInfo();")
+    b_ = box(); page.screenshot(path=os.path.join(SHOTS7, f"tank_adults_{view}.png"), clip={"x": b_["x"], "y": b_["y"], "width": b_["width"], "height": b_["height"]})
+    perf = ev("""const c = document.createElement('canvas'), dpr = window.devicePixelRatio || 1; c.width = 1200 * dpr; c.height = 800 * dpr; const x = c.getContext('2d'); x.scale(dpr, dpr);
+      const list = G.state.fish.map((f) => [f.sp, f.level, AQ.fishLen(f.sp, f.level)]); let t0 = performance.now(), n = 0;
+      for (let fr = 0; fr < 120; fr++) { x.clearRect(0, 0, 1200, 800); list.forEach(([id, lv, L], i) => { x.save(); x.translate(80 + (i % 5) * 220, 120 + Math.floor(i / 5) * 220); if (i % 2) x.scale(-1, 1);
+        FishArt.drawFish(x, id, L, fr * 0.2, { level: lv, t: fr / 60 }); x.restore(); n++; }); }
+      return { fish: list.length, msPerFrame: +((performance.now() - t0) / 120).toFixed(2) };""")
+    check(f"V7 in tank: {len(got)} adults (all 14 species) swim with cached sprites (no new sprite renders once warm); one frame of all of them draws in < 8 ms",
+          len(got) == 14 and m1["misses"] == m0["misses"] and perf["msPerFrame"] < 8, json.dumps({"cache": [m0, m1], "perf": perf, "shot": f"screenshots/v7/tank_adults_{view}.png"}))
+    growth = [["guppy", lv, 0.1 + 0.2 * (lv - 1), 0.25] for lv in (1, 2, 3, 4)] + [["discus", lv, 0.1 + 0.22 * (lv - 1), 0.62] for lv in (1, 2, 3, 4)]
+    tank_scene(growth); page.wait_for_timeout(700)
+    page.screenshot(path=os.path.join(SHOTS7, f"tank_growth_{view}.png"), clip={"x": b_["x"], "y": b_["y"], "width": b_["width"], "height": b_["height"]})
+    rares = [["ram", 4, 0.2, 0.3], ["dwarfgourami", 4, 0.5, 0.3], ["discus", 4, 0.8, 0.35], ["clownloach", 4, 0.3, 0.68], ["angelfish", 4, 0.7, 0.66]]
+    rid = tank_scene(rares); page.wait_for_timeout(700)
+    page.screenshot(path=os.path.join(SHOTS7, f"tank_rares_{view}.png"), clip={"x": b_["x"], "y": b_["y"], "width": b_["width"], "height": b_["height"]})
+    # tap target: body only, never under 44 x 44; swim bounds keep the whole drawn fish (sword, fins) inside the glass
+    tb = ev(f"""const out = {{}}; G.state.fish.forEach((f) => {{ const q = AQ.fishBody(f.id), b = AQ.fishBounds(f.id), e = FishArt.extent(f.sp, AQ.fishLen(f.sp, f.level), f.level), g = AQ.geom();
+        out[f.sp] = {{ rx: q.rx, ry: q.ry, inside: b.x0 >= g.inset + Math.min(Math.max(-e.x0, e.x1), (g.W - 2 * g.inset) * 0.3) - 1e-6 }}; }}); return out;""")
+    tool("hand"); page.keyboard.press("Escape")
+    bc = page.evaluate(f"AQ.fishBody({rid[2]})"); bxy = box()
+    page.mouse.click(bxy["x"] + bc["cx"], bxy["y"] + bc["cy"]); page.wait_for_timeout(200)
+    opened = page.locator("#panel").is_visible(); rtxt = page.inner_text("#p-rarity") if opened else ""; rvis = page.locator("#p-rarity").is_visible() if opened else False
+    page.keyboard.press("Escape")
+    check("V6/V7 tap target: body ellipse (fins excluded) >= 44 x 44 px for every fish; tapping the Discus body opens it with a 'Rare' chip; swim bounds use the drawn extent",
+          all(v_["rx"] >= 22 and v_["ry"] >= 22 and v_["inside"] for v_ in tb.values()) and opened and rtxt == "Rare" and rvis, json.dumps({"tb": tb, "chip": rtxt}))
+    # commons: no rarity chip anywhere; rare shop cards have the 2 px #b884ff border
+    g_ = ev(f"""fresh(); G.state.tank.xp = 99999; G.state.gold = 99999; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.5); return f.id;""")
+    page.wait_for_timeout(200); click_fish(g_); cvis = page.locator("#p-rarity").is_visible(); page.keyboard.press("Escape")
+    page.click("#btn-shop"); page.wait_for_timeout(250)
+    cards = page.evaluate("""[...document.querySelectorAll('#shop-list .card')].map((c) => ({ id: c.dataset.species, b: getComputedStyle(c).borderTopWidth + ' ' + getComputedStyle(c).borderTopColor, txt: c.innerText }))""")
+    page.screenshot(path=os.path.join(SHOTS7, f"shop_{view}.png"))
+    page.click('[data-close="shop"]')
+    rare_ids = [s_["id"] for s_ in tj["species"] if s_["rarity"] == "rare"]
+    check("V6 2/4 (kept by V7): no 'common' text in the shop or a common fish's info; rare shop cards have a 2 px #b884ff border, others don't",
+          not cvis and all(not re.search(r"\bcommon\b", c_["txt"], re.I) for c_ in cards) and all((c_["b"] == "2px rgb(184, 132, 255)") == (c_["id"] in rare_ids) for c_ in cards),
+          json.dumps([[c_["id"], c_["b"]] for c_ in cards]))
+    ev("fresh();")
+
 def cache_bust():
     """Producer: every local script/CSS tag carries the same ?v=<build> so phones never run stale files after an update."""
     import re
@@ -1464,7 +1544,7 @@ def cache_bust():
         browser.close()
     v = next(iter(vers)) if len(vers) == 1 else None
     check(f"cache busting: all {len(tags)} script/CSS tags in index.html carry the same ?v= build id and the page loads them with it",
-          len(tags) == 5 and v is not None and len(loaded) >= 5 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
+          len(tags) == 6 and v is not None and len(loaded) >= 6 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
 
 def home_screen_icons():
     """Home-screen app (Art Director icons): favicon (svg + png), apple-touch-icon 180, manifest.webmanifest with 192 + 512,
