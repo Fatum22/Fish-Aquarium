@@ -47,7 +47,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6.3",
+    "version": "6.4",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -774,11 +774,11 @@ window.AQUARIUM_CONFIG = {
         7
       ],
       "cleanGold": [
-        2,
-        4,
+        3,
         6,
-        8,
-        10
+        12,
+        24,
+        48
       ],
       "rubPxPerSpot": [
         150,
@@ -793,7 +793,7 @@ window.AQUARIUM_CONFIG = {
       "mealAddsSec": 300,
       "mealAddsWhen": "fishFullyFedForOneMeal",
       "showTimerToNextStage": false,
-      "cleanGoldRule": "stage N pays N x 2 gold (base 2)"
+      "cleanGoldRule": "v6.4 (Maksims): 3 gold at stage 1, doubling each stage; stage 5 = 48 pending his confirmation"
     },
     "tank": {
       "levelAtXp": [
