@@ -1107,8 +1107,8 @@ def main(VW, VH):
         page.click('#shop-decor button[data-buydecor="leaf"]'); page.wait_for_timeout(250)
         ed = page.evaluate("AQ.edit()"); dn = page.evaluate("AQ.decorScreen()")[-1]
         toasts_ = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
-        check("bible 25 / 27 + v6.8: Decorations tab offers Leaf and Stone for 2 gold each; buying places it at the floor centre, opens edit mode, selects it and opens its menu",
-              dec == [["Leaf", "2"], ["Stone", "2"]] and not page.locator("#shop").is_visible() and ed["editing"] and ed["selDecor"] == dn["id"] and ed["menu"] and abs(dn["x"] - 0.5) < 1e-9
+        check("bible 25 / 27 + v6.8 (leaf exception): Decorations tab offers Leaf for 1 gold and Stone for 2 gold; buying places it at the floor centre, opens edit mode, selects it and opens its menu",
+              dec == [["Leaf", "1"], ["Stone", "2"]] and not page.locator("#shop").is_visible() and ed["editing"] and ed["selDecor"] == dn["id"] and ed["menu"] and abs(dn["x"] - 0.5) < 1e-9
               and "Tap a decoration to change it" in toasts_ and page.locator('.tool[data-tool="brush"]').get_attribute("aria-pressed") == "true", json.dumps([dec, ed, dn["x"], toasts_]))
         page.screenshot(path=shot("edit_mode_menu"))
         mr = ed["menu"]; tk_ = ed["tank"]; dnb = ed["done"]
@@ -1201,7 +1201,7 @@ def main(VW, VH):
         page.click("#dm-sell"); page.wait_for_timeout(100)
         sell_t = page.inner_text("#confirm-text"); sell_btn = page.inner_text("#dm-sell") if page.locator("#dm-sell").is_visible() else ""
         n_before = len(S()["decor"]); gd = S()["gold"]; page.click("#confirm-yes"); page.wait_for_timeout(100)
-        check("AD v4 7 + v6.8: 'Sell · refund 1 gold' asks 'Sell this leaf? You get 1 gold back.', then removes it (refund floor(2 / 2) = 1)",
+        check("AD v4 7 + v6.8: 'Sell · refund 1 gold' asks 'Sell this leaf? You get 1 gold back.', then removes it (leaf sellRefundOverride: the full 1 gold paid)",
               sell_t == "Sell this leaf? You get 1 gold back." and sell_btn == "Sell · refund 1 gold" and len(S()["decor"]) == n_before - 1 and S()["gold"] == gd + 1 and not page.locator("#deco-menu").is_visible(), json.dumps([sell_t, sell_btn]))
         # edit mode: fish can't be tapped; Done exits; another tool exits
         fe = ev("const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.45, 0.4); return f.id;"); page.wait_for_timeout(150)
@@ -1914,7 +1914,7 @@ def tuning_68():
     moving pays / charges nothing; new games start with an empty tank (starter grant still tops up to 20); existing saves keep
     their pieces as bought for 0 gold and as already bought for first-copy XP; sell refund floor(pricePaid / 2), never removes
     XP; netting a dead fish pays floor(price / 4) at any level (Guppy 5, Danio 12, Discus 812), no XP, no confirm, toast
-    'Fish removed · +N gold'. The 6 shop decorations / 4 corals are NOT built (awaiting approval)."""
+    'Fish removed · +N gold'. Leaf exception (Maksims 19:13): leaf 1 gold, 0 XP, sells for its full pricePaid (old free leaves 0)."""
     VIEW[0] = "tuning 6.8"
     tj = merged_tuning(); D = tj["decorations"]
     with sync_playwright() as p:
@@ -1926,8 +1926,8 @@ def tuning_68():
             page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(250)
         ev = lambda body: page.evaluate("() => { " + JS + body + " }")
         boot()
-        check("tuning.json 6.8 in config.js verbatim; decorations.price stone 2 / leaf 2, placeXp 1 / 1, sellRefund floor(pricePaid / 2), newTank.defaultDecorations [], deadFish.removeGold floor(species.price / 4)",
-              page.evaluate("AQ.game.T") == tj and tj["version"] == "6.8" and D["price"] == {"stone": 2, "leaf": 2} and D["placeXp"] == {"stone": 1, "leaf": 1}
+        check("tuning.json 6.8 in config.js verbatim; decorations.price stone 2 / leaf 1, placeXp 1 / 0, sellRefund floor(pricePaid / 2), sellRefundOverride leaf pricePaid, newTank.defaultDecorations [], deadFish.removeGold floor(species.price / 4)",
+              page.evaluate("AQ.game.T") == tj and tj["version"] == "6.8" and D["price"].get("stone") == 2 and D["price"].get("leaf") == 1 and D["placeXp"].get("stone") == 1 and D["placeXp"].get("leaf") == 0 and D.get("sellRefundOverride") == {"leaf": "pricePaid"}
               and D["sellRefund"] == "floor(pricePaid / 2)" and tj["newTank"]["defaultDecorations"] == [] and tj["deadFish"]["removeGold"] == "floor(species.price / 4)", tj["version"])
         # new game: empty tank; the reset path too
         page.evaluate("localStorage.clear()"); boot()
@@ -1938,14 +1938,14 @@ def tuning_68():
         # buying: 2 gold each, +1 XP for the first stone and the first leaf only
         buy = ev("""fresh(); G.state.gold = 20; const out = []; const step = (t) => { const g = G.state.gold, x = G.state.tank.xp, d = G.buyDecor(t); out.push([t, g - G.state.gold, G.state.tank.xp - x, d.pricePaid]); return d; };
             step('stone'); step('stone'); step('leaf'); step('leaf'); step('stone'); return { out, bought: G.state.decorBought };""")
-        check("v6.8 buying: stone / leaf cost 2 gold each (pricePaid 2 stored per piece); +1 XP on the FIRST stone and the FIRST leaf only, 0 XP for later copies",
-              buy["out"] == [["stone", 2, 1, 2], ["stone", 2, 0, 2], ["leaf", 2, 1, 2], ["leaf", 2, 0, 2], ["stone", 2, 0, 2]] and buy["bought"] == {"stone": True, "leaf": True}, json.dumps(buy))
-        poor = ev("fresh(); G.state.starterGrantUsed = true; G.state.gold = 1; const n = G.state.decor.length; const r = G.buyDecor('leaf'); return { r: r === null, n: G.state.decor.length - n, gold: G.state.gold };")
+        check("v6.8 buying: stone costs 2 gold (pricePaid 2), leaf 1 gold (pricePaid 1); +1 XP on the FIRST stone only, 0 XP for later stones and for every leaf (placeXp.leaf 0)",
+              buy["out"] == [["stone", 2, 1, 2], ["stone", 2, 0, 2], ["leaf", 1, 0, 1], ["leaf", 1, 0, 1], ["stone", 2, 0, 2]] and buy["bought"] == {"stone": True, "leaf": True}, json.dumps(buy))
+        poor = ev("fresh(); G.state.starterGrantUsed = true; G.state.gold = 0; const n = G.state.decor.length; const r = G.buyDecor('leaf'); return { r: r === null, n: G.state.decor.length - n, gold: G.state.gold };")
         page.evaluate("AQ.openShop(); AQ.setShopTab('decor')"); page.wait_for_timeout(150)
         shop = page.evaluate("[...document.querySelectorAll('#shop-decor .card')].map((c) => ({ n: c.querySelector('.n').textContent, price: c.querySelector('.price').textContent, dis: c.querySelector('button').disabled }))")
         page.evaluate("document.querySelector('#shop-close').click()")
-        check("shop: exactly Leaf and Stone at 2 gold (no new decorations or corals yet); with 1 gold the Buy buttons are disabled and buying is refused",
-              shop == [{"n": "Leaf", "price": "2", "dis": True}, {"n": "Stone", "price": "2", "dis": True}] and poor == {"r": True, "n": 0, "gold": 1}, json.dumps([shop, poor]))
+        check("shop: Leaf 1 gold, Stone 2 gold; with 0 gold the Buy buttons are disabled and buying a leaf is refused",
+              shop[:2] == [{"n": "Leaf", "price": "1", "dis": True}, {"n": "Stone", "price": "2", "dis": True}] and poor == {"r": True, "n": 0, "gold": 0}, json.dumps([shop, poor]))
         # moving / resizing / recolouring later pays or charges nothing (d-pad, drag, size)
         did = ev("fresh(); G.state.starterGrantUsed = true; G.state.gold = 100; const d = G.buyDecor('stone'); AQ.setTool('brush'); AQ.selectDecor(d.id); return d.id;"); page.wait_for_timeout(100)
         g0 = ev("return [G.state.gold, G.state.tank.xp];")
@@ -1962,12 +1962,23 @@ def tuning_68():
         page.evaluate("AQ.setTool('hand')")
         check("selling a 2-gold stone: 'Sell · refund 1 gold' / 'Sell this stone? You get 1 gold back.', +1 gold, XP not taken back; buying another stone pays 0 XP (first copy already bought)",
               sb == "Sell · refund 1 gold" and st == "Sell this stone? You get 1 gold back." and sold == {"gold": gb + 1, "xp": xp_b, "n": 0, "bought": True} and rebuy == 0, json.dumps([sb, st, sold, rebuy]))
+        # leaf exception: a bought leaf sells for its full pricePaid (1) in the UI; generic per-type override (default floor / 2)
+        lid = ev("fresh(); G.state.starterGrantUsed = true; G.state.gold = 100; G.state.decorBought = {}; const x = G.state.tank.xp; const d = G.buyDecor('leaf'); window.__lx = G.state.tank.xp - x; AQ.setTool('brush'); AQ.selectDecor(d.id); return d.id;"); page.wait_for_timeout(100)
+        lb = page.inner_text("#dm-sell"); page.click("#dm-sell"); page.wait_for_timeout(80); lt = page.inner_text("#confirm-text"); lg = ev("return G.state.gold;")
+        page.click("#confirm-yes"); page.wait_for_timeout(100)
+        la = ev("return { gold: G.state.gold, n: G.state.decor.length, xp: window.__lx, bought: !!G.state.decorBought.leaf };"); page.evaluate("AQ.setTool('hand')")
+        check("leaf exception: first leaf costs 1 gold and gives 0 XP; 'Sell · refund 1 gold' / 'Sell this leaf? You get 1 gold back.' refunds the full 1 gold",
+              lb == "Sell · refund 1 gold" and lt == "Sell this leaf? You get 1 gold back." and lg == 99 and la == {"gold": 100, "n": 0, "xp": 0, "bought": True}, json.dumps([lb, lt, lg, la]))
+        rf = ev("""const r = (type, p) => G.decorRefund({ type, pricePaid: p });
+            return { leaf: [r('leaf', 0), r('leaf', 1), r('leaf', 3)], stone: [r('stone', 0), r('stone', 1), r('stone', 2), r('stone', 5)] };""")
+        check("sell refund per type: leaf = full pricePaid (0 -> 0, 1 -> 1, 3 -> 3); stone (no override) = floor(pricePaid / 2) (0, 0, 1, 2)",
+              rf == {"leaf": [0, 1, 3], "stone": [0, 0, 1, 2]}, json.dumps(rf))
         # starter grant: first clean 20 gold, 2 gold on decor before any fish -> 18 -> grant tops up to 20 -> the Guppy can still be bought
         grant = ev("""G.reset(); clean(); G.state.gold = 20; G.state.firstCleanPending = false; G.state.starterGrantUsed = false; G.tick(1);
             const a = G.state.gold; G.buyDecor('leaf'); const b = G.state.gold; G.tick(1); const c = G.state.gold, used = G.state.starterGrantUsed; const f = G.buyFish('guppy');
             return { a, b, c, used, fish: !!f, after: G.state.gold };""")
-        check("NUMBERS 7 first session: 20 gold -> leaf -> 18; the one-time starter grant tops up to 20 (no living fish); the first Guppy is still affordable",
-              grant == {"a": 20, "b": 18, "c": 20, "used": True, "fish": True, "after": 0}, json.dumps(grant))
+        check("NUMBERS 7 first session: 20 gold -> leaf -> 19; the one-time starter grant tops up to 20 (no living fish); the first Guppy is still affordable",
+              grant == {"a": 20, "b": 19, "c": 20, "used": True, "fish": True, "after": 0}, json.dumps(grant))
         # existing (pre-6.8) save: pieces stay, pricePaid 0 (sell 0), types count as already bought (no first-copy XP)
         old = {"v": 4, "gameTime": 100, "lastSeen": 0, "gold": 50, "food": 10, "diamonds": 0, "speed": 1, "nextId": 20, "fish": [], "tank": {"xp": 70}, "firstCleanPending": False, "starterGrantUsed": True,
                "dirt": {"t": 0, "spots": [], "spawned": 0, "grime5": 0, "rubStage": 0}, "stats": {},
@@ -1983,9 +1994,9 @@ def tuning_68():
             const r0 = G.sellDecor('d1'), r1 = G.sellDecor(nl.id); return { xpBuy: x1 - x0, goldBuy: g0 - g1, sellOld: r0, sellNew: r1, xpAfter: G.state.tank.xp - x1 };""")
         exp_decor = [[d["id"], d["type"], d["x"], d["y"], d["sh"], d["sw"], d["color"], 0, False] for d in old["decor"]]
         check("pre-6.8 save migration: placed stone / leaves stay exactly where they were (position, size, colour), counted as bought for 0 gold (refund 0, 'Sell · refund 0 gold'); "
-              "leaf and stone already count as bought (a new leaf and stone pay 0 XP, cost 2 gold each); selling never removes XP",
+              "leaf and stone already count as bought (a new leaf and stone pay 0 XP, cost 1 + 2 gold); the new leaf sells for its full 1 gold; selling never removes XP",
               mig["decor"] == exp_decor and mig["bought"] == {"leaf": True, "stone": True} and mig["gold"] == 50 and mig["xp"] == 70 and mig["refunds"] == [0, 0, 0] and old_btn == "Sell · refund 0 gold"
-              and mig2 == {"xpBuy": 0, "goldBuy": 4, "sellOld": 0, "sellNew": 1, "xpAfter": 0}, json.dumps([mig, old_btn, mig2]))
+              and mig2 == {"xpBuy": 0, "goldBuy": 3, "sellOld": 0, "sellNew": 1, "xpAfter": 0}, json.dumps([mig, old_btn, mig2]))
         old2 = {**old, "decor": [old["decor"][2]], "lastSeen": int(time.time() * 1000)}  # an old save with only a stone placed
         page.evaluate("(s) => { AQ.game.save = () => {}; localStorage.setItem(AQ.game.CFG.VISUAL.saveKey, JSON.stringify(s)); location.reload(); }", old2)
         page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
@@ -1993,8 +2004,8 @@ def tuning_68():
         # a post-6.8 save is not migrated again: pricePaid and decorBought survive a reload
         ev("G.save();"); page.reload(); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(250)
         keep = ev("return { paid: G.state.decor.map((d) => d.pricePaid), bought: G.state.decorBought };")
-        check("old save with only a stone: another stone pays 0 XP, the first leaf still pays +1 XP; a 6.8 save keeps pricePaid (0 old, 2 new) and bought types across a reload",
-              mig3 == {"stoneXp": 0, "leafXp": 1, "bought": {"stone": True, "leaf": True}} and keep == {"paid": [0, 2, 2], "bought": {"stone": True, "leaf": True}}, json.dumps([mig3, keep]))
+        check("old save with only a stone: another stone pays 0 XP, the first leaf pays 0 XP (placeXp.leaf 0); a 6.8 save keeps pricePaid (0 old, 2 stone, 1 leaf) and bought types across a reload",
+              mig3 == {"stoneXp": 0, "leafXp": 0, "bought": {"stone": True, "leaf": True}} and keep == {"paid": [0, 2, 1], "bought": {"stone": True, "leaf": True}}, json.dumps([mig3, keep]))
         # dead fish: floor(price / 4) at any level, no XP
         dg = ev("""fresh(); G.state.tank.xp = 999999; const out = {};
             for (const sp of ['guppy', 'danio', 'discus']) { out[sp] = []; for (let lv = 1; lv <= 4; lv++) { G.state.gold = 99999; G.state.fish.length = 0; const f = G.buyFish(sp); f.level = lv; f.state = 'DEAD';

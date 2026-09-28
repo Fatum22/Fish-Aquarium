@@ -481,11 +481,16 @@
 
   // ---- decorations (NUMBERS 7, v6.8): stone and leaf cost decorations.price[type] (2 gold) each, max 12 in the tank.
   // XP decorations.placeXp[type] (1) only for the first copy of each type on this tank (decorBought, until a reset).
-  // Selling refunds floor(pricePaid / 2) (decorations.sellRefund) and never takes XP back. Moving / resizing / recolouring is free.
+  // Selling refunds floor(pricePaid / 2) (decorations.sellRefund, per-type sellRefundOverride: leaf = full pricePaid) and never takes XP back. Moving / resizing / recolouring is free.
   function decorFull() { return S.decor.length >= T.decorations.maxInTank; }
   function decorPrice(type) { const p = T.decorations.price; return typeof p === 'number' ? p : (p && p[type]) || 0; }
   function decorFirstXp(type) { const x = T.decorations.placeXp; return S.decorBought[type] ? 0 : (typeof x === 'number' ? x : (x && x[type]) || 0); }
-  function decorRefund(d) { return Math.floor((d.pricePaid || 0) / 2); }
+  /** sell refund: decorations.sellRefundOverride[type] ('pricePaid' = the full price paid, e.g. leaf), default
+   *  decorations.sellRefund floor(pricePaid / 2). Old free pieces (pricePaid 0) always refund 0. */
+  function decorRefund(d) {
+    const paid = Math.max(0, d.pricePaid || 0), o = (T.decorations.sellRefundOverride || {})[d.type];
+    return o === 'pricePaid' ? paid : Math.floor(paid / 2);
+  }
   /** buy a decoration: base at the floor centre, or the nearest free x (no other base within 0.06 of the width) */
   function buyDecor(type) {
     const D = T.decorations;

@@ -324,6 +324,11 @@
     },
   };
   const decorType = (type) => DECOR_TYPES[type] || DECOR_TYPES.stone;
+  /** ' (leaf: full)' for the types whose tuning sellRefundOverride is the full pricePaid */
+  function fullRefundNote() {
+    const o = T.decorations.sellRefundOverride || {}, full = Object.keys(o).filter((t) => o[t] === 'pricePaid' && DECOR_TYPES[t]).map((t) => DECOR_TYPES[t].noun);
+    return full.length ? ` (${full.join(', ')}: full)` : '';
+  }
   function drawDecor() {
     const list = G.state.decor.slice().sort((a, b) => a.y - b.y); // lower base = in front
     for (const d of list) {
@@ -976,7 +981,7 @@
     const dead = G.state.fish.length - G.living();
     $('shop-note').textContent = shopTab === 'fish'
       ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. ${G.tankInfo().level < T.tank.maxLevel ? `Aquarium level ${T.tank.maxLevel}: room for ${G.capacityAt(T.tank.maxLevel)} fish.` : ''}`
-      : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds half its price.`;
+      : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling refunds half the price${fullRefundNote()}.`;
   }
 
   // ------------------------------------------------------------ decoration edit mode (AD v4 7)
