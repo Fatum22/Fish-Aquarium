@@ -642,13 +642,6 @@
   const goldEl = $('gold'), gemEl = $('gems');
   let lastGold = null, lastGems = null;
   function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 160); }
-  /** AD v4 3 dirt timer: "5h 12m", "42m" under an hour, "<1m" under a minute */
-  function fmtDirt(sec) {
-    sec = Math.max(0, Math.floor(sec));
-    if (sec < 60) return '<1m';
-    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
-  }
   /** bottle fill steps (AD v4 2): 0 empty, 1-4 quarter, 5-9 half, 10-19 three quarters, 20+ full */
   function bottleFill(n) { return n <= 0 ? 0 : n < 5 ? 0.25 : n < 10 ? 0.5 : n < 20 ? 0.75 : 1; }
   function updateHUD() {
@@ -667,9 +660,8 @@
     const st = G.dirtStage(), maxSt = T.dirt.stageAtSec.length;
     const bar = $('dirt-bar'); bar.dataset.stage = st;
     [...bar.children].forEach((el, i) => el.classList.toggle('on', i < st));
-    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : `Dirt: stage ${st} of ${maxSt}`;
-    const nx = G.dirtNextIn();
-    $('dirt-next').textContent = st >= maxSt || nx == null ? 'Max dirt' : `Stage ${st + 1} in ${fmtDirt(nx)}`;
+    // v6.1 (NUMBERS 6.3, AD v4 3): no dirt timer anywhere; the window shows the stage only, 'Dirt: max' at the last stage
+    $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : st >= maxSt ? 'Dirt: max' : `Dirt: stage ${st} of ${maxSt}`;
     // tank level block
     const ti = G.tankInfo();
     $('tank-label').textContent = `Tank Lv ${ti.level}`;

@@ -175,9 +175,9 @@ def main(VW, VH):
         page.evaluate("AQ.game.save()"); boot("?speed=1")
         check("reload always starts with debug closed (open state is not saved)", not page.evaluate("AQ.debugOpen()") and not page.locator("#dbg-gold").is_visible())
         nt = page.evaluate("({ st: AQ.game.dirtStage(), spots: AQ.game.state.dirt.spots.map((s) => s.stage), next: AQ.game.dirtNextIn(), fc: AQ.game.state.firstCleanPending, lvl: AQ.game.tankInfo().level })")
-        check("v4 new tank: empty, 0 gold / 0 food / 0 diamonds, dirt stage 3 (clock at 12 h, next stage in 12 h) with its spots, first-clean reward armed, tank Lv1",
+        check("v6.1 new tank: empty, 0 gold / 0 food / 0 diamonds, dirt stage 3 (clock at newTank.dirtClockStartSec 6 h, stage 4 due at 12 h, i.e. 6 h away) with its spots, first-clean reward armed, tank Lv1",
               s["fish"] == [] and s["gold"] == tj["startGold"] == 0 and s["food"] == tj["startFood"] == 0 and s["diamonds"] == tj["startDiamonds"] == 0 and nt["st"] == 3
-              and len(nt["spots"]) == tj["dirt"]["spots"][2] and 12 * 3600 - 60 < nt["next"] <= 12 * 3600 and nt["fc"] and nt["lvl"] == 1, json.dumps(nt))
+              and tj["newTank"]["dirtClockStartSec"] == 21600 and len(nt["spots"]) == tj["dirt"]["spots"][2] and 6 * 3600 - 60 < nt["next"] <= 6 * 3600 and nt["fc"] and nt["lvl"] == 1, json.dumps(nt))
         boot("?speed=3600")
         g0 = page.evaluate("AQ.game.state.gameTime"); page.wait_for_timeout(1000); g1 = page.evaluate("AQ.game.state.gameTime")
         check("hidden ?speed=3600 works (about 1 game hour per real second)", S()["speed"] == 3600 and 1800 < g1 - g0 < 7200, f"speed={S()['speed']} dGame={g1 - g0:.0f}s")
@@ -193,7 +193,7 @@ def main(VW, VH):
           out.waiting = run(() => { G.buyFish('platy'); });
           out.hours = at.map((s) => s / H); return out;""")
         exp = [[i, i + 1, tj["dirt"]["spots"][i]] for i in range(5)]
-        check("dirt stages at 3/6/12/24/48 h with dirt.spots spots per stage (empty tank gets dirty too)", d["hours"] == [3, 6, 12, 24, 48] and d["empty"] == exp and tj["dirt"]["runsWithEmptyTank"] is True, json.dumps(d["empty"]))
+        check("v6.1 dirt stages at 1.5/3/6/12/24 h with dirt.spots spots per stage (empty tank gets dirty too)", d["hours"] == [1.5, 3, 6, 12, 24] and tj["dirt"]["stageAtSec"] == [5400, 10800, 21600, 43200, 86400] and d["empty"] == exp and tj["dirt"]["runsWithEmptyTank"] is True, json.dumps(d["empty"]))
         check("dirt timer ignores the fish: empty / living / dead / waiting tanks give identical stages", d["living"] == d["dead"] == d["waiting"] == d["empty"], json.dumps({k: d[k] for k in ("living", "dead", "waiting")}))
 
         c = ev("""const out = []; for (let n = 1; n <= 5; n++) { fresh(); G.state.gold = 50; toStage(n); const g0 = G.state.gold, x0 = G.state.tank.xp;
@@ -201,12 +201,12 @@ def main(VW, VH):
           fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.5); const partial = G.state.gold - g0;
           return { out, partial };""")
         cg = tj["dirt"]["cleanGold"]
-        check("full clean pays cleanGold by stage (2/3/4/5/6) + 5 XP and restarts the dirt clock (first clean already used)", cg == [2, 3, 4, 5, 6] and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
+        check("v6.1 full clean pays cleanGold by stage (2/4/6/8/10 = stage x 2) + 5 XP and restarts the dirt clock (first clean already used)", cg == [2, 4, 6, 8, 10] and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
         c2 = ev("""fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.3); const partial = G.state.gold - g0, rs = G.state.dirt.rubStage;
           G.state.dirt.t = T.dirt.stageAtSec[3] - 0.5; G.tick(1); const midStage = G.dirtStage(), spots = G.state.dirt.spots.length;
           const r = rubAll(1.01); return { partial, rs, midStage, spots, gold: G.state.gold - g0, payStage: r && r.stage, stageNow: r && r.stageNow, rsAfter: G.state.dirt.rubStage };""")
-        check("clean pays by the stage when the rub STARTED (start at 3, tank reaches 4 mid-rub -> pays cleanGold[3] = 4)",
-              c2["partial"] == 0 and c2["rs"] == 3 and c2["midStage"] == 4 and c2["spots"] >= 1 and c2["gold"] == cg[2] == 4 and c2["payStage"] == 3 and c2["stageNow"] == 4 and c2["rsAfter"] == 0, json.dumps(c2))
+        check("clean pays by the stage when the rub STARTED (start at 3, tank reaches 4 mid-rub -> pays cleanGold[2] = 6, not 8)",
+              c2["partial"] == 0 and c2["rs"] == 3 and c2["midStage"] == 4 and c2["spots"] >= 1 and c2["gold"] == cg[2] == 6 and c2["payStage"] == 3 and c2["stageNow"] == 4 and c2["rsAfter"] == 0, json.dumps(c2))
         check("partial rubbing pays nothing", c["partial"] == 0)
         fc = ev("""G.reset(); G.tick(1); const g0 = G.state.gold, f0 = G.state.food, x0 = G.state.tank.xp, grant0 = G.state.starterGrantUsed;
           const r = rubAll(1.01); const first = { gold: G.state.gold - g0, food: G.state.food - f0, xp: G.state.tank.xp - x0, pending: G.state.firstCleanPending, t: G.state.dirt.t, grant0 };
@@ -557,7 +557,7 @@ def main(VW, VH):
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]
         ok = rub_clean(); s = S()
         fl = page.evaluate("AQ.floats(true)")
-        check("sponge mouse rub cleans stage 3: +4 gold, +5 XP, 'Sparkling! +4 gold' float", ok and s["gold"] == gold_b + 4 and s["tank"]["xp"] == xp_b + 5 and "Sparkling! +4 gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
+        check("sponge mouse rub cleans stage 3: +6 gold, +5 XP, 'Sparkling! +6 gold' float", ok and s["gold"] == gold_b + 6 and s["tank"]["xp"] == xp_b + 5 and "Sparkling! +6 gold" in fl, f"gold {gold_b}->{s['gold']} xp {xp_b}->{s['tank']['xp']} {fl}")
         tool("hand"); page.wait_for_timeout(400)
         page.screenshot(path=shot("after_clean"))
         # L1 release and L2 sell with the Net (both confirmed)
@@ -811,23 +811,27 @@ def main(VW, VH):
               and abs(hud["dirt"]["width"] - (320 if LARGE else 240)) < 0.5 and abs(hud["dirt"]["height"] - (48 if LARGE else 36)) < 0.5 and abs(hud["dirt"]["right"] - hud["hud"]["right"]) < 0.5
               and abs(hud["gold"]["height"] - (42 if LARGE else 32)) < 0.5 and hud["lvl"]["width"] >= 160 and hud["pillFs"] == ("20px" if LARGE else "16px") and "tabular-nums" in hud["tab"], json.dumps(hud))
         def dirt_txt():
-            return page.evaluate("""(() => { const l = document.getElementById('dirt-label'), n = document.getElementById('dirt-next'), h = document.getElementById('hud');
-              const w = document.getElementById('dirt-win'), a = l.getBoundingClientRect(), b = n.getBoundingClientRect();
-              return { label: l.textContent, next: n.textContent, clip: l.scrollWidth > l.clientWidth + 0.5 || n.scrollWidth > n.clientWidth + 0.5 || a.right > b.left || b.right > w.getBoundingClientRect().right,
-                       oneLine: Math.abs(a.top - b.top) < 1 && h.scrollHeight <= h.clientHeight + 0.5 }; })()""")
+            return page.evaluate("""(() => { const l = document.getElementById('dirt-label'), h = document.getElementById('hud'), w = document.getElementById('dirt-win');
+              const a = l.getBoundingClientRect(), wr = w.getBoundingClientRect();
+              return { label: l.textContent, next: !!document.getElementById('dirt-next'), winText: w.innerText.trim(), hudText: h.innerText,
+                       clip: l.scrollWidth > l.clientWidth + 0.5 || a.right > wr.right + 0.5, oneLine: h.scrollHeight <= h.clientHeight + 0.5 }; })()""")
         dt = {}
-        for key, js in [("clean", "clean(); G.state.dirt.t = T.dirt.stageAtSec[0] - (2 * H + 12 * 60) - 30;"), ("s4", "toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"),
-                        ("m42", "toStage(2); G.state.dirt.t = T.dirt.stageAtSec[2] - 42 * 60 - 10;"), ("lt1", "toStage(2); G.state.dirt.t = T.dirt.stageAtSec[2] - 30;"), ("max", "toStage(5);")]:
+        for key, js in [("clean", "clean(); G.state.dirt.t = T.dirt.stageAtSec[0] - 30;"), ("s2", "toStage(2); G.state.dirt.t = T.dirt.stageAtSec[2] - 30;"),
+                        ("s4", "toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"), ("max", "toStage(5);")]:
             ev(js); page.wait_for_timeout(80); dt[key] = dirt_txt()
-        ev("toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"); page.wait_for_timeout(80); page.locator("#hud").screenshot(path=shot("topbar_23h59m"))
-        check("AD v4 3: dirt window 'Dirt: clean' / 'Stage 1 in 2h 12m', 'Dirt: stage 4 of 5' / 'Stage 5 in 23h 59m' (one line, no clipping), '42m', '<1m', 'Max dirt'",
-              dt["clean"]["label"] == "Dirt: clean" and dt["clean"]["next"] == "Stage 1 in 2h 12m" and dt["s4"]["label"] == "Dirt: stage 4 of 5" and dt["s4"]["next"] == "Stage 5 in 23h 59m"
-              and not dt["s4"]["clip"] and dt["s4"]["oneLine"] and dt["m42"]["next"] == "Stage 3 in 42m" and dt["lt1"]["next"] == "Stage 3 in <1m" and dt["max"]["next"] == "Max dirt"
-              and dt["max"]["label"] == "Dirt: stage 5 of 5", json.dumps(dt))
-        jm = ev("""clean(); G.state.dirt.t = 3600 - 30; G.state.food = 20; const f = G.buyFish('guppy'); f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = 90; f.deathLeft = G.deathSecFor(G.SPECIES.guppy, 1); return 0;""")
-        page.wait_for_timeout(80); t_before = dirt_txt()["next"]
-        ev("const f = G.state.fish[G.state.fish.length - 1]; feedFull(f);"); page.wait_for_timeout(80); t_after = dirt_txt()["next"]
-        check("AD v4 3: the dirt timer jumps 5 minutes at once when a meal moves the clock", t_before == "Stage 1 in 2h 00m" and t_after == "Stage 1 in 1h 55m", f"{t_before} -> {t_after}")
+        ev("toStage(4); G.state.dirt.t = T.dirt.stageAtSec[3] + 30;"); page.wait_for_timeout(80); page.locator("#hud").screenshot(path=shot("topbar_dirt_stage4"))
+        ev("toStage(5);"); page.wait_for_timeout(80); page.locator("#hud").screenshot(path=shot("topbar_dirt_max"))
+        import re as _re
+        timer_re = _re.compile(r"(Stage \d+ in|Next stage|\d+h \d+m|<1m|Max dirt)")
+        check("v6.1 / AD v4 3: dirt window shows the stage only: 'Dirt: clean', 'Dirt: stage 2 of 5', 'Dirt: stage 4 of 5', 'Dirt: max' at stage 5 (one line, no clipping); "
+              "no countdown / 'Next stage in' text anywhere in the top bar and no timer element (showTimerToNextStage false)",
+              tj["dirt"]["showTimerToNextStage"] is False and dt["clean"]["label"] == "Dirt: clean" and dt["s2"]["label"] == "Dirt: stage 2 of 5" and dt["s4"]["label"] == "Dirt: stage 4 of 5"
+              and dt["max"]["label"] == "Dirt: max" and all(not q["next"] and q["winText"] == q["label"] and not timer_re.search(q["hudText"]) and not q["clip"] and q["oneLine"] for q in dt.values()),
+              json.dumps(dt))
+        jm = ev("""clean(); G.state.dirt.t = 3600 - 30; G.state.food = 20; const f = G.buyFish('guppy'); f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = 90; f.deathLeft = G.deathSecFor(G.SPECIES.guppy, 1);
+          const t0 = G.state.dirt.t; feedFull(f); return { dt: G.state.dirt.t - t0 };""")
+        page.wait_for_timeout(80); after_meal = dirt_txt()
+        check("v6.1: a meal still moves the hidden dirt clock 5 minutes at once, and no timer text appears", abs(jm["dt"] - 300) < 1 and not timer_re.search(after_meal["hudText"]), json.dumps([jm, after_meal]))
         # tank drawing geometry + pixels
         ev("fresh(); G.state.speed = 1;"); page.wait_for_timeout(350)
         gm = page.evaluate("AQ.geom()"); tb = box()
@@ -1082,8 +1086,8 @@ def main(VW, VH):
         bc = page.evaluate("AQ.game.balanceChecks()")
         # Designer check (a): gold per day if you always clean at stage n = cleanGold[n] * 24 h / stage-n time; stage 1 earns the most
         per_day = [tj["dirt"]["cleanGold"][i] * 86400 / t for i, t in enumerate(tj["dirt"]["stageAtSec"])]
-        check("Designer check (a): cleaning at stage 1 earns the most gold per day (16/12/8/5/3), falling every stage",
-              per_day == [16, 12, 8, 5, 3] and all(per_day[i] < per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
+        check("Designer check (a, v6.1): cleaning at stage 1 earns the most gold per day (32/32/24/16/10), never rising with the stage",
+              per_day == [32, 32, 24, 16, 10] and all(per_day[i] <= per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
         # Designer check (b, v6 10): profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L.
         # Food to level L: L1 mid only (0.5 meal) of finished levels before L, then start+mid of L2/L3 (5 meals to L4). Food at 0.5 g.
         # L4 must profit and beat L3 for every species.

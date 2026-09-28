@@ -72,7 +72,6 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 #dirt-win { flex: none; margin-left: auto; width: var(--dirt-w); height: var(--dirt-h); background: var(--panel); border-radius: 10px; padding: 3px 10px 0;
   display: flex; flex-direction: column; justify-content: center; gap: 3px; box-shadow: inset 0 0 0 2px transparent; }
 #dirt-win .l1 { display: flex; justify-content: space-between; gap: 6px; font-size: var(--dirt-fs); font-weight: 800; white-space: nowrap; line-height: 1.15; }
-#dirt-next { color: var(--muted); font-variant-numeric: tabular-nums; }
 #dirt-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-bottom: 3px; }
 #dirt-bar i { height: var(--dirt-bar); border-radius: 3px; background: #ffffff1a; transition: background .3s; }
 #dirt-bar i.on { background: linear-gradient(#b9a95a, #7a6d2e); }

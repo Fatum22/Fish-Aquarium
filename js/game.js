@@ -569,7 +569,7 @@
 
   // ---------------------------------------------------------------- balance checks (NUMBERS.md v6 section 10)
   /** Designer's required checks:
-   *  (a) cleaning at stage 1 earns the most gold per day (cleanGold[n] * 24 h / stage n time), falling with every stage;
+   *  (a) cleaning at stage 1 earns the most gold per day (cleanGold[n] * 24 h / stage n time), never rising with the stage (v6.1: 32/32/24/16/10);
    *  (b) v6: per species, selling at L4 is a profit and beats selling at L3 (L3 may now show a profit: sell = 1.5 x price).
    *      profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L. Food eaten before selling at L = the meals
    *      of every finished level: L1 mid only (no start meal since v6), then start + mid of L2 and L3 (5 meals to L4).
@@ -591,7 +591,8 @@
         ok: adult.profit > 0 && adult.profit > l3.profit };
     });
     const cleanPerDay = T.dirt.stageAtSec.map((t, i) => +(cleanGoldFor(i + 1) * 86400 / t).toFixed(2));
-    const cleanOk = cleanPerDay.every((v, i) => i === 0 || v < cleanPerDay[i - 1]) && cleanPerDay[0] === Math.max(...cleanPerDay);
+    // v6.1 (NUMBERS 6.5): 32 / 32 / 24 / 16 / 10 a day; cleaning early never pays less (stages 1 and 2 tie), stage 1 pays the most
+    const cleanOk = cleanPerDay.every((v, i) => i === 0 || v <= cleanPerDay[i - 1]) && cleanPerDay[0] === Math.max(...cleanPerDay) && cleanPerDay[0] > cleanPerDay[cleanPerDay.length - 1];
     return { sell, sellOk: sell.every((o) => o.ok), cleanPerDay, cleanOk, cleanRatio: +(cleanPerDay[0] / cleanPerDay[cleanPerDay.length - 1]).toFixed(2) };
   }
 

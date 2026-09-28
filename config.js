@@ -47,7 +47,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6",
+    "version": "6.1",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -760,11 +760,11 @@ window.AQUARIUM_CONFIG = {
     "dirt": {
       "model": "timeSinceClean",
       "stageAtSec": [
+        5400,
         10800,
         21600,
         43200,
-        86400,
-        172800
+        86400
       ],
       "spots": [
         3,
@@ -775,10 +775,10 @@ window.AQUARIUM_CONFIG = {
       ],
       "cleanGold": [
         2,
-        3,
         4,
-        5,
-        6
+        6,
+        8,
+        10
       ],
       "rubPxPerSpot": [
         150,
@@ -792,7 +792,8 @@ window.AQUARIUM_CONFIG = {
       "cleanGoldIndex": "byStageAtCleanStart",
       "mealAddsSec": 300,
       "mealAddsWhen": "fishFullyFedForOneMeal",
-      "showTimerToNextStage": true
+      "showTimerToNextStage": false,
+      "cleanGoldRule": "stage N pays N x 2 gold (base 2)"
     },
     "tank": {
       "levelAtXp": [
@@ -841,7 +842,7 @@ window.AQUARIUM_CONFIG = {
     "startDiamonds": 0,
     "newTank": {
       "dirtStartStage": 3,
-      "dirtClockStartSec": 43200,
+      "dirtClockStartSec": 21600,
       "firstCleanReward": {
         "gold": 20,
         "food": 50,
