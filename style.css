@@ -161,13 +161,17 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 .card canvas { width: 100%; aspect-ratio: 5 / 2; height: auto; background: radial-gradient(#1f5f86, #0e3552); border-radius: 8px; }
 .card .n { font-weight: 900; font-size: 13px; }
 .card { position: relative; }
-/* rarity labels (AD NEW_FISH_V5_1 2): uncommon green, rare purple */
-.rar { display: inline-block; font-size: 10px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; line-height: 15px; }
-.card .rar { position: absolute; top: 9px; left: 9px; }
-.rar-uncommon { background: #1f7a45; color: #d9ffe8; border: 1px solid #3ddc84; }
-.rar-rare { background: #5b2b8c; color: #f1e3ff; border: 1px solid #b884ff; }
+/* rarity tag (AD LANDSCAPE_LAYOUT_V4 7, 2026-09-28): Uncommon / Rare only, never Common (no tag, no frame, no text anywhere).
+   Small pill, no border: 9px/800 uppercase, 14px tall, padding 0 5px, radius 7px (Large 10px / 16px / 0 6px). Colours NEW_FISH_V6 2.
+   On shop cards it overlays the card's top-left corner, 4px in. One set of variables for the Art Director. */
+:root { --tag-fs: 9px; --tag-h: 14px; --tag-px: 5px; --tag-r: 7px; --tag-inset: 4px; }
+@media (min-height: 600px) { :root { --tag-fs: 10px; --tag-h: 16px; --tag-px: 6px; --tag-r: 8px; } }
+.rar { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--tag-h); padding: 0 var(--tag-px); border: 0; border-radius: var(--tag-r);
+  font-size: var(--tag-fs); line-height: 1; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; vertical-align: middle; }
+.card .rar { position: absolute; top: var(--tag-inset); left: var(--tag-inset); z-index: 1; }
+.rar-uncommon { background: #1f7a45; color: #e6fff0; }
+.rar-rare { background: #6a34a3; color: #f5ecff; }
 .card.rare { border: 2px solid #b884ff; } /* V6 4: rare shop cards */
-@media (min-height: 600px) { .rar { font-size: 12px; line-height: 18px; } }
 .card .l { font-size: 10px; color: var(--muted); font-style: italic; margin-top: -3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .s { font-size: 10px; color: var(--muted); }
 .card .btn { margin-top: auto; padding: 5px 6px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; }

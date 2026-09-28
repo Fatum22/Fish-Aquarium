@@ -777,6 +777,17 @@
   document.querySelectorAll('.tool[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $('btn-shop').addEventListener('click', () => ($('shop').hidden ? openShop() : closeShop()));
 
+  // ------------------------------------------------------------ rarity tag (one helper for every place that shows rarity)
+  /** AD v4 7 / V6 2: Common gets NO tag, frame or text anywhere; Uncommon, Rare (and any later rarity above them, e.g. epic)
+   *  get a small pill. Returns null for common / unknown-low rarities. */
+  function rarityTag(r) {
+    const k = String(r || '').toLowerCase();
+    if (!k || k === 'common') return null;
+    return { label: k[0].toUpperCase() + k.slice(1), cls: `rar rar-${k}`, word: k };
+  }
+  /** name with its rarity in brackets for plain-text toasts / tooltips: "German Blue Ram (rare)", commons: just the name */
+  const nameWithRarity = (sp) => { const t = rarityTag(sp.rarity); return t ? `${sp.name} (${t.word})` : sp.name; };
+
   // ------------------------------------------------------------ fish info (side panel, AD v4 8)
   let selectedId = null;
   function openPanel(id) { selectedId = id; closeShop(); $('panel').hidden = false; renderPanel(true); }
@@ -793,9 +804,10 @@
     panel.classList.toggle('dead', i.dead);
     $('p-name').textContent = sp.name;
     $('p-latin').textContent = sp.latin;
-    $('p-rarity').textContent = sp.rarity[0].toUpperCase() + sp.rarity.slice(1);
-    $('p-rarity').hidden = sp.rarity === 'common'; // V6 2/4: never print "common"; chip only for uncommon / rare
-    $('p-rarity').className = 'chip' + (sp.rarity === 'common' ? '' : ' rar-' + sp.rarity);
+    const tag = rarityTag(sp.rarity); // never "Common": no text in the DOM at all, not just hidden
+    $('p-rarity').textContent = tag ? tag.label : '';
+    $('p-rarity').hidden = !tag;
+    $('p-rarity').className = tag ? tag.cls : '';
     $('p-level').textContent = i.dead ? 'Dead' : f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
     $('p-worth').textContent = i.dead ? 'Worth 0 gold' : `Worth ${i.sell} gold`;
     if (!i.dead) {
@@ -901,7 +913,7 @@
       T.species.forEach((sp) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
-        const rar = sp.rarity && sp.rarity !== 'common' ? `<span class="rar rar-${sp.rarity}">${sp.rarity === 'rare' ? 'Rare' : 'Uncommon'}</span>` : '';
+        const tg = rarityTag(sp.rarity), rar = tg ? `<span class="${tg.cls}">${tg.label}</span>` : '';
         if (sp.rarity === 'rare') card.classList.add('rare'); // V6 4: rare cards get a 2 px #b884ff border
         card.innerHTML = `<canvas width="240" height="96"></canvas>${rar}<div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
           <div class="s">Adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
@@ -1258,7 +1270,7 @@
         break;
       case 'tanklevel':
         { // NUMBERS v5.1 8 (v6.1: player-facing "Aquarium level"): "Aquarium level 8: Pearl Gourami and Clown Loach (rare) unlocked, room for 2 more fish"
-          const names = d.unlocks.map((id) => { const sp = G.SPECIES[id]; return sp.name + (sp.rarity && sp.rarity !== 'common' ? ` (${sp.rarity})` : ''); });
+          const names = d.unlocks.map((id) => nameWithRarity(G.SPECIES[id]));
           const parts = [];
           if (names.length) parts.push(`${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]} unlocked`);
           if (d.extraSlots) parts.push(`room for ${d.extraSlots} more fish`);
@@ -1492,7 +1504,7 @@
         const sp = G.SPECIES[id], h = rows[r];
         c.fillStyle = '#0a2840'; c.fillRect(0, y, labelW, h); c.fillStyle = '#0a2a3d'; c.fillRect(labelW, y, colW * 4, h);
         c.strokeStyle = '#1a4058'; c.lineWidth = 1; c.beginPath(); c.moveTo(0, y + 0.5); c.lineTo(cv.width, y + 0.5); for (let i = 0; i <= 4; i++) { c.moveTo(labelW + colW * i + 0.5, y); c.lineTo(labelW + colW * i + 0.5, y + h); } c.stroke();
-        c.textAlign = 'left'; c.fillStyle = '#f0f6fa'; c.font = '650 15px system-ui'; c.fillText(sp.name + (sp.rarity !== 'common' ? ' · ' + sp.rarity : ''), 16, y + h / 2 - 8);
+        c.textAlign = 'left'; c.fillStyle = '#f0f6fa'; c.font = '650 15px system-ui'; c.fillText(sp.name + (rarityTag(sp.rarity) ? ' · ' + rarityTag(sp.rarity).word : ''), 16, y + h / 2 - 8);
         c.font = '12px system-ui'; c.fillStyle = sp.rarity === 'rare' ? '#b884ff' : sp.rarity === 'uncommon' ? '#5dca7a' : '#7a9aaa'; c.fillText('size ' + (V.speciesSize[id] || 1).toFixed(2), 16, y + h / 2 + 12);
         for (let lv = 1; lv <= 4; lv++) {
           // like the AD sheet: length = in-game length x zoom (1 px lines stay 1 px), whole-pixel origin
@@ -1523,6 +1535,6 @@
     flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, y0: p.y0, t: p.t, fishId: p.fishId })) }; },
     fishLen(sp, level) { return fishLen({ sp, level }); },
     floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; },
-    setTool, openShop, setShopTab,
+    setTool, openShop, setShopTab, rarityTag,
   };
 })();

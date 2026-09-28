@@ -1593,7 +1593,7 @@ def fish_v7(page, ev, shot, box, tool, click_fish, tj):
     opened = page.locator("#panel").is_visible(); rtxt = page.inner_text("#p-rarity") if opened else ""; rvis = page.locator("#p-rarity").is_visible() if opened else False
     page.keyboard.press("Escape")
     check("V6/V7 tap target: body ellipse (fins excluded) >= 44 x 44 px for every fish; tapping the Discus body opens it with a 'Rare' chip; swim bounds use the drawn extent",
-          all(v_["rx"] >= 22 and v_["ry"] >= 22 and v_["inside"] for v_ in tb.values()) and opened and rtxt == "Rare" and rvis, json.dumps({"tb": tb, "chip": rtxt}))
+          all(v_["rx"] >= 22 and v_["ry"] >= 22 and v_["inside"] for v_ in tb.values()) and opened and rtxt.lower() == "rare" and rvis, json.dumps({"tb": tb, "chip": rtxt}))
     # commons: no rarity chip anywhere; rare shop cards have the 2 px #b884ff border
     g_ = ev(f"""fresh(); G.state.tank.xp = 99999; G.state.gold = 99999; const f = G.buyFish('guppy'); AQ.pinFish(f.id, 0.5, 0.5); return f.id;""")
     page.wait_for_timeout(200); click_fish(g_); cvis = page.locator("#p-rarity").is_visible(); page.keyboard.press("Escape")
@@ -1821,6 +1821,89 @@ def edit_spacing():
             ctx.close()
         browser.close()
 
+def rarity_tags(base=None, label="after"):
+    """AD v4 7 rarity tag (2026-09-28): never a 'Common' tag / badge / frame / text anywhere (shop cards, fish info, toasts,
+    tooltips, hidden DOM too); Uncommon and Rare keep a small pill: 9px/800 uppercase, 14px tall, 0 5px padding, no border
+    (Large 10 / 16 / 6), overlaying the shop card's top-left corner 4px in. label='before' only takes the screenshots
+    (run against the previous build)."""
+    import re
+    base = base or BASE
+    os.makedirs(FIXES, exist_ok=True)
+    scan_js = """(() => { const hits = [];
+        const txt = document.body.textContent; if (/\\bcommon\\b/i.test(txt)) hits.push(['textContent', (txt.match(/.{0,30}\\bcommon\\b.{0,30}/i) || [''])[0]]);
+        if (/\\bcommon\\b/i.test(document.body.innerText)) hits.push(['innerText']);
+        for (const el of document.querySelectorAll('*')) for (const a of el.attributes) if (/\\bcommon\\b/i.test(a.value) && a.name !== 'd') hits.push([el.tagName, el.id, a.name, a.value.slice(0, 60)]);
+        return hits; })()"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            if label == "before" and VW != 844: continue
+            VIEW[0] = f"rarity {VW}x{VH}"; LARGE = VH >= 600
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(base + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            ev("fresh(); G.state.tank.xp = 99999; G.state.gold = 99999; G.state.decor = [];")
+            page.evaluate("AQ.openShop()"); page.wait_for_timeout(250)
+            sfx = f"_{VW}"
+            page.screenshot(path=os.path.join(FIXES, f"rarity_shop_{label}{sfx}.png"))
+            cards = page.evaluate("""[...document.querySelectorAll('#shop-list .card')].map((c) => { const t = c.querySelector('.rar'), r = c.getBoundingClientRect(), cs = t ? getComputedStyle(t) : null, tr = t ? t.getBoundingClientRect() : null;
+                const price = getComputedStyle(c.querySelector('.btn .price'));
+                return { id: c.dataset.species, text: c.textContent, tag: t ? t.textContent : null, vis: t ? t.checkVisibility() : false, border: getComputedStyle(c).borderTopWidth,
+                  fs: cs && cs.fontSize, fw: cs && cs.fontWeight, h: tr && tr.height, pl: cs && cs.paddingLeft, pr: cs && cs.paddingRight, bw: cs && cs.borderTopWidth, tt: cs && cs.textTransform,
+                  clip: t ? t.scrollWidth > t.clientWidth + 0.5 : false, dx: tr && tr.left - r.left - c.clientLeft, dy: tr && tr.top - r.top - c.clientTop, priceFs: parseFloat(price.fontSize) }; })""")
+            shop_scan = page.evaluate(scan_js)
+            page.evaluate("document.querySelector('#shop-close').click()"); page.wait_for_timeout(100)
+            # info panel: a common, an uncommon and a rare fish
+            ids = ev("const out = {}; for (const [k, sp, x] of [['c', 'guppy', 0.3], ['u', 'rasbora', 0.55], ['r', 'ram', 0.8]]) { const f = G.buyFish(sp); AQ.pinFish(f.id, x, 0.45); out[k] = f.id; } return out;")
+            page.evaluate("AQ.setTool('hand')"); page.wait_for_timeout(200)
+            info = {}
+            for k in ("c", "u", "r"):
+                bc = page.evaluate(f"AQ.fishBody({ids[k]})"); tb = page.locator("#tank").bounding_box()
+                page.mouse.click(tb["x"] + bc["cx"], tb["y"] + bc["cy"]); page.wait_for_timeout(250)
+                info[k] = page.evaluate("""(() => { const c = document.getElementById('p-rarity'), cs = getComputedStyle(c), r = c.getBoundingClientRect();
+                    return { open: !document.getElementById('panel').hidden, name: document.getElementById('p-name').textContent, text: c.textContent, vis: c.checkVisibility(),
+                             panel: document.getElementById('panel').textContent, fs: cs.fontSize, h: r.height, bw: cs.borderTopWidth, clip: c.scrollWidth > c.clientWidth + 0.5 }; })()""")
+                info[k]["scan"] = page.evaluate(scan_js)
+                if k in ("c", "r"): page.screenshot(path=os.path.join(FIXES, f"rarity_info_{'common' if k == 'c' else 'rare'}_{label}{sfx}.png"))
+                page.keyboard.press("Escape"); page.wait_for_timeout(80)
+            # toasts: buying a common fish in the shop, its level-up, an Aquarium-level toast unlocking a common + a rare
+            page.evaluate("document.getElementById('toasts').innerHTML = ''")
+            ev("G.state.fish.length = 0; G.state.tank.xp = 399; G.state.gold = 1000;")
+            page.evaluate("AQ.openShop()"); page.wait_for_timeout(150); page.click('#shop-list button[data-buy="guppy"]'); page.wait_for_timeout(100)
+            page.evaluate("document.querySelector('#shop-close').click()")
+            ev("const f = G.state.fish[0]; f.state = 'HUNGRY'; f.endMeal = true; f.hungerDone = true; f.progress = G.growSec(G.SPECIES.guppy, 1); f.fed = 0; f.deathLeft = 999; G.state.food = 50; feedFull(f); G.debugAddXp(1);")
+            page.wait_for_timeout(150)
+            toasts = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)"); toast_scan = page.evaluate(scan_js)
+            ev("fresh(); G.state.fish.length = 0;"); page.evaluate("AQ.game.reset(); AQ.game.save()")
+            ctx.close()
+            if label == "before": continue
+            FS, TH, PX = ("10px", 16, "6px") if LARGE else ("9px", 14, "5px")
+            tj = merged_tuning(); rar = {s_["id"]: s_["rarity"] for s_ in tj["species"]}
+            bad = []
+            for c in cards:
+                r_ = rar[c["id"]]
+                if re.search(r"\bcommon\b", c["text"], re.I): bad.append([c["id"], "common text"])
+                if r_ == "common" and (c["tag"] is not None or c["border"] != "1px"): bad.append([c["id"], "common has tag/frame", c["tag"], c["border"]])
+                if r_ != "common":
+                    if not (c["vis"] and c["tag"] == r_.capitalize() and c["fs"] == FS and c["fw"] == "800" and abs(c["h"] - TH) < 0.5 and c["pl"] == PX and c["pr"] == PX and c["bw"] == "0px"
+                            and c["tt"] == "uppercase" and not c["clip"] and abs(c["dx"] - 4) < 0.5 and abs(c["dy"] - 4) < 0.5 and float(c["fs"][:-2]) < c["priceFs"]):
+                        bad.append([c["id"], {k_: c[k_] for k_ in ("tag", "fs", "fw", "h", "pl", "bw", "clip", "dx", "dy", "priceFs")}])
+            check(f"shop cards: no Common tag / frame / text; Uncommon and Rare show a {FS} bold uppercase {TH}px pill (padding {PX}, no border, not clipped, smaller than the price) on the card's top-left corner 4px in; "
+                  "the whole shop DOM (text, hidden text, attributes) never says 'common'",
+                  not bad and not shop_scan and sum(1 for c in cards if c["tag"]) == sum(1 for v in rar.values() if v != "common"), json.dumps({"bad": bad[:5], "scan": shop_scan[:3]}))
+            ok_i = (info["c"]["open"] and info["c"]["text"] == "" and not info["c"]["vis"] and not info["c"]["scan"] and "common" not in info["c"]["panel"].lower()
+                    and info["u"]["open"] and info["u"]["text"] == "Uncommon" and info["u"]["vis"] and info["r"]["open"] and info["r"]["text"] == "Rare" and info["r"]["vis"]
+                    and all(info[k]["fs"] == FS and abs(info[k]["h"] - TH) < 0.5 and info[k]["bw"] == "0px" and not info[k]["clip"] for k in ("u", "r")) and not info["u"]["scan"] and not info["r"]["scan"])
+            check("fish info panel: a Common fish (Guppy) has no rarity tag and no 'common' anywhere in the DOM (not even hidden); Uncommon (Rasbora) and Rare (Ram) show the small tag",
+                  ok_i, json.dumps({k: {k2: v for k2, v in info[k].items() if k2 not in ("panel",)} for k in info}))
+            check("toasts for a common fish ('Guppy added', level-up) and an Aquarium-level toast (Neon Tetra and German Blue Ram (rare)): no 'common', the rare still named",
+                  toasts and not toast_scan and any("Guppy added" in t for t in toasts) and any("(rare)" in t and "Neon Tetra" in t for t in toasts)
+                  and not any(re.search(r"\bcommon\b", t, re.I) for t in toasts), json.dumps({"toasts": toasts, "scan": toast_scan}))
+            check("rarity tags: no page errors", not errs, "; ".join(errs[:3]))
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -1836,9 +1919,9 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags)):
         if run(name):
-            if name == "edit_spacing": print("\n======== edit menu spacing (Maksims live fix)", flush=True)
+            print(f"\n======== {name}", flush=True)
             fn()
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
