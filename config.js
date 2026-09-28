@@ -3,8 +3,8 @@
  *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
  *
  *  TUNING below is a VERBATIM copy of Designer's
- *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 5.1: 14 species, tank levels 1-10)
- *  with the rules/proofs in NUMBERS.md (v5.1) in the same folder. To retune: run
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 6: 14 species, tank levels 1-10)
+ *  with the rules/proofs in NUMBERS.md (v6) in the same folder. To retune: run
  *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
  *  headless test (tests/verify.py) asserts TUNING == tuning.json.
  *
@@ -40,11 +40,14 @@
  * ============================================================================
  */
 window.AQUARIUM_CONFIG = {
-  source: 'tuning.json v4 (Designer, 2026-09-27 19:30)',
+  source: 'tuning.json v6 (Designer, 2026-09-28 16:05)',
+  // v6 rules read by js/game.js (NUMBERS v6): sell = (price / 2) x level; death = deathSecByRarity[rarity][level-1];
+  // a bought baby grows from 0% with no start meal (first hunger = L1 mid at 50%); reaching L4 is not hungry and starts
+  // the adult wait (adultHungerMultOfL3Grow x L3 grow); first clean 20 gold + 50 food; foodPacks 5/2, 10/5, 50/25, 250/125 (tank Lv6).
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "5.1",
+    "version": "6",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -52,10 +55,10 @@ window.AQUARIUM_CONFIG = {
     "foodPerTap": 1,
     "feedGoldPerFish": 0,
     "deathSec": [
-      21600,
-      25200,
-      32400,
-      36000
+      43200,
+      50400,
+      64800,
+      72000
     ],
     "offlineProgress": true,
     "debugSpeeds": [
@@ -84,12 +87,12 @@ window.AQUARIUM_CONFIG = {
           4
         ],
         "sell": [
-          0,
-          8,
-          18,
+          10,
+          20,
+          30,
           40
         ],
-        "adultHungerSec": 720,
+        "adultHungerSec": 2880,
         "levelUpXp": [
           10,
           20,
@@ -107,6 +110,12 @@ window.AQUARIUM_CONFIG = {
           10,
           25,
           80
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -127,12 +136,12 @@ window.AQUARIUM_CONFIG = {
           10
         ],
         "sell": [
-          0,
-          20,
-          45,
+          25,
+          50,
+          75,
           100
         ],
-        "adultHungerSec": 900,
+        "adultHungerSec": 3600,
         "levelUpXp": [
           20,
           40,
@@ -150,6 +159,12 @@ window.AQUARIUM_CONFIG = {
           20,
           50,
           160
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -170,12 +185,12 @@ window.AQUARIUM_CONFIG = {
           18
         ],
         "sell": [
-          0,
-          36,
-          81,
+          45,
+          90,
+          135,
           180
         ],
-        "adultHungerSec": 1260,
+        "adultHungerSec": 5040,
         "levelUpXp": [
           30,
           60,
@@ -193,6 +208,12 @@ window.AQUARIUM_CONFIG = {
           30,
           75,
           240
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -213,12 +234,12 @@ window.AQUARIUM_CONFIG = {
           46
         ],
         "sell": [
-          0,
-          92,
-          195,
+          115,
+          230,
+          345,
           460
         ],
-        "adultHungerSec": 2520,
+        "adultHungerSec": 10080,
         "levelUpXp": [
           70,
           140,
@@ -236,6 +257,12 @@ window.AQUARIUM_CONFIG = {
           70,
           175,
           560
+        ],
+        "deathSec": [
+          64800,
+          75600,
+          97200,
+          108000
         ]
       },
       {
@@ -256,12 +283,12 @@ window.AQUARIUM_CONFIG = {
           30
         ],
         "sell": [
-          0,
-          60,
-          135,
+          75,
+          150,
+          225,
           300
         ],
-        "adultHungerSec": 1800,
+        "adultHungerSec": 7200,
         "levelUpXp": [
           50,
           100,
@@ -279,6 +306,12 @@ window.AQUARIUM_CONFIG = {
           50,
           125,
           400
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -299,12 +332,12 @@ window.AQUARIUM_CONFIG = {
           48
         ],
         "sell": [
-          0,
-          96,
-          204,
+          120,
+          240,
+          360,
           480
         ],
-        "adultHungerSec": 2520,
+        "adultHungerSec": 10080,
         "levelUpXp": [
           75,
           150,
@@ -322,6 +355,12 @@ window.AQUARIUM_CONFIG = {
           75,
           188,
           600
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -342,12 +381,12 @@ window.AQUARIUM_CONFIG = {
           100
         ],
         "sell": [
-          0,
-          200,
-          425,
+          250,
+          500,
+          750,
           1000
         ],
-        "adultHungerSec": 4140,
+        "adultHungerSec": 16560,
         "levelUpXp": [
           145,
           290,
@@ -365,6 +404,12 @@ window.AQUARIUM_CONFIG = {
           145,
           363,
           1160
+        ],
+        "deathSec": [
+          64800,
+          75600,
+          97200,
+          108000
         ]
       },
       {
@@ -385,12 +430,12 @@ window.AQUARIUM_CONFIG = {
           50
         ],
         "sell": [
-          0,
-          100,
-          212,
+          125,
+          250,
+          375,
           500
         ],
-        "adultHungerSec": 2400,
+        "adultHungerSec": 9600,
         "levelUpXp": [
           80,
           160,
@@ -408,6 +453,12 @@ window.AQUARIUM_CONFIG = {
           80,
           200,
           640
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -428,12 +479,12 @@ window.AQUARIUM_CONFIG = {
           80
         ],
         "sell": [
-          0,
-          160,
-          340,
+          200,
+          400,
+          600,
           800
         ],
-        "adultHungerSec": 3360,
+        "adultHungerSec": 13440,
         "levelUpXp": [
           120,
           240,
@@ -451,6 +502,12 @@ window.AQUARIUM_CONFIG = {
           120,
           300,
           960
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -471,12 +528,12 @@ window.AQUARIUM_CONFIG = {
           128
         ],
         "sell": [
-          0,
-          256,
-          544,
+          320,
+          640,
+          960,
           1280
         ],
-        "adultHungerSec": 4380,
+        "adultHungerSec": 17520,
         "levelUpXp": [
           180,
           360,
@@ -494,6 +551,12 @@ window.AQUARIUM_CONFIG = {
           180,
           450,
           1440
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -514,12 +577,12 @@ window.AQUARIUM_CONFIG = {
           120
         ],
         "sell": [
-          0,
-          240,
-          510,
+          300,
+          600,
+          900,
           1200
         ],
-        "adultHungerSec": 4080,
+        "adultHungerSec": 16320,
         "levelUpXp": [
           170,
           340,
@@ -537,6 +600,12 @@ window.AQUARIUM_CONFIG = {
           170,
           425,
           1360
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -557,12 +626,12 @@ window.AQUARIUM_CONFIG = {
           300
         ],
         "sell": [
-          0,
-          600,
-          1275,
+          750,
+          1500,
+          2250,
           3000
         ],
-        "adultHungerSec": 8160,
+        "adultHungerSec": 32640,
         "levelUpXp": [
           385,
           770,
@@ -580,6 +649,12 @@ window.AQUARIUM_CONFIG = {
           385,
           963,
           3080
+        ],
+        "deathSec": [
+          64800,
+          75600,
+          97200,
+          108000
         ]
       },
       {
@@ -600,12 +675,12 @@ window.AQUARIUM_CONFIG = {
           288
         ],
         "sell": [
-          0,
-          576,
-          1224,
+          720,
+          1440,
+          2160,
           2880
         ],
-        "adultHungerSec": 7740,
+        "adultHungerSec": 30960,
         "levelUpXp": [
           360,
           720,
@@ -623,6 +698,12 @@ window.AQUARIUM_CONFIG = {
           360,
           900,
           2880
+        ],
+        "deathSec": [
+          43200,
+          50400,
+          64800,
+          72000
         ]
       },
       {
@@ -643,12 +724,12 @@ window.AQUARIUM_CONFIG = {
           650
         ],
         "sell": [
-          0,
-          1300,
-          2762,
+          1625,
+          3250,
+          4875,
           6500
         ],
-        "adultHungerSec": 14400,
+        "adultHungerSec": 57600,
         "levelUpXp": [
           720,
           1440,
@@ -666,10 +747,16 @@ window.AQUARIUM_CONFIG = {
           720,
           1800,
           5760
+        ],
+        "deathSec": [
+          64800,
+          75600,
+          97200,
+          108000
         ]
       }
     ],
-    "adultHungerFrom": "reachL4ThenLastFeed",
+    "adultHungerFrom": "onReachL4_startWait_thenLastFeed",
     "dirt": {
       "model": "timeSinceClean",
       "stageAtSec": [
@@ -757,7 +844,7 @@ window.AQUARIUM_CONFIG = {
       "dirtClockStartSec": 43200,
       "firstCleanReward": {
         "gold": 20,
-        "food": 10,
+        "food": 50,
         "replacesStagePay": true
       },
       "defaultDecorations": [
@@ -773,6 +860,10 @@ window.AQUARIUM_CONFIG = {
     },
     "foodPacks": [
       {
+        "food": 5,
+        "gold": 2
+      },
+      {
         "food": 10,
         "gold": 5
       },
@@ -781,8 +872,8 @@ window.AQUARIUM_CONFIG = {
         "gold": 25
       },
       {
-        "food": 200,
-        "gold": 100,
+        "food": 250,
+        "gold": 125,
         "unlockTankLevel": 6
       }
     ],
@@ -792,8 +883,11 @@ window.AQUARIUM_CONFIG = {
       0.5
     ],
     "levelStartHunger": {
-      "L1": "waitingNoDeathTimer",
-      "L2toL4": "hungryWithDeathTimer"
+      "onBuy": "growingNotHungry",
+      "L1At50Percent": "hungryWithDeathTimer",
+      "onLevelUpL2orL3": "hungryWithDeathTimer",
+      "onReachL4": "notHungryStartAdultWait",
+      "adultAfterWait": "hungryWithDeathTimer"
     },
     "timerScale": "v3 divided by 20, dirt unchanged",
     "rarity": {
@@ -803,8 +897,7 @@ window.AQUARIUM_CONFIG = {
           "g": 1,
           "m": 1,
           "x": 1
-        },
-        "sellL3Mult": "0.9 for the four v4 fish, 0.85 for new commons"
+        }
       },
       "uncommon": {
         "vsLevelCommon": {
@@ -812,8 +905,7 @@ window.AQUARIUM_CONFIG = {
           "g": 1.4,
           "m": 1.25,
           "x": 1.5
-        },
-        "sellL3Mult": 0.85
+        }
       },
       "rare": {
         "vsLevelCommon": {
@@ -821,14 +913,14 @@ window.AQUARIUM_CONFIG = {
           "g": 2,
           "m": 1.5,
           "x": 2.25
-        },
-        "sellL3Mult": 0.85
+        }
       },
       "epic": {
         "later": true
       },
       "mealFoodCap": 16,
-      "note": "rarity is independent of unlock level; each species' numbers are explicit, multipliers only document how they were built from the level's common baseline"
+      "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built",
+      "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 \u2026 L4=2*price"
     },
     "decorations": {
       "price": 0,
@@ -868,7 +960,7 @@ window.AQUARIUM_CONFIG = {
       },
       "positionStoredAs": "fractionOfTankWaterArea"
     },
-    "deathSecBy": "fishLevel (index 0 = L1), same for every species in v1",
+    "deathSecBy": "species.rarity \u2192 deathSecByRarity[rarity][fishLevel-1]; uncommon matches common; rare is longer at every level",
     "levelCommonBaseline": {
       "1": {
         "price": 20,
@@ -980,7 +1072,29 @@ window.AQUARIUM_CONFIG = {
         ],
         "xpBase": 320
       }
-    }
+    },
+    "deathSecByRarity": {
+      "common": [
+        43200,
+        50400,
+        64800,
+        72000
+      ],
+      "uncommon": [
+        43200,
+        50400,
+        64800,
+        72000
+      ],
+      "rare": [
+        64800,
+        75600,
+        97200,
+        108000
+      ]
+    },
+    "adultHungerMultOfL3Grow": 4,
+    "hungerPointsNote": "L1 after buy: only 0.5 (mid). L2/L3 after level-up: 0.0 then 0.5. L4 after reach: neither until adultHungerSec elapses."
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 

@@ -683,7 +683,6 @@
     else if (tool === 'food') hint = st >= 1 ? '' : 'Tap near a hungry fish to feed it'; // dirty: the blocked-feed warning is the only message
     else if (tool === 'sponge') hint = st >= 1 ? 'Rub the dirty spots' : 'The glass is clean';
     else if (tool === 'net') hint = 'Drag the net onto a fish and let go';
-    else if (s.fish.some((f) => f.state === 'WAITING')) hint = 'New fish! Pick Food and tap the tank to start growth';
     else hint = G.living() ? 'Tap a fish to see its details' : '';
     $('hint').textContent = hint;
     $('dbg-clock').textContent = `game ${clock(s.gameTime)} · ×${s.speed}`;
@@ -761,7 +760,9 @@
   let selectedId = null;
   function openPanel(id) { selectedId = id; closeShop(); $('panel').hidden = false; renderPanel(true); }
   function closePanel() { selectedId = null; $('panel').hidden = true; }
-  function mealIndex(f) { return f.state === 'WAITING' ? 1 : f.state === 'HUNGRY' ? (f.progress <= 0 ? 1 : 2) : null; }
+  /** v6: L1 has one meal (the mid meal; no start meal after buying), L2 / L3 have two (start at 0%, mid at 50%) */
+  function mealCount(f) { return f.level <= 1 ? 1 : (T.mealsPerLevel || 2); }
+  function mealIndex(f) { return f.state === 'HUNGRY' ? (f.level <= 1 || f.progress > 0 ? mealCount(f) : 1) : null; }
   function renderPanel() {
     if (selectedId == null) return;
     const f = G.state.fish.find((x) => x.id === selectedId);
@@ -796,7 +797,7 @@
       // meal progress (moved here from above the fish): in food, never taps
       const k = mealIndex(f), mb = $('p-mealbar');
       if (i.needsFood) {
-        $('p-meal').textContent = k ? `Meal ${k} of ${T.mealsPerLevel || 2} · needs ${i.needLeft} food` : `Adult meal · needs ${i.needLeft} food`;
+        $('p-meal').textContent = k ? `Meal ${k} of ${mealCount(f)} · needs ${i.needLeft} food` : `Adult meal · needs ${i.needLeft} food`;
         if (mb.children.length !== i.portion) mb.replaceChildren(...Array.from({ length: i.portion }, () => document.createElement('i')));
         [...mb.children].forEach((el, n) => el.classList.toggle('on', n < i.fed));
       } else { $('p-meal').textContent = 'Fed'; mb.replaceChildren(); }
@@ -825,10 +826,9 @@
   function netFish(f) {
     const sp = G.SPECIES[f.sp], name = sp.name, por = (pc) => drawPortrait(pc, f);
     if (f.state === 'DEAD') { G.removeDead(f.id); return; } // Designer NUMBERS 11 item 4: no confirm, 0 gold, 0 XP, "Fish removed" toast
-    else if (f.level === 1) confirmBox(`Release ${name}? You get nothing.`, 'Release', () => G.sell(f.id), por, 'danger');
-    else {
+    else { // v6 (NUMBERS 11.2): every live fish sells for (price / 2) x level, L1 included ("Sell Guppy (L1) for 10 gold?")
       const gold = G.sellPrice(sp, f.level), xp = G.xpFor('sell', { sp, level: f.level });
-      confirmBox(`Sell ${name} (L${f.level}) for ${gold} gold and ${xp} XP?`, 'Sell', () => G.sell(f.id), por, 'sell');
+      confirmBox(`Sell ${name} (L${f.level}) for ${gold} gold${xp ? ` and ${xp} XP` : ''}?`, 'Sell', () => G.sell(f.id), por, 'sell');
     }
   }
   document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => (b.dataset.close === 'panel' ? closePanel() : closeShop())));
@@ -882,7 +882,7 @@
         c.translate(120, 50); FishArt.drawFish(c, sp.id, 120, 0.6, {});
         card.querySelector('button').addEventListener('click', () => {
           const f = G.buyFish(sp.id);
-          if (f) { toast(`${sp.name} added. Feed it to start growth!`, 'good'); renderShop(); }
+          if (f) { toast(`${sp.name} added`, 'good'); renderShop(); } // v6: grows at once, no start meal
         });
       });
       T.foodPacks.forEach((p, i) => {

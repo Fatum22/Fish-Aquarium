@@ -31,12 +31,13 @@ Presentation-only values are in `VISUAL` (tank geometry, glass line side, fish s
 | Neon Tetra | 90 | 3 | 5.25 / 10.5 / 21 min | 2 / 3 / 3 / 4 | 5 / 9 / 18 | 0 / 36 / 81 / 180 | 0 / 30 / 75 / 240 |
 | Platy | 150 | 4 | 7.5 / 15 / 30 min | 3 / 5 / 6 / 7 | 8 / 15 / 30 | 0 / 60 / 135 / 300 | 0 / 50 / 125 / 400 |
 
-- **New game / Start new tank**: an empty tank at dirt stage 3, 0 gold, 0 food, 0 diamonds, 1 stone and 3 leaves. The **first clean pays 20 gold + 10 food** (instead of the stage pay).
-- **Meals**: two per level (at the start and halfway). A meal needs the species' food for that level. Each food tap gives 1 food to the nearest fish that needs it. A finished meal gives the species' feed XP and **brings the dirt 5 minutes closer**.
-- **Death** after getting hungry: 6 / 7 / 9 / 10 h by fish level (a new L1 baby waits and never dies before its first meal).
+- **New game / Start new tank**: an empty tank at dirt stage 3, 0 gold, 0 food, 0 diamonds, 1 stone and 3 leaves. The **first clean pays 20 gold + 50 food** (instead of the stage pay).
+- **Meals** (v6): a just-bought baby grows at once with no start meal; L1 has one meal (halfway), L2 and L3 two (at the level-up and halfway). Reaching L4 is not a hunger: the adult waits 4 x its L3 grow time, then needs its L4 meal every such wait. A meal needs the species' food for that level. Each food tap gives 1 food to the nearest fish that needs it. A finished meal gives the species' feed XP and **brings the dirt 5 minutes closer**.
+- **Sell** (v6): (price / 2) x fish level for every species (Guppy 10 / 20 / 30 / 40).
+- **Death** after getting hungry (v6 `deathSecByRarity`): common and uncommon 12 / 14 / 18 / 20 h by fish level, rare 18 / 21 / 27 / 30 h.
 - **Dirt** is time only: stages at 3 / 6 / 12 / 24 / 48 h, 3 / 4 / 5 / 6 / 7 spots. A full clean pays 2 / 3 / 4 / 5 / 6 gold by the stage when rubbing started, + 5 XP.
 - **Tank level**: 60 / 400 / 1,200 / 3,000 XP for levels 2-5. XP comes from fish level-ups, meals, cleans and selling (selling gives the most). Level 5 raises capacity from 6 to 8 fish.
-- **Food packs** (Shop → Food): 10 food for 5 gold, 50 food for 25 gold.
+- **Food packs** (Shop → Food, v6): 5 food for 2 gold, 10 for 5, 50 for 25, and 250 for 125 from tank level 6.
 
 ## Screen (Art Director LANDSCAPE_LAYOUT_V4.md)
 
