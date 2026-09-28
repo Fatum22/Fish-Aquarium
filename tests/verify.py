@@ -1382,6 +1382,46 @@ def cache_bust():
     check(f"cache busting: all {len(tags)} script/CSS tags in index.html carry the same ?v= build id and the page loads them with it",
           len(tags) == 5 and v is not None and len(loaded) >= 5 and all(f"?v={v}" in n for n in loaded), json.dumps({"tags": tags, "loaded": loaded}))
 
+def home_screen_icons():
+    """Home-screen app (Art Director icons): favicon (svg + png), apple-touch-icon 180, manifest.webmanifest with 192 + 512,
+    iOS/Android web-app meta tags; every path relative so it works under the GitHub Pages subpath /Fish-Aquarium/."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(); page = browser.new_page(viewport={"width": 844, "height": 390})
+        page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game")
+        head = page.evaluate("""(() => {
+            const links = [...document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"], link[rel="manifest"]')]
+              .map((l) => ({ rel: l.rel, href: l.getAttribute('href'), abs: l.href, sizes: l.getAttribute('sizes') || '', type: l.getAttribute('type') || '' }));
+            const meta = Object.fromEntries([...document.querySelectorAll('meta[name]')].map((m) => [m.name, m.content]));
+            return { links, meta }; })()""")
+        man = next((l for l in head["links"] if l["rel"] == "manifest"), None)
+        status, manifest = {}, None
+        for l in head["links"]:
+            r = page.request.get(l["abs"]); status[l["href"]] = r.status
+            if l["rel"] == "manifest" and r.ok: manifest = r.json()
+        icon_urls = []
+        if manifest:
+            base = man["abs"].rsplit("/", 1)[0] + "/"
+            for ic in manifest.get("icons", []):
+                u = base + ic["src"]; r = page.request.get(u); status["manifest:" + ic["src"]] = r.status
+                icon_urls.append((ic["src"], ic.get("sizes"), ic.get("purpose"), r.status, r.headers.get("content-type", "")))
+        browser.close()
+    L = head["links"]; M = head["meta"]
+    rels = {(l["rel"], l["type"], l["sizes"]) for l in L}
+    check("home-screen icons: favicon svg + png fallback, apple-touch-icon 180x180 and manifest.webmanifest are linked with relative paths and all load with HTTP 200",
+          ("icon", "image/svg+xml", "") in rels and ("icon", "image/png", "192x192") in rels and ("apple-touch-icon", "", "180x180") in rels and man is not None
+          and all(not l["href"].startswith(("/", "http:", "https:")) for l in L) and status and all(v == 200 for v in status.values()), json.dumps({"links": L, "status": status}))
+    sizes = sorted(i[1] for i in icon_urls)
+    check("manifest: name / short_name Aquarium, display fullscreen with standalone fallback (display_override), orientation landscape, theme + background #07192a, "
+          "start_url and scope ./ (GitHub Pages /Fish-Aquarium/), icons 192 + 512 purpose any, PNG, HTTP 200, relative src",
+          manifest is not None and manifest.get("name") == "Aquarium" and manifest.get("short_name") == "Aquarium" and manifest.get("display") == "fullscreen"
+          and "standalone" in manifest.get("display_override", []) and manifest.get("orientation") == "landscape"
+          and manifest.get("theme_color") == "#07192a" and manifest.get("background_color") == "#07192a" and manifest.get("start_url") == "./" and manifest.get("scope") == "./"
+          and sizes == ["192x192", "512x512"] and all(i[2] and "any" in i[2].split() and i[3] == 200 and i[4].startswith("image/png") and not i[0].startswith("/") for i in icon_urls),
+          json.dumps({"manifest": manifest, "icons": icon_urls}))
+    check("home-screen meta: apple-mobile-web-app-capable yes, mobile-web-app-capable yes, status bar black-translucent, apple title Aquarium, theme-color #07192a",
+          M.get("apple-mobile-web-app-capable") == "yes" and M.get("mobile-web-app-capable") == "yes" and M.get("apple-mobile-web-app-status-bar-style") == "black-translucent"
+          and M.get("apple-mobile-web-app-title") == "Aquarium" and M.get("theme-color") == "#07192a", json.dumps(M))
+
 if __name__ == "__main__":
     views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",") if x.strip()]
     for vw, vh in views:
@@ -1394,6 +1434,7 @@ if __name__ == "__main__":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
     cache_bust()
+    home_screen_icons()
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
     sys.exit(1 if failed else 0)
