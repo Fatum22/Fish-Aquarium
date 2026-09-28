@@ -7,7 +7,11 @@
   --btn-h: 54px; --btn-r: 12px; --btn-gap: 4px; --icon: 36px; --lbl: 11px;
   --pill-h: 32px; --pill-fs: 16px; --pill-ico: 20px;
   --dirt-w: 240px; --dirt-h: 36px; --dirt-fs: 11px; --dirt-bar: 8px;
-  --side-w: 300px; --menu-w: 296px; --menu-h: 248px; --rb: 36px;
+  --side-w: 300px; --menu-w: 296px; --menu-h: 284px;
+  /* decoration edit menu (AD LANDSCAPE_LAYOUT_V4 7, 2026-09-28 Maksims: size buttons were too close). CSS px, never scaled with the tank.
+     --rb = drawn circle, --rb-hit = touch target, --size-gap = gap between Size targets, --dpad-gap = gap between Move targets,
+     --group-gap = gap between the Move and Size groups */
+  --rb: 38px; --rb-hit: 44px; --size-gap: 12px; --dpad-gap: 6px; --group-gap: 20px;
 }
 @media (min-height: 600px) {
   :root {
@@ -15,7 +19,8 @@
     --btn-h: 88px; --btn-r: 16px; --btn-gap: 8px; --icon: 52px; --lbl: 14px;
     --pill-h: 42px; --pill-fs: 20px; --pill-ico: 26px;
     --dirt-w: 320px; --dirt-h: 48px; --dirt-fs: 14px; --dirt-bar: 10px;
-    --side-w: 380px; --menu-w: 392px; --menu-h: 330px; --rb: 48px;
+    --side-w: 380px; --menu-w: 392px; --menu-h: 368px;
+    --rb: 48px; --rb-hit: 52px; --size-gap: 16px; --dpad-gap: 8px; --group-gap: 24px;
   }
 }
 * { box-sizing: border-box; }
@@ -196,19 +201,26 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 #deco-done { position: absolute; top: 8px; right: 8px; width: 72px; height: 32px; padding: 0; z-index: 9; background: var(--accent); color: #06243a; border-radius: 10px; }
 #deco-done.left { right: auto; left: 8px; }
 @media (min-height: 600px) { #deco-done { width: 96px; height: 40px; font-size: 17px; } }
-#deco-menu { position: absolute; top: 8px; width: var(--menu-w); height: var(--menu-h); z-index: 9; background: rgba(20,58,87,.95); border-radius: 14px; padding: 12px;
-  box-shadow: 0 8px 24px #0009; display: flex; flex-direction: column; gap: 8px; }
+/* the menu always fits inside the tank: on a very short tank it keeps its full-size buttons and scrolls instead of shrinking */
+#deco-menu { position: absolute; top: 8px; width: var(--menu-w); height: var(--menu-h); max-width: calc(100% - 16px); max-height: calc(100% - 16px); overflow: hidden auto;
+  z-index: 9; background: rgba(20,58,87,.95); border-radius: 14px; padding: 12px; box-shadow: 0 8px 24px #0009; display: flex; flex-direction: column; gap: 8px; }
+#deco-menu > * { flex: none; }
 #deco-menu.dock-left { left: 8px; } #deco-menu.dock-right { right: 8px; }
-.dm-head { position: relative; font-size: 14px; font-weight: 900; line-height: 18px; }
-.dm-head .close { top: -8px; right: -8px; font-size: 22px; }
-.dm-row { display: flex; justify-content: space-around; gap: 8px; }
+.dm-head { position: relative; font-size: 14px; font-weight: 900; line-height: 18px; padding-right: 36px; }
+/* close x: a full touch target in the menu's top-right corner (inside the 12px padding + header, clear of the Size group) */
+.dm-head .close { top: -12px; right: -12px; width: 44px; height: 44px; padding: 0; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+.dm-row { display: flex; justify-content: center; align-items: flex-start; gap: var(--group-gap); }
 .dm-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.dm-cap { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.dpad { display: grid; grid-template-columns: repeat(3, var(--rb)); grid-template-rows: repeat(3, var(--rb)); gap: 4px; }
-.sizes { display: grid; grid-template-columns: repeat(2, var(--rb)); grid-template-rows: repeat(2, var(--rb)); gap: 4px; }
-.rb { width: var(--rb); height: var(--rb); border-radius: 50%; background: var(--panel); border: 1.5px solid rgba(255,255,255,.25); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; touch-action: none; }
-.rb svg { width: 60%; height: 60%; fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.rb:active, .rb.pressed { background: var(--accent); }
+.dm-cap { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; line-height: 12px; }
+.dpad { display: grid; grid-template-columns: repeat(3, var(--rb-hit)); grid-template-rows: repeat(3, var(--rb-hit)); gap: var(--dpad-gap); }
+.sizes { display: grid; grid-template-columns: repeat(2, var(--rb-hit)); grid-template-rows: repeat(2, var(--rb-hit)); gap: var(--size-gap); }
+/* every round button: the element IS the touch target (--rb-hit square); the drawn circle (--rb) sits centred inside it */
+.rb { position: relative; width: var(--rb-hit); height: var(--rb-hit); border-radius: 0; background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.rb::before { content: ''; position: absolute; left: 50%; top: 50%; width: var(--rb); height: var(--rb); transform: translate(-50%, -50%); box-sizing: border-box;
+  border-radius: 50%; background: var(--panel); border: 1.5px solid rgba(255,255,255,.25); pointer-events: none; }
+.rb svg { position: relative; width: calc(var(--rb) * 0.6); height: calc(var(--rb) * 0.6); fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.rb:active::before, .rb.pressed::before { background: var(--accent); }
 .rb.capped { opacity: .4; pointer-events: none; }
 .dm-scale { font-size: 10px; color: var(--muted); white-space: pre; font-variant-numeric: tabular-nums; margin-top: 2px; }
 #dm-color { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: transparent; cursor: pointer; }
@@ -218,7 +230,7 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 #dm-color::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--thumb, #fff); border: 2px solid #fff; }
 #dm-sell { width: 100%; height: 32px; padding: 0; margin-top: auto; }
 @media (min-height: 600px) {
-  .dm-head { font-size: 17px; } #dm-color { height: 28px; }
+  .dm-head { font-size: 17px; line-height: 22px; } #dm-color { height: 28px; }
   #dm-color::-webkit-slider-runnable-track { height: 16px; border-radius: 8px; }
   #dm-color::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -6px; }
   #dm-sell { height: 40px; font-size: 16px; } .dm-cap, .dm-scale { font-size: 12px; }

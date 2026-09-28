@@ -1108,8 +1108,8 @@ def main(VW, VH):
               and "Tap a decoration to change it" in toasts_ and page.locator('.tool[data-tool="brush"]').get_attribute("aria-pressed") == "true", json.dumps([dec, ed, dn["x"], toasts_]))
         page.screenshot(path=shot("edit_mode_menu"))
         mr = ed["menu"]; tk_ = ed["tank"]; dnb = ed["done"]
-        check("AD v4 7: side menu 296x248 / 392x330 docked 8px from the tank top and side; Done button 72x32 / 96x40 in a top corner 8px in, not covered by the menu",
-              abs(mr["w"] - (392 if LARGE else 296)) < 0.5 and abs(mr["h"] - (330 if LARGE else 248)) < 0.5 and abs(mr["y"] - tk_["y"] - 8) < 0.5
+        check("AD v4 7 (2026-09-28 sizes): side menu 296x284 / 392x368 docked 8px from the tank top and side; Done button 72x32 / 96x40 in a top corner 8px in, not covered by the menu",
+              abs(mr["w"] - (392 if LARGE else 296)) < 0.5 and abs(mr["h"] - (368 if LARGE else 284)) < 0.5 and abs(mr["y"] - tk_["y"] - 8) < 0.5
               and (abs(mr["x"] - tk_["x"] - 8) < 0.5 or abs(tk_["x"] + tk_["w"] - mr["x"] - mr["w"] - 8) < 0.5) and dnb and abs(dnb["w"] - (96 if LARGE else 72)) < 0.5 and abs(dnb["h"] - (40 if LARGE else 32)) < 0.5
               and abs(dnb["y"] - tk_["y"] - 8) < 0.5 and (dnb["x"] + dnb["w"] <= mr["x"] or dnb["x"] >= mr["x"] + mr["w"]), json.dumps([mr, dnb, tk_]))
         # the menu never covers the decoration it edits: every decoration, at 1.0x and at 2.0 x 2.0
@@ -1119,9 +1119,16 @@ def main(VW, VH):
                 ev(f"const d = G.state.decor.find((x) => x.id === '{q['id']}'); d.sh = {scale}; d.sw = {scale}; AQ.selectDecor(d.id);"); page.wait_for_timeout(40)
                 e_ = page.evaluate("AQ.edit()"); g_ = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == q["id"]); m_ = e_["menu"]
                 mx0, my0 = m_["x"] - e_["tank"]["x"], m_["y"] - e_["tank"]["y"]
-                if not (g_["x1"] <= mx0 or g_["x0"] >= mx0 + m_["w"] or g_["y1"] <= my0 or g_["y0"] >= my0 + m_["h"]): cover.append([q["id"], scale])
+                def ov(x0):  # overlap area of the decoration box with a menu docked at x0
+                    ox = min(g_["x1"], x0 + m_["w"]) - max(g_["x0"], x0); oy = min(g_["y1"], my0 + m_["h"]) - max(g_["y0"], my0)
+                    return ox * oy if ox > 0 and oy > 0 else 0
+                here, other = ov(mx0), ov(e_["tank"]["w"] - 8 - m_["w"] if mx0 < e_["tank"]["w"] / 2 else 8)
+                # 2026-09-28: the menu is never scaled (touch targets / gaps in CSS px), so a 2.0x decoration wider than the strip between
+                # the two dock positions can't be cleared; then it must dock on the side that covers the least of it. Otherwise: never covers.
+                if (here > 0 and (scale == 1.0 or other == 0 or other < here)) or m_["w"] < 1: cover.append([q["id"], scale, round(here), round(other)])
         ev("G.state.decor.forEach((d) => { d.sh = 1; d.sw = 1; });")
-        check("AD v4 7: the side menu docks away from the decoration (centre x > 50% -> left) and never covers it (all decorations at 1.0x and 2.0x)", not cover, json.dumps(cover))
+        check("AD v4 7: the side menu docks away from the decoration (centre x > 50% -> left) and never covers it at 1.0x; at 2.0x it flips to a clear side, or (no clear side, menu never scaled) covers the least",
+              not cover, json.dumps(cover))
         # move / size / colour / sell
         did_ = dn["id"]; ev(f"AQ.selectDecor('{did_}');"); page.wait_for_timeout(60)
         x_a = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == did_)["bx"]
@@ -1705,20 +1712,134 @@ def debug_bottom():
             page.close()
         browser.close()
 
+FIXES = os.path.join(HERE, "..", "screenshots", "fixes")
+
+def edit_spacing():
+    """Maksims 2026-09-28 live fix + AD LANDSCAPE_LAYOUT_V4 7 table: decoration edit menu 296x284 / 392x368; round buttons
+    drawn 38 / 48 px on 44 / 52 px touch targets; Size gaps 12 / 16, d-pad gaps 6 / 8, Move-Size groups 20 / 24; targets never
+    overlap; menu inside the tank near both edges (flip); a tap on each button hits only that button; the same controls
+    (drag + d-pad + resize) for every decoration type (generic edit code)."""
+    os.makedirs(FIXES, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"edit-spacing {VW}x{VH}"; LARGE = VH >= 600
+            HIT, DRAWN, SGAP, DGAP, GGAP = (52, 48, 16, 8, 24) if LARGE else (44, 38, 12, 6, 20)
+            MW, MH = (392, 368) if LARGE else (296, 284)
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2, has_touch=True)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            types = page.evaluate("AQ.decorTypes()")
+            ids = ev("fresh(); G.state.gold = 1000; G.state.decor = []; const out = {}; for (const t of AQ.decorTypes()) out[t] = G.buyDecor(t).id; AQ.setTool('brush'); return out;")
+            page.wait_for_timeout(150)
+            css = page.evaluate("""(() => { const cs = getComputedStyle(document.documentElement), b = document.querySelector('#deco-menu [data-size]');
+                return { vars: ['--rb', '--rb-hit', '--size-gap', '--dpad-gap', '--group-gap', '--menu-w', '--menu-h'].map((v) => cs.getPropertyValue(v).trim()) }; })()""")
+            probs, cases = [], 0
+            def gap(a, b):
+                return max(b["x"] - (a["x"] + a["w"]), a["x"] - (b["x"] + b["w"]), b["y"] - (a["y"] + a["h"]), a["y"] - (b["y"] + b["h"]))
+            for t in types:
+                did = ids[t]
+                for xf in (0.08, 0.3, 0.5, 0.7, 0.92):
+                    for sc in (0.5, 1.0, 2.0):
+                        ev(f"const d = G.state.decor.find((q) => q.id === '{did}'); G.state.decor.forEach((q) => {{ q.x = q.id === d.id ? {xf} : -1; }}); d.sh = {sc}; d.sw = {sc}; AQ.selectDecor(d.id);")
+                        page.wait_for_timeout(30)
+                        e = page.evaluate("AQ.edit()"); btns = page.evaluate("AQ.editButtons()"); m, tk = e["menu"], e["tank"]; cases += 1
+                        tag = f"{t} x{xf} {sc}x"
+                        if not m or abs(m["w"] - MW) > 0.5 or abs(m["h"] - MH) > 0.5: probs.append([tag, "menu size", m])
+                        if m and not (m["x"] >= tk["x"] - 0.5 and m["y"] >= tk["y"] - 0.5 and m["x"] + m["w"] <= tk["x"] + tk["w"] + 0.5 and m["y"] + m["h"] <= tk["y"] + tk["h"] + 0.5): probs.append([tag, "menu outside tank", m, tk])
+                        sz = [b for b in btns if b["kind"] == "size"]; mv = [b for b in btns if b["kind"] == "move"]
+                        if len(sz) != 4 or len(mv) != 4: probs.append([tag, "buttons", len(sz), len(mv)])
+                        for b in btns:
+                            if b["id"] == "dm-sell": continue  # full-width Sell bar: AD height 32 / 40, not a size/edit button (still in the overlap check)
+                            if b["w"] < 44 - 0.01 or b["h"] < 44 - 0.01: probs.append([tag, "target < 44", b])
+                            if b["kind"] != "other" and (abs(b["w"] - HIT) > 0.5 or abs(b["h"] - HIT) > 0.5): probs.append([tag, "target != AD", b])
+                            if not (b["x"] >= 0 and b["y"] >= 0 and b["x"] + b["w"] <= VW and b["y"] + b["h"] <= VH and b["x"] >= tk["x"] - 0.5 and b["x"] + b["w"] <= tk["x"] + tk["w"] + 0.5): probs.append([tag, "off screen", b])
+                        for i, a in enumerate(btns):
+                            for b in btns[i + 1:]:
+                                g_ = gap(a, b)
+                                if g_ < 0.01: probs.append([tag, "overlap", a["id"], b["id"], g_])
+                                if a["kind"] == b["kind"] == "size" and g_ < SGAP - 0.01: probs.append([tag, "size gap", a["id"], b["id"], g_])
+                                if a["kind"] == b["kind"] == "move" and g_ < DGAP - 0.01: probs.append([tag, "dpad gap", a["id"], b["id"], g_])
+                                if {a["kind"], b["kind"]} == {"size", "move"} and g_ < GGAP - 0.01: probs.append([tag, "group gap", a["id"], b["id"], g_])
+                                if a["kind"] == "size" and b["kind"] == "size" and g_ < 12 - 0.01: probs.append([tag, "size gap < 12", g_])
+            check(f"edit menu {MW}x{MH} inside the tank (flip at both edges); every Size / Move / close target >= 44 px ({HIT}x{HIT} AD), never overlapping; Size gaps >= {SGAP}, d-pad gaps >= {DGAP}, Move-Size >= {GGAP}; "
+                  f"{len(types)} types x 5 positions x 3 sizes ({cases} cases)", not probs and cases == len(types) * 15, json.dumps({"css": css, "probs": probs[:6]}))
+            # drawn circle vs target (CSS variables, single place for the Art Director)
+            circ = page.evaluate("""(() => { const b = document.querySelector('#deco-menu [data-size]'), c = getComputedStyle(b, '::before'), r = b.getBoundingClientRect();
+                return { cw: parseFloat(c.width), ch: parseFloat(c.height), bw: r.width, radius: c.borderRadius, gap: getComputedStyle(document.querySelector('#deco-menu .sizes')).rowGap }; })()""")
+            check(f"round buttons drawn {DRAWN}px circles centred on {HIT}px targets; Size grid gap = var(--size-gap) = {SGAP}px",
+                  abs(circ["cw"] - DRAWN) < 0.5 and abs(circ["ch"] - DRAWN) < 0.5 and abs(circ["bw"] - HIT) < 0.5 and circ["gap"] == f"{SGAP}px" and css["vars"][2] == f"{SGAP}px", json.dumps(circ))
+            # hit test: points all over each target hit that button; points in the gaps hit no button
+            for t in types:
+                ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); G.state.decor.forEach((q) => {{ q.x = q.id === d.id ? 0.3 : -1; }}); d.sh = 1; d.sw = 1; AQ.selectDecor(d.id);"); page.wait_for_timeout(30)
+                hits = page.evaluate("""(() => { const bad = []; const btns = [...document.querySelectorAll('#deco-menu button')].filter((b) => b.offsetParent && (b.dataset.size || b.dataset.move));
+                    for (const b of btns) { const r = b.getBoundingClientRect();
+                      for (const [fx, fy] of [[0.5, 0.5], [0.06, 0.06], [0.94, 0.06], [0.06, 0.94], [0.94, 0.94], [0.5, 0.04], [0.04, 0.5]]) {
+                        const e = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy), hb = e && e.closest('button');
+                        if (hb !== b) bad.push([b.dataset.size || b.dataset.move, fx, fy, hb ? (hb.dataset.size || hb.dataset.move || hb.id) : null]); } }
+                    const sz = [...document.querySelectorAll('#deco-menu [data-size]')].map((b) => b.getBoundingClientRect());
+                    const mids = [[(sz[0].right + sz[1].left) / 2, sz[0].top + sz[0].height / 2], [sz[0].left + sz[0].width / 2, (sz[0].bottom + sz[2].top) / 2]];
+                    for (const [x, y] of mids) { const e = document.elementFromPoint(x, y); if (e && e.closest('button')) bad.push(['gap', x, y, e.closest('button').dataset.size]); }
+                    return bad; })()""")
+                # real taps: each size button changes only its own dimension; each move button only its own axis
+                taps = []
+                for kind, key, sign in (("taller", "sh", 1), ("shorter", "sh", -1), ("wider", "sw", 1), ("narrower", "sw", -1)):
+                    before = ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); return [d.sh, d.sw, d.x, d.y];")
+                    r = page.locator(f'#deco-menu [data-size="{kind}"]').bounding_box(); page.touchscreen.tap(r["x"] + r["width"] / 2, r["y"] + r["height"] / 2); page.wait_for_timeout(60)
+                    after = ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); return [d.sh, d.sw, d.x, d.y];")
+                    i = 0 if key == "sh" else 1
+                    ok = round(after[i] - before[i], 3) == round(0.1 * sign, 3) and after[1 - i] == before[1 - i] and after[3] == before[3]
+                    if not ok: taps.append([kind, before, after])
+                for kind, i, sign in (("up", 3, -1), ("down", 3, 1), ("left", 2, -1), ("right", 2, 1)):
+                    ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); d.x = 0.3; d.y = 0.5; d.sh = 1; d.sw = 1;")
+                    before = ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); return [d.sh, d.sw, d.x, d.y];")
+                    r = page.locator(f'#deco-menu [data-move="{kind}"]').bounding_box(); page.touchscreen.tap(r["x"] + r["width"] / 2, r["y"] + r["height"] / 2); page.wait_for_timeout(60)
+                    after = ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); return [d.sh, d.sw, d.x, d.y];")
+                    j = 5 - i
+                    ok = (after[i] - before[i]) * sign > 0 and after[j] == before[j] and after[0] == before[0] and after[1] == before[1]
+                    if not ok: taps.append([kind, before, after])
+                check(f"{t}: every point of each Size / Move target hits only that button, the gaps hit none; a real tap on each changes only its own size / axis (one step)",
+                      not hits and not taps, json.dumps({"hits": hits[:6], "taps": taps}))
+                # drag: press on the decoration and drag it; same generic code for every type
+                ev(f"const d = G.state.decor.find((q) => q.id === '{ids[t]}'); d.x = 0.4; d.y = 0.5; d.sh = 1; d.sw = 1; AQ.selectDecor(d.id);"); page.wait_for_timeout(40)
+                g0 = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == ids[t]); tb = page.locator("#tank").bounding_box()
+                sx, sy = tb["x"] + g0["bx"], tb["y"] + (g0["y0"] + g0["by"]) / 2
+                page.mouse.move(sx, sy); page.mouse.down(); page.mouse.move(sx + 30, sy, steps=4); page.mouse.move(sx + 60, sy + 3, steps=4); dragging = page.evaluate("AQ.edit()")["dragging"]; page.mouse.up(); page.wait_for_timeout(60)
+                g1 = next(z for z in page.evaluate("AQ.decorScreen()") if z["id"] == ids[t]); e1 = page.evaluate("AQ.edit()")
+                check(f"{t}: drag in edit mode moves the decoration with the pointer (+60 px -> +60 px), stays selected with its menu open",
+                      dragging and abs(g1["bx"] - g0["bx"] - 60) < 1 and e1["selDecor"] == ids[t] and e1["menu"], json.dumps({"dx": g1["bx"] - g0["bx"], "dragging": dragging}))
+            if VW == 844:
+                ev(f"const d = G.state.decor.find((q) => q.id === '{ids[types[0]]}'); G.state.decor.forEach((q, i) => {{ q.x = 0.25 + i * 0.12; q.sh = 1; q.sw = 1; }}); AQ.selectDecor(d.id);"); page.wait_for_timeout(200)
+            else:
+                ev(f"const d = G.state.decor.find((q) => q.id === '{ids[types[0]]}'); G.state.decor.forEach((q, i) => {{ q.x = 0.25 + i * 0.12; q.sh = 1; q.sw = 1; }}); AQ.selectDecor(d.id);"); page.wait_for_timeout(200)
+            name = "resize_844.png" if VW == 844 else "resize_1180.png"
+            page.screenshot(path=os.path.join(FIXES, name))
+            check(f"edit mode screenshot saved: screenshots/fixes/{name}; no page errors", not errs, "; ".join(errs[:3]))
+            page.evaluate("AQ.game.reset(); AQ.game.save()")
+            ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
+    # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
+    only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
+    run = lambda name: not only or name in only
     views = [tuple(int(v) for v in x.split("x")) for x in os.environ.get("AQ_VIEWS", "844x390,1180x820").split(",") if x.strip()]
-    for vw, vh in views:
-        print(f"\n======== {vw}x{vh}", flush=True)
-        main(vw, vh)
-    if os.environ.get("AQ_PORTRAIT", "1") == "1":
+    if run("main"):
+        for vw, vh in views:
+            print(f"\n======== {vw}x{vh}", flush=True)
+            main(vw, vh)
+    if run("portrait") and os.environ.get("AQ_PORTRAIT", "1") == "1":
         print("\n======== portrait", flush=True)
         portrait()
-    if os.environ.get("AQ_FLUID", "1") == "1":
+    if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    debug_bottom()
-    cache_bust()
-    home_screen_icons()
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing)):
+        if run(name):
+            if name == "edit_spacing": print("\n======== edit menu spacing (Maksims live fix)", flush=True)
+            fn()
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed")
     sys.exit(1 if failed else 0)

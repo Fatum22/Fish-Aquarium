@@ -241,24 +241,14 @@
   function leafHsl(c) { const t = c / 100, a = V.leaf.light, b = V.leaf.dark; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
   /** stone colour 0..100: light grey #b8bec4 -> dark slate #3c4550 */
   function stoneRgb(c) { const t = c / 100, a = hexRgb(V.stone.light), b = hexRgb(V.stone.dark); return a.map((v, i) => v + (b[i] - v) * t); }
-  function decorColorCss(d) { if (d.type === 'leaf') { const [h, s, l] = leafHsl(d.color); return hsl(h, s, l); } return rgbStr(stoneRgb(d.color)); }
+  function decorColorCss(d) { return decorType(d.type).colorCss(d.color); }
   function decorGradientCss(type) {
-    const stops = [0, 25, 50, 75, 100].map((c) => (type === 'leaf' ? hsl(...leafHsl(c)) : rgbStr(stoneRgb(c))));
+    const stops = [0, 25, 50, 75, 100].map((c) => decorType(type).colorCss(c));
     return `linear-gradient(90deg, ${stops.join(', ')})`;
   }
   /** size + box of a decoration in tank px. Leaf: 3 blades, height 0.30 x waterH (top kept >= 4% of waterH under the
    *  surface), spread 0.07 x waterH. Stone: 0.20 x 0.11 of waterH, bottom 15% sunk into the sand. */
-  function decorGeom(d) {
-    const bx = d.x * W, by = floorY(d);
-    if (d.type === 'leaf') {
-      const h = Math.min(V.leaf.h * WATER_H * d.sh, by - SURF - V.leaf.topGapFrac * WATER_H);
-      const spread = V.leaf.spread * WATER_H * d.sw, bw = spread * 0.6;
-      const half = spread + bw + h * Math.tan(V.leaf.swayDeg * Math.PI / 180) * 0.6;
-      return { bx, by, h, spread, bw, half, x0: bx - half, x1: bx + half, y0: by - h, y1: by + 2 };
-    }
-    const w = V.stone.w * WATER_H * d.sw, h = V.stone.h * WATER_H * d.sh;
-    return { bx, by, w, h, half: w / 2, x0: bx - w / 2, x1: bx + w / 2, y0: by - h * (1 - V.stone.sink), y1: by + 2 };
-  }
+  function decorGeom(d) { return decorType(d.type).geom(d, d.x * W, floorY(d)); }
   function drawLeaf(d, g) {
     const [hh, ss, ll] = leafHsl(d.color);
     const sway = Math.sin(realTime * Math.PI * 2 / V.leaf.swaySec + (d.seed % 17)) * Math.tan(V.leaf.swayDeg * Math.PI / 180);
@@ -304,11 +294,41 @@
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(cx + (rng() - 0.5) * g.w * 0.6, cy + (rng() - 0.6) * g.h * 0.5, Math.max(1, g.h * 0.04), 0, 7); ctx.fill(); }
     ctx.restore();
   }
+  /** Decoration types (the ONLY per-type code). Everything else (edit mode: select, drag, d-pad move, resize, colour,
+   *  sell, menu placement, shop card, outlines, hit test) goes through this table, so a new decoration type only needs an
+   *  entry here (+ its tuning decorations.types entry) and gets identical drag + resize controls with no special casing.
+   *  name = menu title / shop card, noun = sell confirm text, geom(d) = tank-px box, draw(d, g), colorCss / gradientCss =
+   *  colour slider, card(g canvas) = shop / confirm portrait geometry at a 90 px "water height". */
+  const DECOR_TYPES = {
+    leaf: {
+      name: 'Leaf', noun: 'leaf', seed: 11,
+      geom(d, bx, by) {
+        const h = Math.min(V.leaf.h * WATER_H * d.sh, by - SURF - V.leaf.topGapFrac * WATER_H);
+        const spread = V.leaf.spread * WATER_H * d.sw, bw = spread * 0.6;
+        const half = spread + bw + h * Math.tan(V.leaf.swayDeg * Math.PI / 180) * 0.6;
+        return { bx, by, h, spread, bw, half, x0: bx - half, x1: bx + half, y0: by - h, y1: by + 2 };
+      },
+      draw: (d, g) => drawLeaf(d, g),
+      colorCss(c) { const [h, s, l] = leafHsl(c); return hsl(h, s, l); },
+      card(u) { const h = V.leaf.h * u * 0.95 * 2.3, spread = V.leaf.spread * u * 2.3; return { bx: 120, by: 84, h: Math.min(h, 76), spread, bw: spread * 0.6 }; },
+    },
+    stone: {
+      name: 'Stone', noun: 'stone', seed: 51,
+      geom(d, bx, by) {
+        const w = V.stone.w * WATER_H * d.sw, h = V.stone.h * WATER_H * d.sh;
+        return { bx, by, w, h, half: w / 2, x0: bx - w / 2, x1: bx + w / 2, y0: by - h * (1 - V.stone.sink), y1: by + 2 };
+      },
+      draw: (d, g) => drawStone(d, g),
+      colorCss: (c) => rgbStr(stoneRgb(c)),
+      card(u) { const g = { bx: 120, by: 84, w: V.stone.w * u * 2.3, h: V.stone.h * u * 2.3 }; g.x0 = g.bx - g.w / 2; g.y0 = g.by - g.h * 0.85; return g; },
+    },
+  };
+  const decorType = (type) => DECOR_TYPES[type] || DECOR_TYPES.stone;
   function drawDecor() {
     const list = G.state.decor.slice().sort((a, b) => a.y - b.y); // lower base = in front
     for (const d of list) {
       const g = decorGeom(d);
-      if (d.type === 'leaf') drawLeaf(d, g); else drawStone(d, g);
+      decorType(d.type).draw(d, g);
       if (editing) { // edit mode outlines: dashed white 0.5 on each, solid 2px --accent on the selected one
         ctx.save();
         if (d.id === selDecor) { ctx.strokeStyle = '#37c3ff'; ctx.lineWidth = 2; ctx.setLineDash([]); }
@@ -870,12 +890,9 @@
   function drawDecorCard(c, type) {
     c.clearRect(0, 0, 240, 96);
     c.fillStyle = '#d8c48a'; c.fillRect(0, 78, 240, 18);
-    const d = { id: 'card', type, x: 0, y: 0, sh: 1, sw: 1, color: T.decorations.types[type].defaultColor, seed: type === 'leaf' ? 11 : 51 };
-    const u = 90; // "water height" for the card
-    let g;
-    if (type === 'leaf') { const h = V.leaf.h * u * 0.95 * 2.3, spread = V.leaf.spread * u * 2.3; g = { bx: 120, by: 84, h: Math.min(h, 76), spread, bw: spread * 0.6 }; }
-    else { g = { bx: 120, by: 84, w: V.stone.w * u * 2.3, h: V.stone.h * u * 2.3 }; g.x0 = g.bx - g.w / 2; g.y0 = g.by - g.h * 0.85; }
-    ctxSwap(c, () => (type === 'leaf' ? drawLeaf(d, g) : drawStone(d, g))); // reuse the tank drawing code
+    const t = decorType(type), d = { id: 'card', type, x: 0, y: 0, sh: 1, sw: 1, color: T.decorations.types[type].defaultColor, seed: t.seed };
+    const g = t.card(90); // 90 px "water height" for the card
+    ctxSwap(c, () => t.draw(d, g)); // reuse the tank drawing code
   }
   function ctxSwap(c, fn) { const keep = ctx; ctx = c; try { fn(); } finally { ctx = keep; } }
   function renderShop() {
@@ -905,9 +922,9 @@
         drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
         card.querySelector('button').addEventListener('click', () => { G.buyFood(i); renderShop(); });
       });
-      ['leaf', 'stone'].forEach((type) => {
+      Object.keys(T.decorations.types).filter((type) => DECOR_TYPES[type]).forEach((type) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.decor = type;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${type === 'leaf' ? 'Leaf' : 'Stone'}</div><div class="s">Free · move, size and colour it</div>
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">Free · move, size and colour it</div>
           <button class="btn buy" data-buydecor="${type}"><span class="price">${T.decorations.price ? T.decorations.price + ' gold' : 'Free'}</span><span class="lbl"></span></button>`;
         $('shop-decor').appendChild(card);
         drawDecorCard(card.querySelector('canvas').getContext('2d'), type);
@@ -972,36 +989,33 @@
     renderMenu(); placeMenu();
   }
   function deselectDecor() { selDecor = null; stopRepeat(); $('deco-menu').hidden = true; $('deco-done').classList.remove('left'); }
-  /** dock on the side away from the decoration (centre x > 50% -> left), 8px from the tank edges and top.
-   *  The menu never covers the decoration it edits: if the preferred side would overlap it, the other side is used;
-   *  if both would (a 2.0x leaf near the middle), the menu docks on the roomier side and shrinks (CSS scale, not
-   *  below 0.8) just enough to clear it. keepSide (moves): stay on the current side while it still clears, so the
-   *  menu doesn't jump under the finger while an arrow is held.
-   *  While the menu is docked right, the Done button moves to the top-left corner so they don't overlap. */
+  /** dock on the side away from the decoration (centre x > 50% -> left), 8px from the tank edges and top (AD v4 7).
+   *  The menu never covers the decoration it edits: if the preferred side would overlap it, the other side is used
+   *  (flip). The menu is NEVER scaled (Maksims 2026-09-28 / AD: touch targets and gaps are CSS px and don't shrink with
+   *  the tank); if neither side is clear (a 2.0x decoration wider than the strip between the two dock positions) it
+   *  docks on the side that covers the least of it. CSS max-width / max-height keep it inside the tank (it scrolls on a
+   *  very short tank), so every button stays on screen. keepSide (moves / drags): stay on the current side while it still
+   *  clears, so the menu doesn't jump under the finger. While docked right, Done moves to the top-left corner. */
   function placeMenu(keepSide) {
     const d = decorById(selDecor); if (!d) return;
     const m = $('deco-menu'), g = decorGeom(d), mw = m.offsetWidth, mh = m.offsetHeight, E = 8, GAP = 2;
-    const covers = (lft, s) => { const x0 = lft ? E : W - E - mw * s, x1 = x0 + mw * s; return g.x0 < x1 + GAP && g.x1 > x0 - GAP && g.y0 < E + mh * s + GAP && g.y1 > E; };
-    let left = g.bx > W / 2, s = 1;
+    const overlap = (lft) => { const x0 = lft ? E : W - E - mw, x1 = x0 + mw;
+      const ox = Math.min(g.x1, x1 + GAP) - Math.max(g.x0, x0 - GAP), oy = Math.min(g.y1, E + mh + GAP) - Math.max(g.y0, E);
+      return ox > 0 && oy > 0 ? ox * oy : 0; };
+    let left = g.bx > W / 2;
     if (keepSide && (m.classList.contains('dock-left') || m.classList.contains('dock-right'))) {
       const cur = m.classList.contains('dock-left');
-      if (!covers(cur, 1)) left = cur;
+      if (!overlap(cur)) left = cur;
     }
-    if (covers(left, 1) && !covers(!left, 1)) left = !left;
-    if (covers(left, 1)) {
-      const roomL = g.x0 - E - GAP, roomR = W - E - GAP - g.x1, roomTop = g.y0 - E - GAP;
-      left = roomL > roomR;
-      s = Math.max(0.8, Math.min(1, Math.max(Math.max(roomL, roomR) / mw, roomTop / mh)));
-    }
-    m.style.transformOrigin = left ? 'top left' : 'top right';
-    m.style.transform = s < 1 ? `scale(${s.toFixed(4)})` : '';
+    if (overlap(left) && overlap(!left) < overlap(left)) left = !left;
+    m.style.transform = ''; m.style.transformOrigin = '';
     m.classList.toggle('dock-left', left); m.classList.toggle('dock-right', !left);
     $('deco-done').classList.toggle('left', !left);
   }
   function renderMenu() {
     const d = decorById(selDecor); if (!d) return;
     const S = T.decorations.scale, eps = 1e-6;
-    $('dm-title').textContent = d.type === 'leaf' ? 'Leaf' : 'Stone';
+    $('dm-title').textContent = decorType(d.type).name;
     $('dm-scale').textContent = `H ${d.sh.toFixed(1)}x  W ${d.sw.toFixed(1)}x`;
     const cap = { taller: d.sh >= S.heightMax - eps, shorter: d.sh <= S.heightMin + eps, wider: d.sw >= S.widthMax - eps, narrower: d.sw <= S.widthMin + eps };
     document.querySelectorAll('#deco-menu [data-size]').forEach((b) => b.classList.toggle('capped', cap[b.dataset.size]));
@@ -1049,10 +1063,23 @@
   $('dm-close').addEventListener('click', deselectDecor);
   $('dm-sell').addEventListener('click', () => {
     const d = decorById(selDecor); if (!d) return;
-    const noun = d.type === 'leaf' ? 'leaf' : 'stone';
+    const noun = decorType(d.type).noun;
     confirmBox(`Sell this ${noun}? You get ${d.paid || 0} gold back.`, 'Sell', () => { G.sellDecor(d.id); deselectDecor(); G.save(); },
       (pc) => { const c = pc.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pc.width, pc.height); drawDecorCard(c, d.type); }, 'danger');
   });
+  /** drag (edit mode): the base follows the finger / mouse from where it was pressed, clamped like the d-pad moves.
+   *  A press that moves less than DRAG_SLOP px is just a tap (select). Moving pays or charges nothing. */
+  let drag = null;
+  const DRAG_SLOP = 4;
+  function dragDecor(x, y) {
+    const d = decorById(drag.id); if (!d || selDecor !== d.id) { drag = null; return; }
+    const dx = x - drag.px, dy = y - drag.py;
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    drag.moved = true;
+    const band = (H - SAND) * V.decorFloorBand;
+    d.x = drag.x + dx / W; d.y = drag.y + dy / band;
+    clampDecor(d); placeMenu(true);
+  }
   function hitDecor(x, y) {
     const list = G.state.decor.slice().sort((a, b) => b.y - a.y); // front first
     for (const d of list) {
@@ -1166,7 +1193,11 @@
     Object.assign(pointer, { touch, x: p.x, y: p.y, lx: p.x, ly: p.y - (touch && tool === 'sponge' ? spongeR() * V.spongeTouchLiftFrac : 0), down: true, inside: true, id: e.pointerId });
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
     if (!$('shop').hidden) { closeShop(); return; }
-    if (editing) { const d = hitDecor(p.x, p.y); if (d) selectDecor(d.id); else deselectDecor(); return; } // fish can't be tapped
+    if (editing) { // fish can't be tapped; a decoration is selected and can be dragged (any type, same code)
+      const d = hitDecor(p.x, p.y);
+      if (d) { selectDecor(d.id); drag = { id: d.id, px: p.x, py: p.y, x: d.x, y: d.y, moved: false }; } else { drag = null; deselectDecor(); }
+      return;
+    }
     if (tool === 'hand') { const f = hitFish(p.x, p.y); if (f) openPanel(f.id); else closePanel(); }
     else if (tool === 'food') {
       const r = G.feedTap(p.x / W, p.y / H, W, H); // 1 food per tap to the hungry fish nearest the tap
@@ -1183,6 +1214,7 @@
       (evs.length ? evs : [e]).forEach((ce) => { const q = local(ce); rubTo(q.x, q.y - spongeLift()); });
     }
     pointer.x = p.x; pointer.y = p.y;
+    if (editing && drag && pointer.down && e.pointerId === pointer.id) dragDecor(p.x, p.y);
     if (tool === 'net' && !editing && net.dip < 0) { // the net follows the pointer (while pressed; mouse also on hover) and targets the fish under the hoop
       const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
       if (pointer.down || !touch) { netMove(p.x, p.y, touch); net.on = true; net.target = netPick(net.x, net.y); }
@@ -1192,6 +1224,7 @@
     if (e.pointerId !== pointer.id) return;
     const wasDown = pointer.down;
     pointer.down = false; pointer.id = null;
+    if (drag) { if (drag.moved) G.save(); drag = null; }
     if (tool === 'net' && wasDown && !editing) { // let go: live fish -> confirm, dead fish -> removed, empty water -> nothing
       const p = local(e);
       let f = null;
@@ -1475,7 +1508,11 @@
     net() { return { on: net.on, x: net.x, y: net.y, fx: net.fx, fy: net.fy, touch: net.touch, target: net.target ? net.target.id : null, tilt: net.tilt, dip: net.dip, r: netR(),
       handleA: NET_HANDLE_A, handleLen: NET_HANDLE_LEN, grip: NET_TOUCH_GRIP }; },
     debugOpen() { return !!dbgOpen; }, openDebug(pw) { if (pw === DBG_PASS) { setDebugOpen(true); closeDbgPass(); return true; } return false; }, closeDebug() { setDebugOpen(false); closeDbgPass(); },
-    edit() { return { editing, selDecor, menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
+    editButtons() { // every edit-menu touch target (CSS px, viewport coords) for the spacing tests
+      return [...document.querySelectorAll('#deco-menu button')].filter((b) => b.offsetParent).map((b) => ({ id: b.id || b.dataset.size || b.dataset.move || b.className, kind: b.dataset.size ? 'size' : b.dataset.move ? 'move' : 'other', ...rect(b) }));
+    },
+    decorTypes() { return Object.keys(DECOR_TYPES); },
+    edit() { return { editing, selDecor, dragging: !!(drag && drag.moved), menu: $('deco-menu').hidden ? null : rect($('deco-menu')), done: $('deco-done').hidden ? null : rect($('deco-done')), tank: rect(wrap) }; },
     selectDecor, pulse() { return { p: pulseAmt(), count: blockedCount, spots: drawnSpots.slice() }; },
     pulseAt(t) { return pulseAmt(pulseT0 + t); },
     frames() { return frames; },
