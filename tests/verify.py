@@ -201,7 +201,7 @@ def main(VW, VH):
           fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.5); const partial = G.state.gold - g0;
           return { out, partial };""")
         cg = tj["dirt"]["cleanGold"]
-        check("v6.5 full clean pays cleanGold by stage (4/7/12/20/32) + 5 XP and restarts the dirt clock (first clean already used)", cg == [4, 7, 12, 20, 32] and tj["version"] == "6.5" and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
+        check("v6.5 full clean pays cleanGold by stage (4/7/12/20/32) + 5 XP and restarts the dirt clock (first clean already used)", cg == [4, 7, 12, 20, 32] and tj["version"] in ("6.5", "6.6", "6.7") and all(r["gold"] == cg[r["n"] - 1] and r["xp"] == 5 and r["cleaned"] and r["t"] == 0 and r["st"] == 0 for r in c["out"]), json.dumps(c["out"]))
         c2 = ev("""fresh(); G.state.gold = 50; toStage(3); const g0 = G.state.gold; rubAll(0.3); const partial = G.state.gold - g0, rs = G.state.dirt.rubStage;
           G.state.dirt.t = T.dirt.stageAtSec[3] - 0.5; G.tick(1); const midStage = G.dirtStage(), spots = G.state.dirt.spots.length;
           const r = rubAll(1.01); return { partial, rs, midStage, spots, gold: G.state.gold - g0, payStage: r && r.stage, stageNow: r && r.stageNow, rsAfter: G.state.dirt.rubStage };""")
@@ -280,7 +280,7 @@ def main(VW, VH):
           return out;""")
         check("v6.3 food per level = mealFood (Guppy 2/3/4/5, Danio 2/3/4/5, Discus 2/7/11/16), 1 food per tap",
               f["meal"] == [s_["mealFood"] for s_ in tj["species"]] and f["meal"][0] == [2, 3, 4, 5] and f["meal"][1] == [2, 3, 4, 5] and f["meal"][-1] == [2, 7, 11, 16] and tj["foodPerTap"] == 1
-              and tj["version"] in ("6.3", "6.4", "6.5"), json.dumps(f["meal"]))
+              and tj["version"] in ("6.3", "6.4", "6.5", "6.6", "6.7"), json.dumps(f["meal"]))
         split_ok = all(sp_[lv] == [s_["mealFood"][lv] // 2, s_["mealFood"][lv] - s_["mealFood"][lv] // 2] and min(sp_[lv]) >= 1 for sp_, s_ in zip(f["split"], tj["species"]) for lv in range(3))
         check("v6.3 mealSplit: L1-L3 mid = floor(total / 2), end = the rest (Guppy L3 4 -> 2+2, Ram L3 5 -> 2+3), every meal >= 1, every L1 = 1+1; L4 one meal of mealFood[3]",
               split_ok and all(sp_[0] == [1, 1] for sp_ in f["split"]) and all(sp_[3] == [s_["mealFood"][3]] for sp_, s_ in zip(f["split"], tj["species"]))
@@ -1007,22 +1007,91 @@ def main(VW, VH):
               and vis["onTop"] and vis["inside"] and sh["pad"] == (60 if LARGE else 52), json.dumps([sh, vis]))
         page.click("#shop-close"); page.wait_for_timeout(150)
         closed = not page.locator("#shop").is_visible()
-        page.click("#btn-shop"); page.wait_for_timeout(200); page.click('#shop .tab[data-tab="food"]'); page.wait_for_timeout(150)
-        packs = page.evaluate("[...document.querySelectorAll('#shop-food .card')].map((c) => [c.querySelector('.n').textContent, c.querySelector('.price').textContent, c.classList.contains('locked')])")
-        # at tank xp 5000 = level 5: 5/2, 10/5, 50/25 unlocked; 250/125 needs tank Lv6
-        g0, f0 = S()["gold"], S()["food"]; page.click('#shop-food button[data-food="0"]'); page.wait_for_timeout(100); g1, f1 = S()["gold"], S()["food"]
-        page.click('#shop-food button[data-food="1"]'); page.wait_for_timeout(100); g2, f2 = S()["gold"], S()["food"]
-        page.click('#shop-food button[data-food="2"]'); page.wait_for_timeout(100); g3, f3 = S()["gold"], S()["food"]
+        # ---- Food packs v6.7: unlockTankLevel 1/2/4/6, foodPackLockedLabel, buyable when unlocked ----
+        # xp thresholds: Lv1=0, Lv2=60, Lv4=1200, Lv6=10000, Lv9=65000 (read from tank.levelAtXp)
+        lvxp = lambda lv: tj["tank"]["levelAtXp"][lv - 1]
+        def open_food(xp):
+            ev(f"G.state.tank.xp = {xp}; G.state.gold = 1000; G.state.food = 0;"); page.wait_for_timeout(60)
+            if not page.locator("#shop").is_visible():
+                page.click("#btn-shop"); page.wait_for_timeout(120)
+            page.click('#shop .tab[data-tab="food"]'); page.wait_for_timeout(120)
+            return page.evaluate("""[...document.querySelectorAll('#shop-food .card')].map((c) => {
+              const b = c.querySelector('button[data-food]'), n = c.querySelector('.n'), s = c.querySelector('.s'), lbl = b.querySelector('.lbl'), pr = b.querySelector('.price');
+              const cr = c.getBoundingClientRect(), lr = lbl.getBoundingClientRect(), nr = n.getBoundingClientRect();
+              const lh = parseFloat(getComputedStyle(n).lineHeight) || parseFloat(getComputedStyle(n).fontSize) * 1.3;
+              const llh = parseFloat(getComputedStyle(lbl).lineHeight) || parseFloat(getComputedStyle(lbl).fontSize) * 1.3;
+              return { n: n.textContent, s: s.textContent, price: pr.hidden ? null : pr.textContent, lbl: lbl.textContent,
+                       locked: c.classList.contains('locked'), disabled: b.disabled, hidden: c.hidden,
+                       nFits: n.scrollWidth <= n.clientWidth + 0.5 && nr.height <= lh * 1.5,
+                       lblFits: !lbl.textContent || (lbl.scrollWidth <= lbl.clientWidth + 0.5 && lr.height <= llh * 1.6 && lr.right <= cr.right + 0.5) }; })""")
+        def packs_reachable():
+            # every pack card: scroll it into view inside #shop-scroll, then its whole button must be inside the scroll box,
+            # above the Close pill, and hit-test to itself; no horizontal overflow of the grid
+            return page.evaluate("""(() => { const sc = document.getElementById('shop-scroll'), close = document.getElementById('shop-close'); const out = [];
+              document.querySelectorAll('#shop-food .card').forEach((c) => { const b = c.querySelector('button[data-food]');
+                b.scrollIntoView({ block: 'nearest' }); const cl = close.getBoundingClientRect(); if (b.getBoundingClientRect().bottom > cl.top) sc.scrollTop += b.getBoundingClientRect().bottom - cl.top + 4;
+                const r = b.getBoundingClientRect(), s = sc.getBoundingClientRect(), k = close.getBoundingClientRect();
+                const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+                out.push({ i: +b.dataset.food, inside: r.top >= s.top - 0.5 && r.bottom <= s.bottom + 0.5 && r.left >= s.left - 0.5 && r.right <= s.right + 0.5,
+                           clearOfClose: r.bottom <= k.top + 0.5 || r.right <= k.left || r.left >= k.right, hit: !!hit && (hit === b || b.contains(hit)) }); });
+              sc.scrollTop = 0; return { cards: out, hOverflow: sc.scrollWidth > sc.clientWidth + 0.5 }; })()""")
+        want = ["5 food · 3 gold", "10 food · 5 gold", "50 food · 20 gold", "250 food · 75 gold", "500 food · 125 gold"]
+        want_s = ["0.6 gold per food", "0.5 gold per food", "0.4 gold per food", "0.3 gold per food", "0.25 gold per food"]
+        lock_lbl = lambda n: (tj.get("foodPackLockedLabel") or "Unlocks at Aquarium Lv {N}").replace("{N}", str(n))
+        # Lv1 (xp 0): only the 5-food pack buyable; others visible, greyed, locked label where the price was
+        p1 = open_food(lvxp(1)); reach1 = packs_reachable()
+        check("v6.7 Food packs (5, rendered from tuning): unlockTankLevel 1/2/4/6/9, foodPackLockedLabel, foodPackLockedShown; labels '5 food · 3 gold' and locked labels fit; every pack button reachable (scroll, not under Close), no sideways overflow",
+              closed and tj["version"] == "6.7" and tj.get("foodPackLockedShown") is True
+              and tj.get("foodPackLockedLabel") == "Unlocks at Aquarium Lv {N}"
+              and [[p["food"], p["gold"], p["unlockTankLevel"]] for p in tj["foodPacks"]] == [[5, 3, 1], [10, 5, 2], [50, 20, 4], [250, 75, 6], [500, 125, 9]] and len(p1) == len(tj["foodPacks"]) == 5
+              and [c["n"] for c in p1] == want and [c["s"] for c in p1] == want_s and all(c["nFits"] for c in p1)
+              and [c["locked"] for c in p1] == [False, True, True, True, True] and not any(c["hidden"] for c in p1)
+              and [c["price"] for c in p1] == ["3", None, None, None, None]
+              and [c["lbl"] for c in p1] == ["", lock_lbl(2), lock_lbl(4), lock_lbl(6), lock_lbl(9)]
+              and all(c["lblFits"] for c in p1) and not reach1["hOverflow"] and all(r["inside"] and r["clearOfClose"] and r["hit"] for r in reach1["cards"]) and len(reach1["cards"]) == 5, json.dumps([p1, reach1]))
+        g0, f0 = S()["gold"], S()["food"]
+        page.click('#shop-food button[data-food="0"]'); page.wait_for_timeout(80)
+        g1, f1 = S()["gold"], S()["food"]
+        # tapping a locked pack does nothing (button disabled; gold/food unchanged; buyFood returns false)
+        page.click('#shop-food button[data-food="1"]', force=True); page.wait_for_timeout(60)
+        page.click('#shop-food button[data-food="2"]', force=True); page.wait_for_timeout(60)
+        page.click('#shop-food button[data-food="3"]', force=True); page.wait_for_timeout(60)
+        page.locator('#shop-food button[data-food="4"]').scroll_into_view_if_needed(); page.click('#shop-food button[data-food="4"]', force=True); page.wait_for_timeout(60)
+        locked_tap = page.evaluate("({ gold: AQ.game.state.gold, food: AQ.game.state.food, buy: AQ.game.buyFood(3) || AQ.game.buyFood(4) })")
+        check("v6.7 Lv1: only 5-food pack buyable (3 gold -> 5 food); tapping locked 10/50/250/500 does nothing",
+              (g0 - g1, f1 - f0) == (3, 5) and locked_tap == {"gold": g1, "food": f1, "buy": False}, json.dumps([g0, g1, f0, f1, locked_tap]))
+        page.screenshot(path=shot("shop_food_lv1"))
+        # Lv2 (xp 60): 10-food unlocks
+        p2 = open_food(lvxp(2))
+        check("v6.7 Lv2: 10-food pack unlocks (5 still open; 50/250/500 still locked with label)",
+              [c["locked"] for c in p2] == [False, False, True, True, True] and p2[1]["price"] == "5" and p2[2]["lbl"] == lock_lbl(4), json.dumps(p2))
+        page.click('#shop-food button[data-food="1"]'); page.wait_for_timeout(80)
+        check("v6.7 Lv2 buy 10-food: -5 gold +10 food", (S()["gold"], S()["food"]) == (1000 - 5, 10), json.dumps(S()))
+        # Lv4 (xp 1200): 50-food unlocks
+        p4 = open_food(lvxp(4))
+        check("v6.7 Lv4: 50-food pack unlocks (250/500 still locked)",
+              [c["locked"] for c in p4] == [False, False, False, True, True] and p4[2]["price"] == "20" and p4[3]["lbl"] == lock_lbl(6) and p4[3]["lblFits"], json.dumps(p4))
+        page.click('#shop-food button[data-food="2"]'); page.wait_for_timeout(80)
+        check("v6.7 Lv4 buy 50-food: -20 gold +50 food", (S()["gold"], S()["food"]) == (1000 - 20, 50), json.dumps(S()))
         page.screenshot(path=shot("shop_food"))
-        check("v6 Food tab: 5 for 2, 10 for 5, 50 for 25, 250 for 125 (locked below tank Lv6); Close pill closes the shop",
-              closed and [p[:2] for p in packs] == [["5 food", "2"], ["10 food", "5"], ["50 food", "25"], ["250 food", "125"]]
-              and packs[3][2] is True and (g0 - g1, f1 - f0, g1 - g2, f2 - f1, g2 - g3, f3 - f2) == (2, 5, 5, 10, 25, 50), json.dumps([packs, g0, g1, g2, g3, f0, f1, f2, f3]))
-        # unlock the 250 pack at tank level 6
-        ev("G.state.tank.xp = 10000;"); page.wait_for_timeout(80); page.click('#shop .tab[data-tab="food"]'); page.wait_for_timeout(80)
-        packs6 = page.evaluate("[...document.querySelectorAll('#shop-food .card')].map((c) => [c.querySelector('.n').textContent, c.classList.contains('locked')])")
-        g4 = S()["gold"]; page.click('#shop-food button[data-food="3"]'); page.wait_for_timeout(100)
-        check("v6: 250-food pack unlocks at tank level 6 and costs 125 gold",
-              packs6 == [["5 food", False], ["10 food", False], ["50 food", False], ["250 food", False]] and S()["gold"] == g4 - 125 and S()["food"] == f3 + 250, json.dumps(packs6))
+        # Lv6 (xp 10000): 250-food unlocks
+        p6 = open_food(lvxp(6))
+        check("v6.7 Lv6: 250-food pack unlocks (75 gold); 500 still locked 'Unlocks at Aquarium Lv 9'",
+              [c["locked"] for c in p6] == [False, False, False, False, True] and [c["price"] for c in p6] == ["3", "5", "20", "75", None] and [c["lbl"] for c in p6] == ["", "", "", "", lock_lbl(9)] and p6[4]["lblFits"], json.dumps(p6))
+        g4 = S()["gold"]; page.click('#shop-food button[data-food="3"]'); page.wait_for_timeout(80)
+        check("v6.7 Lv6 buy 250-food: -75 gold +250 food",
+              S()["gold"] == g4 - 75 and S()["food"] == 250, json.dumps(S()))
+        # Lv8 (xp levelAtXp[7]): 500 still locked; Lv9: 500-food unlocks
+        p8 = open_food(lvxp(8))
+        p9 = open_food(lvxp(9)); reach9 = packs_reachable()
+        check("v6.7 Lv9: 500-food pack unlocks (locked at Lv8); all five packs open with prices 3/5/20/75/125, all reachable",
+              p8[4]["locked"] is True and [c["locked"] for c in p9] == [False] * 5 and [c["price"] for c in p9] == ["3", "5", "20", "75", "125"] and all(c["lbl"] == "" for c in p9)
+              and not reach9["hOverflow"] and all(r["inside"] and r["clearOfClose"] and r["hit"] for r in reach9["cards"]), json.dumps([p8[4], p9, reach9]))
+        page.locator('#shop-food button[data-food="4"]').scroll_into_view_if_needed()
+        g9 = S()["gold"]; page.click('#shop-food button[data-food="4"]'); page.wait_for_timeout(80)
+        check("v6.7 Lv9 buy 500-food: -125 gold +500 food", S()["gold"] == g9 - 125 and S()["food"] == 500, json.dumps(S()))
+        page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(100)
+        page.screenshot(path=shot("shop_food_lv9_scrolled"))
         page.click('#shop .tab[data-tab="decor"]'); page.wait_for_timeout(150)
         dec = page.evaluate("[...document.querySelectorAll('#shop-decor .card')].map((c) => [c.querySelector('.n').textContent, c.querySelector('.price').textContent])")
         page.screenshot(path=shot("shop_decorations"))
@@ -1168,7 +1237,7 @@ def main(VW, VH):
         check("Designer check (a, v6.5): cleaning at stage 1 earns the most gold per day, 64/56/48/40/32 (4/7/12/20/32 over 1.5/3/6/12/24 h), falling with every stage",
               per_day == [64, 56, 48, 40, 32] and all(per_day[i] < per_day[i - 1] for i in range(1, 5)) and all(per_day[i] <= per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
         # Designer check (b, v6 10): profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L.
-        # v6.3 food to level L: mid + end meal (= mealFood[L-1] total) of every finished level (6 meals to L4). Food at 0.5 g.
+        # v6.3 food to level L: mid + end meal (= mealFood[L-1] total) of every finished level (6 meals to L4). Food at the dearest pack per food (v6.7: 0.6 g).
         # L4 must profit and beat L3 for every species.
         food_val = max(p["gold"] / p["food"] for p in tj["foodPacks"])
         prof = {}
@@ -1183,8 +1252,8 @@ def main(VW, VH):
             prof[sp["id"]] = rows
         ok_b = all(rows[3][0] > 0 and rows[3][0] > rows[2][0] for rows in prof.values())
         l4ph = [round(prof[s_["id"]][3][0] / (sum(s_["growSec"]) / 3600), 1) for s_ in tj["species"]]
-        check("Designer check (b, v6.3 10): L4 profit beats L3 for every species (Guppy L3 +10.5 / L4 +22.5; food to L4 = 2+3+4 = 9); game's L4 profit per hour matches",
-              ok_b and bc["sellOk"] and [prof["guppy"][i][0] for i in (2, 3)] == [10.5, 22.5] and prof["guppy"][3][2] == 9
+        check("Designer check (b, v6.7 10): L4 profit beats L3 for every species (food at 0.6 g: Guppy L3 +10 / L4 +21.6; food to L4 = 2+3+4 = 9); game's L4 profit per hour matches",
+              ok_b and bc["sellOk"] and food_val == 0.6 and [prof["guppy"][i][0] for i in (2, 3)] == [10.0, 21.6] and prof["guppy"][3][2] == 9
               and [r_["l4perHour"] for r_ in bc["sell"]] == l4ph and [r_["rows"][3]["food"] for r_ in bc["sell"]] == [sum(s_["mealFood"][:3]) for s_ in tj["species"]],
               json.dumps({"prof": {k: [r[0] for r in v] for k, v in list(prof.items())[:4]}, "l4ph": l4ph}))
 

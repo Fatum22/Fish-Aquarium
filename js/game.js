@@ -377,11 +377,11 @@
     return f;
   }
 
-  /** food packs are bought in the shop's Food category (v6 foodPacks: 5 for 2, 10 for 5, 50 for 25, 250 for 125 from tank Lv6) */
+  /** food packs are bought in the shop's Food category (v6.7: 5/3 Lv1, 10/5 Lv2, 50/20 Lv4, 250/75 Lv6, 500/125 Lv9; locked packs stay visible but unbuyable) */
   function buyFood(i) {
     const p = T.foodPacks[i || 0];
     if (!p) return false;
-    if (!packUnlocked(p)) { emit('msg', { text: `Aquarium level ${p.unlockTankLevel} needed` }); return false; }
+    if (!packUnlocked(p)) return false; // silent: the shop button is disabled and shows foodPackLockedLabel
     if (S.gold < p.gold) { emit('msg', { text: 'Not enough gold for food' }); return false; }
     S.gold -= p.gold; S.food += p.food;
     emit('foodbought', { food: p.food, gold: p.gold });
@@ -593,7 +593,7 @@
    *  (b) v6: per species, selling at L4 is a profit and beats selling at L3 (L3 may now show a profit: sell = 1.5 x price).
    *      profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L. Food eaten before selling at L = the
    *      mid + end meals of every finished level (v6.3: 2 meals = mealFood[L-1] food per level; 6 meals to L4).
-   *      Food is valued at 0.5 gold (the dearest pack per food, as in NUMBERS 10); noFood = the same without food. */
+   *      Food is valued at the dearest pack per food (v6.7: 0.6 gold, the 5-food pack, as in NUMBERS 10); noFood = the same without food. */
   function mealsBefore(lv) { return HP.slice(0, 2); } // v6.3: every level L1-L3 has a mid and an end meal (together mealFood[lv-1])
   function balanceChecks() {
     const L = T.maxLevel, foodVal = Math.max(...T.foodPacks.map((p) => p.gold / p.food));

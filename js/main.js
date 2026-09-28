@@ -859,7 +859,7 @@
   document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => setShopTab(b.dataset.tab)));
   function drawBottleCard(c, n) {
     c.clearRect(0, 0, 240, 96);
-    const k = n >= 50 ? 3 : 1;
+    const k = n >= 500 ? 5 : n >= 50 ? 3 : 1; // v6.7: the 500-food pack shows five bottles
     for (let i = 0; i < k; i++) {
       c.save(); c.translate(120 + (i - (k - 1) / 2) * 44, 12); c.scale(3, 3);
       c.fillStyle = '#ff8a3d'; c.beginPath(); c.roundRect(6 - 12, 6 - 3, 12, 15, 3); c.fill();
@@ -899,7 +899,7 @@
       });
       T.foodPacks.forEach((p, i) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.pack = i;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${p.food} food</div><div class="s">${(p.gold / p.food).toFixed(1)} gold per food</div>
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${p.food} food · ${p.gold} gold</div><div class="s">${+(p.gold / p.food).toFixed(2)} gold per food</div>
           <button class="btn buy" data-food="${i}"><svg><use href="#i-coin"/></svg><span class="price">${p.gold}</span><span class="lbl"></span></button>`;
         $('shop-food').appendChild(card);
         drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
@@ -928,11 +928,14 @@
       b.querySelector('.lbl').textContent = locked ? `🔒 Aquarium level ${sp.unlockTankLevel}` : full ? ' · Tank full' : '';
     });
     $('shop-food').querySelectorAll('button[data-food]').forEach((b) => {
-      const p = T.foodPacks[+b.dataset.food], locked = !G.packUnlocked(p), poor = G.state.gold < p.gold;
+      // v6.7: every pack has unlockTankLevel (1/2/4/6); locked packs stay visible (foodPackLockedShown) but greyed and unbuyable,
+      // with foodPackLockedLabel ("Unlocks at Aquarium Lv {N}") where the price was.
+      const p = T.foodPacks[+b.dataset.food], locked = !G.packUnlocked(p), poor = G.state.gold < p.gold, shown = T.foodPackLockedShown !== false;
+      b.closest('.card').hidden = locked && !shown;
       b.disabled = poor || locked; b.classList.toggle('poor', poor && !locked);
       b.closest('.card').classList.toggle('locked', locked);
       b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
-      b.querySelector('.lbl').textContent = locked ? `🔒 Aquarium level ${p.unlockTankLevel}` : '';
+      b.querySelector('.lbl').textContent = locked ? String(T.foodPackLockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', p.unlockTankLevel) : '';
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {

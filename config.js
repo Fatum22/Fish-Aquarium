@@ -25,7 +25,7 @@
  *   - feedGoldPerFish  : 0 (no feed gold)
  *   - levelUpGold[i] / levelUpXp[i] : gold / tank XP on reaching L(i+2)
  *   - sell[i] / sellXp[i] : gold / tank XP for selling at L(i+1); sell[0] = 0 -> "Release"
- *   - foodPacks        : shop Food category (10 food / 5 gold, 50 / 25)
+ *   - foodPacks        : shop Food category (v6.7: 5/3@Lv1, 10/5@Lv2, 50/20@Lv4, 250/75@Lv6, 500/125@Lv9)
  *   - unlockTankLevel  : species can only be bought at this tank level or higher
  *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean (any fish or none)
  *   - dirt.spots / cleanGold / rubPxPerSpot : spots at stage n, pay for a full clean by the stage when rubbing
@@ -43,11 +43,11 @@ window.AQUARIUM_CONFIG = {
   source: 'tuning.json v6 (Designer, 2026-09-28 16:05)',
   // v6 rules read by js/game.js (NUMBERS v6): sell = (price / 2) x level; death = deathSecByRarity[rarity][level-1];
   // a bought baby grows from 0% with no start meal (first hunger = L1 mid at 50%); reaching L4 is not hungry and starts
-  // the adult wait (adultHungerMultOfL3Grow x L3 grow); first clean 20 gold + 50 food; foodPacks 5/2, 10/5, 50/25, 250/125 (tank Lv6).
+  // the adult wait (adultHungerMultOfL3Grow x L3 grow); first clean 20 gold + 50 food; foodPacks (v6.7) 5/3@Lv1, 10/5@Lv2, 50/20@Lv4, 250/75@Lv6, 500/125@Lv9; foodPackLockedLabel.
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6.5",
+    "version": "6.7",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -862,20 +862,28 @@ window.AQUARIUM_CONFIG = {
     "foodPacks": [
       {
         "food": 5,
-        "gold": 2
+        "gold": 3,
+        "unlockTankLevel": 1
       },
       {
         "food": 10,
-        "gold": 5
+        "gold": 5,
+        "unlockTankLevel": 2
       },
       {
         "food": 50,
-        "gold": 25
+        "gold": 20,
+        "unlockTankLevel": 4
       },
       {
         "food": 250,
-        "gold": 125,
+        "gold": 75,
         "unlockTankLevel": 6
+      },
+      {
+        "food": 500,
+        "gold": 125,
+        "unlockTankLevel": 9
       }
     ],
     "mealsPerLevel": 2,
@@ -922,7 +930,7 @@ window.AQUARIUM_CONFIG = {
       },
       "mealFoodCap": 16,
       "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built; v6.2: mealFood set directly per species (mealFoodRule), rarity m no longer used",
-      "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 \u2026 L4=2*price"
+      "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 … L4=2*price"
     },
     "decorations": {
       "price": 0,
@@ -962,7 +970,7 @@ window.AQUARIUM_CONFIG = {
       },
       "positionStoredAs": "fractionOfTankWaterArea"
     },
-    "deathSecBy": "species.rarity \u2192 deathSecByRarity[rarity][fishLevel-1]; uncommon matches common; rare is longer at every level",
+    "deathSecBy": "species.rarity → deathSecByRarity[rarity][fishLevel-1]; uncommon matches common; rare is longer at every level",
     "levelCommonBaseline": {
       "1": {
         "price": 20,
@@ -1104,7 +1112,9 @@ window.AQUARIUM_CONFIG = {
       "midMeal": "floor(mealFood[L] / 2)",
       "endMeal": "mealFood[L] - midMeal",
       "L4": "mealFood[3] is one adult meal per adult wait"
-    }
+    },
+    "foodPackLockedLabel": "Unlocks at Aquarium Lv {N}",
+    "foodPackLockedShown": true
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
 
