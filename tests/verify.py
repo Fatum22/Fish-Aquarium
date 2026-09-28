@@ -1656,10 +1656,10 @@ def home_screen_icons():
           ("icon", "image/svg+xml", "") in rels and ("icon", "image/png", "192x192") in rels and ("apple-touch-icon", "", "180x180") in rels and man is not None
           and all(not l["href"].startswith(("/", "http:", "https:")) for l in L) and status and all(v == 200 for v in status.values()), json.dumps({"links": L, "status": status}))
     sizes = sorted(i[1] for i in icon_urls)
-    check("manifest: name / short_name Aquarium, display fullscreen with standalone fallback (display_override), orientation landscape, theme + background #07192a, "
+    check("manifest: name / short_name Aquarium, display standalone (what every iOS version understands) with fullscreen first in display_override (Android Chrome), orientation landscape, theme + background #07192a, "
           "start_url and scope ./ (GitHub Pages /Fish-Aquarium/), icons 192 + 512 purpose any, PNG, HTTP 200, relative src",
-          manifest is not None and manifest.get("name") == "Aquarium" and manifest.get("short_name") == "Aquarium" and manifest.get("display") == "fullscreen"
-          and "standalone" in manifest.get("display_override", []) and manifest.get("orientation") == "landscape"
+          manifest is not None and manifest.get("name") == "Aquarium" and manifest.get("short_name") == "Aquarium" and manifest.get("display") == "standalone"
+          and manifest.get("display_override", [])[:1] == ["fullscreen"] and manifest.get("orientation") == "landscape"
           and manifest.get("theme_color") == "#07192a" and manifest.get("background_color") == "#07192a" and manifest.get("start_url") == "./" and manifest.get("scope") == "./"
           and sizes == ["192x192", "512x512"] and all(i[2] and "any" in i[2].split() and i[3] == 200 and i[4].startswith("image/png") and not i[0].startswith("/") for i in icon_urls),
           json.dumps({"manifest": manifest, "icons": icon_urls}))
@@ -2023,6 +2023,82 @@ def tuning_68():
         page.evaluate("AQ.game.reset(); AQ.game.save()")
         browser.close()
 
+def standalone_ios():
+    """Job 3: old-iPad home-screen standalone. Static: exactly one of each iOS web-app tag, manifest display standalone,
+    start_url / scope ./ resolving to the page folder at the root AND under /Fish-Aquarium/, apple-touch-icon 200 with no
+    redirect; no code path navigates (reload / location / window.open / links / service worker). Live: WebKit (or Chromium
+    if WebKit is not installed) with an iPad iOS 12 Safari user agent and navigator.standalone = true: the game runs and
+    the main frame never navigates or unloads through load, every tool, the shop tabs, edit mode, debug Reset."""
+    import urllib.request, urllib.parse, urllib.error, re
+    VIEW[0] = "standalone iOS"
+    root = os.path.join(HERE, "..")
+    html = open(os.path.join(root, "index.html")).read(); head = html.split("</head>")[0]
+    man = json.load(open(os.path.join(root, "manifest.webmanifest")))
+    cnt = lambda pat: len(re.findall(pat, head, re.I))
+    ok_meta = (cnt(r'<meta name="apple-mobile-web-app-capable" content="yes">') == 1 and cnt(r'name="apple-mobile-web-app-capable"') == 1
+               and cnt(r'name="mobile-web-app-capable"') == 1 and cnt(r'name="apple-mobile-web-app-status-bar-style" content="black-translucent"') == 1
+               and cnt(r'name="apple-mobile-web-app-status-bar-style"') == 1 and cnt(r'rel="apple-touch-icon"') == 1 and cnt(r'rel="manifest"') == 1
+               and cnt(r'name="viewport"[^>]*viewport-fit=cover') == 1 and cnt(r'http-equiv="refresh"') == 0)
+    check("iOS web-app tags: exactly one apple-mobile-web-app-capable yes, mobile-web-app-capable, black-translucent status bar, apple-touch-icon, manifest link, viewport-fit=cover; no meta refresh",
+          ok_meta, head[:0])
+    res = {}
+    for base in ("https://example.trycloudflare.com/", "https://fatum22.github.io/Fish-Aquarium/"):
+        m = urllib.parse.urljoin(base, "manifest.webmanifest")
+        res[base] = [urllib.parse.urljoin(m, man["start_url"]), urllib.parse.urljoin(m, man["scope"]), urllib.parse.urljoin(m, man.get("id", man["start_url"]))]
+    check("manifest: display standalone (fullscreen via display_override), start_url / scope / id ./ resolve to exactly the added page URL at the tunnel root and under /Fish-Aquarium/",
+          man["display"] == "standalone" and "fullscreen" in man.get("display_override", []) and all(v == [k, k, k] for k, v in res.items()), json.dumps(res))
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k): return None
+    op = urllib.request.build_opener(NoRedirect)
+    st = {}
+    for path in ("", "icons/icon-180.png", "manifest.webmanifest", "icons/icon-192.png"):
+        try:
+            r = op.open(BASE + path); st[path or "/"] = [r.status, r.headers.get("Content-Type", "")]
+        except urllib.error.HTTPError as e:
+            st[path or "/"] = [e.code, e.headers.get("Location", "")]
+    check("page, apple-touch-icon 180, manifest and icon 192 answer 200 directly (no redirect); icon is image/png",
+          all(v[0] == 200 for v in st.values()) and st["icons/icon-180.png"][1].startswith("image/png"), json.dumps(st))
+    src = "".join(open(os.path.join(root, f)).read() for f in ("index.html", "config.js", "js/main.js", "js/game.js", "js/fishart.js", "js/fishdata.js", "decor/decor-v1-data.js"))
+    nav = re.findall(r"location\.(?:reload|replace|assign)\s*\(|location\.href\s*=|location\s*=[^=]|window\.open\s*\(|serviceWorker|<a\s[^>]*href=|<form|history\.(?:go|back|forward)\s*\(", src)
+    check("no code path navigates away (no location.reload / replace / assign / href =, window.open, links, forms, history.go, service worker)", not nav, json.dumps(nav[:5]))
+    UA = "Mozilla/5.0 (iPad; CPU OS 12_5_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.1.2 Mobile/15E148 Safari/604.1"
+    with sync_playwright() as p:
+        try:
+            browser = p.webkit.launch(); engine = "webkit"
+        except Exception:
+            browser = p.chromium.launch(); engine = "chromium (webkit not installed)"
+        ctx = browser.new_context(viewport={"width": 1024, "height": 768}, user_agent=UA, has_touch=True, is_mobile=engine == "webkit" or None, device_scale_factor=2)
+        ctx.add_init_script("""Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true });
+            window.addEventListener('beforeunload', () => { try { sessionStorage.setItem('aq-unloads', String(+(sessionStorage.getItem('aq-unloads') || 0) + 1)); } catch (_) {} });""")
+        page = ctx.new_page(); errs = []; navs = []; pages = []
+        page.on("pageerror", lambda e: errs.append(str(e)))
+        page.on("framenavigated", lambda f: f == page.main_frame and navs.append(f.url))
+        ctx.on("page", lambda pg: pages.append(pg.url))
+        page.goto(BASE); page.wait_for_function("window.AQ && window.AQ.game", timeout=20000); page.wait_for_timeout(500)
+        info = page.evaluate("({ sa: navigator.standalone, ua: navigator.userAgent, fish: AQ.game.state.fish.length, w: innerWidth })")
+        page.evaluate("document.querySelectorAll('.modal').forEach((m) => { if (!m.hidden && m.querySelector('.btn')) {} })")
+        steps = []
+        def step(name, fn):
+            try: fn(); page.wait_for_timeout(150); steps.append([name, True])
+            except Exception as e: steps.append([name, str(e)[:120]])
+        for t in ("food", "sponge", "net", "brush", "hand"):
+            step("tool " + t, lambda t=t: page.evaluate(f"AQ.setTool('{t}')"))
+        tb = page.locator("#tank").bounding_box()
+        step("tap tank", lambda: page.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2))
+        for tab in ("fish", "food", "decor"):
+            step("shop " + tab, lambda tab=tab: page.evaluate(f"AQ.openShop(); AQ.setShopTab('{tab}')"))
+        step("shop close", lambda: page.evaluate("document.querySelector('#shop-close').click()"))
+        step("buy leaf + edit", lambda: page.evaluate("(() => { const G = AQ.game; G.state.gold += 50; const d = G.buyDecor('leaf'); AQ.setTool('brush'); AQ.selectDecor(d.id); })()"))
+        step("edit done", lambda: page.evaluate("document.getElementById('deco-done').click()"))
+        step("debug unlock", lambda: page.evaluate("AQ.openDebug('123456')"))
+        step("debug reset", lambda: (page.evaluate("document.getElementById('dbg-reset').click()"), page.wait_for_timeout(100), page.evaluate("document.getElementById('confirm-yes').click()")))
+        page.wait_for_timeout(400)
+        after = page.evaluate("({ unloads: +(sessionStorage.getItem('aq-unloads') || 0), url: location.href, alive: !!(window.AQ && AQ.game), decor: AQ.game.state.decor.length })")
+        browser.close()
+    check(f"iPad iOS 12 Safari UA + navigator.standalone true ({engine}): the game runs; through load, every tool, a tank tap, all shop tabs, edit mode and debug Reset the page never navigates, unloads or opens a window",
+          info["sa"] is True and "iPad" in info["ua"] and len(navs) == 1 and navs[0].rstrip("/") == BASE.rstrip("/") and not pages and after["unloads"] == 0 and after["url"] == navs[0]
+          and after["alive"] and after["decor"] == 0 and all(s[1] is True for s in steps) and not errs, json.dumps({"info": info, "navs": navs, "pages": pages, "after": after, "steps": [s for s in steps if s[1] is not True], "errs": errs[:3]}))
+
 DECOR_SHOTS = os.path.join(HERE, "..", "screenshots", "decor")
 
 def decor_v1():
@@ -2200,7 +2276,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

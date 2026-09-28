@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#07192a">
   <meta name="screen-orientation" content="landscape">
-  <!-- home-screen app: relative paths so it works under the GitHub Pages subpath /Fish-Aquarium/ -->
+  <!-- home-screen app: relative paths so it works under the GitHub Pages subpath /Fish-Aquarium/. iOS reads these tags
+       (and, from 11.3, the manifest, whose display wins over the meta tag) ONCE, when the icon is added: an icon added from a
+       build without them keeps opening in Safari until it is deleted and added again. Manifest display is "standalone"
+       (every iOS version understands it; fullscreen stays first in display_override for Android). Never navigate the
+       page (reload / location / links): old iOS standalone apps bounce to Safari on navigation. -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -15,7 +19,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
   <title>Aquarium (prototype)</title>
-  <link rel="stylesheet" href="style.css?v=202609281930">
+  <link rel="stylesheet" href="style.css?v=202609281950">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -190,11 +194,11 @@
     <div id="rotate-text">Turn your device sideways</div>
   </div>
 
-  <script src="config.js?v=202609281930"></script>
-  <script src="js/fishdata.js?v=202609281930"></script>
-  <script src="js/fishart.js?v=202609281930"></script>
-  <script src="decor/decor-v1-data.js?v=202609281930"></script>
-  <script src="js/game.js?v=202609281930"></script>
-  <script src="js/main.js?v=202609281930"></script>
+  <script src="config.js?v=202609281950"></script>
+  <script src="js/fishdata.js?v=202609281950"></script>
+  <script src="js/fishart.js?v=202609281950"></script>
+  <script src="decor/decor-v1-data.js?v=202609281950"></script>
+  <script src="js/game.js?v=202609281950"></script>
+  <script src="js/main.js?v=202609281950"></script>
 </body>
 </html>

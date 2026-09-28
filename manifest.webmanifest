@@ -1,9 +1,10 @@
 {
   "name": "Aquarium",
   "short_name": "Aquarium",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
-  "display": "fullscreen",
+  "display": "standalone",
   "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
   "theme_color": "#07192a",
