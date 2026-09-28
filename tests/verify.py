@@ -216,10 +216,10 @@ def main(VW, VH):
               and tj["newTank"]["firstCleanReward"] == {"gold": 20, "food": 50, "replacesStagePay": True}, json.dumps(fc))
 
         # ================================================================ B. feeding / growth / hunger / death
-        f = ev("""const out = { meal: T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.portion(sp, lv))) };
+        f = ev("""const out = { meal: T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.portion(sp, lv))), split: T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.mealsOf(sp, lv))) };
           // growth (v6): bought baby grows at once; feed the moment it gets hungry -> adult after sum(growSec); L4 not hungry
           fresh(); G.state.gold = 1000; let a = G.buyFish('guppy'); let t = 0, hungerAt = null; const hung = [];
-          const a0 = a; G.on((ty, d) => { if (ty === 'hungry' && d.fish === a0) hung.push([t + 1, a0.level, a0.progress === 0 ? 'start' : 'mid']); });
+          const a0 = a; G.on((ty, d) => { if (ty === 'hungry' && d.fish === a0) hung.push([t + 1, a0.level, d.end ? 'end' : 'mid', a0.progress / G.growSec(G.SPECIES.guppy, a0.level)]); });
           out.bought = { state: a.state, deathLeft: a.deathLeft, progress: a.progress };
           while (a.level < 4 && t < 100000) { G.tick(1); t++; if (hungerAt === null && a.state === 'HUNGRY') hungerAt = t;
             if (a.state === 'HUNGRY') { clean(); feedFull(a); } }
@@ -232,18 +232,27 @@ def main(VW, VH):
             while (d === null && t < 40 * H) { G.tick(1); t++; if (h === null && G.needsFood(f)) { h = t; dl = f.deathLeft; } if (f.state === 'DEAD') d = t; }
             return { lv, hungryAt: h, deathLeftAtHunger: dl, diesAfter: d - h }; });
           out.rareDeath = (() => { fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('ram'); f.level = 4; f.state = 'ADULT_HUNGRY'; f.fed = 0; f.deathLeft = G.deathSecFor(G.SPECIES.ram, 4); let t = 0; while (f.state !== 'DEAD' && t < 40 * H) { G.tick(1); t++; } return { diesAfter: t, expected: G.deathSecFor(G.SPECIES.ram, 4) }; })();
-          // just levelled up to L2: hungry for start meal with L2 timer; just reached L4: NOT hungry, adult wait starts
+          // v6.3: at 100% of L1 the fish is hungry for its end meal and stays L1 (L1 death timer) until fed; the end meal levels
+          // it up to L2, GROWING from 0% and NOT hungry (no death timer), next hunger at 50% of L2
           fresh(); const u = G.buyFish('guppy'); u.hungerDone = true; u.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; G.tick(1);
-          const up = { level: u.level, state: u.state, deathLeft: u.deathLeft }; let tt = 0; while (u.state !== 'DEAD' && tt < 40 * H) { G.tick(1); tt++; } up.diesAfter = tt + 0.5;
+          const up = { atEnd: { level: u.level, state: u.state, endMeal: !!u.endMeal, deathLeft: u.deathLeft, progress: u.progress } };
+          G.tick(600); up.after10m = { level: u.level, state: u.state, progress: u.progress, info: G.fishInfo(u).level };
+          const r1 = G.feedTap(u.x, u.y);
+          up.afterEnd = { full: r1.full, levelUp: r1.levelUp, level: u.level, state: u.state, deathLeft: u.deathLeft, progress: u.progress, needs: G.needsFood(u), fed: u.fed };
+          let tt = 0; while (u.state === 'GROWING' && tt < 40 * H) { G.tick(1); tt++; } up.nextHunger = { after: tt, level: u.level, state: u.state, endMeal: !!u.endMeal };
+          // an unfed fish waiting at 100% dies on its level's death timer (L1 12 h)
+          fresh(); const u2 = G.buyFish('guppy'); u2.hungerDone = true; u2.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; G.tick(1); tt = 0;
+          while (u2.state !== 'DEAD' && tt < 40 * H) { G.tick(1); tt++; } up.diesAfter = tt + 0.5; up.diedLevel = u2.level;
           out.justUp = up;
           fresh(); const u4 = G.buyFish('guppy'); u4.level = 3; u4.state = 'GROWING'; u4.hungerDone = true; u4.progress = G.growSec(G.SPECIES.guppy, 3) - 0.5; G.tick(1);
-          out.justL4 = { level: u4.level, state: u4.state, deathLeft: u4.deathLeft, sinceFed: u4.sinceFed };
+          const pre4 = { level: u4.level, state: u4.state, endMeal: !!u4.endMeal, need: G.mealFor(u4) }; const taps4 = feedFull(u4);
+          out.justL4 = { pre: pre4, taps: taps4, level: u4.level, state: u4.state, deathLeft: u4.deathLeft, sinceFed: u4.sinceFed };
           // hunger at half of L1, death exactly deathSec after hunger (never fed after buy)
           fresh(); G.state.gold = 1000; a = G.buyFish('guppy'); t = 0; let h = null, dead = null;
           while (!dead && t < 200000) { G.tick(1); t++; if (h === null && a.state === 'HUNGRY') { h = t; out.progressAtHunger = a.progress; } if (a.state === 'DEAD') dead = t; }
           out.hungry = h; out.deathAfter = dead - h; out.deadState = a.state; out.deadStays = G.state.fish.includes(a);
-          // meals: make Platy hungry (L1 mid), then partial food moves nothing; a completed meal gives feed XP and moves dirt +300 s
-          fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; const p = G.buyFish('platy'); p.state = 'HUNGRY'; p.fed = 0; p.deathLeft = G.deathSecFor(G.SPECIES.platy, 1); p.hungerDone = true; p.progress = G.growSec(G.SPECIES.platy, 1) * 0.5;
+          // meals: make Rasbora hungry (L3 mid = floor(7 / 2) = 3 food), then partial food moves nothing; a completed meal gives feed XP and moves dirt +300 s
+          fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; const p = G.buyFish('rasbora'); p.level = 3; p.state = 'HUNGRY'; p.fed = 0; p.deathLeft = G.deathSecFor(G.SPECIES.rasbora, 3); p.hungerDone = true; p.progress = G.growSec(G.SPECIES.rasbora, 3) * 0.5;
           const t0 = G.state.dirt.t, x0 = G.state.tank.xp; const steps = [];
           for (let k = 0; k < 3; k++) { const r = G.feedTap(p.x, p.y); steps.push([r.full, G.state.dirt.t - t0, G.state.tank.xp - x0, p.fed, p.state]); }
           out.platyMeal = steps;
@@ -256,18 +265,36 @@ def main(VW, VH):
           out.sellFormula = T.species.every((sp) => [1,2,3,4].every((lv) => G.sellPrice(sp, lv) === Math.floor(sp.price * lv / 2) && sp.sell[lv-1] === Math.floor(sp.price * lv / 2)));
           out.adultMult = T.adultHungerMultOfL3Grow; out.adultOk = T.species.every((sp) => G.adultHungerSec(sp) === sp.growSec[2] * T.adultHungerMultOfL3Grow && sp.adultHungerSec === sp.growSec[2] * 4);
           out.deathTables = T.deathSecByRarity;
+          // v6.3 per-level meal walk (guppy + the rare Ram): taps for each mid / end meal, level only changes after the end meal
+          out.walk = ['guppy', 'ram'].map((id) => { fresh(); G.state.gold = 5000; G.state.tank.xp = 5000; G.state.food = 500; const f = G.buyFish(id); const sp = G.SPECIES[id];
+            const res = { id, bought: [f.state, G.needsFood(f)], meals: [] }; let t = 0;
+            while (f.level < 4 && t < 100000) { G.tick(1); t++; if (f.state === 'HUNGRY') { clean();
+              const m = { level: f.level, end: !!f.endMeal, pct: f.progress / G.growSec(sp, f.level), need: G.mealFor(f), panel: G.fishInfo(f).portion, taps: 0, levelDuring: [] };
+              let r; do { r = G.feedTap(f.x, f.y); m.taps++; if (!r.full) m.levelDuring.push(f.level); } while (r.ok && !r.full && m.taps < 50);
+              m.levelAfter = f.level; m.stateAfter = f.state; m.hungryAfter = G.needsFood(f); m.deathAfter = f.deathLeft; m.progressAfter = f.progress; res.meals.push(m); } }
+            res.adult = [f.level, f.state, f.deathLeft, t]; return res; });
+          // adults unchanged: L4 needs one meal of mealFood[3] after the 4 x L3 wait, stays L4
+          out.adult = ['guppy', 'ram'].map((id) => { fresh(); G.state.tank.xp = 5000; G.state.gold = 5000; G.state.food = 500; const f = G.buyFish(id); f.level = 4; f.state = 'ADULT'; f.progress = 0; f.sinceFed = 0;
+            let t = 0; while (f.state === 'ADULT' && t < 40 * H) { G.tick(1); t++; } clean(); const at = t, need = G.mealFor(f), taps = feedFull(f);
+            return { id, hungryAt: at, wait: G.adultHungerSec(G.SPECIES[id]), need, taps, meal3: G.SPECIES[id].mealFood[3], after: [f.level, f.state, f.deathLeft] }; });
           return out;""")
-        check("food per meal by species and level = mealFood (Guppy 1/1/1/2 … Discus 12/15/16/16), 1 food per tap",
-              f["meal"] == [s_["mealFood"] for s_ in tj["species"]] and f["meal"][0] == [1, 1, 1, 2] and f["meal"][-1] == [12, 15, 16, 16] and tj["foodPerTap"] == 1, json.dumps(f["meal"]))
+        check("v6.3 food per level = mealFood (Guppy 2/3/4/5, Danio 2/3/4/5, Discus 2/7/11/16), 1 food per tap",
+              f["meal"] == [s_["mealFood"] for s_ in tj["species"]] and f["meal"][0] == [2, 3, 4, 5] and f["meal"][1] == [2, 3, 4, 5] and f["meal"][-1] == [2, 7, 11, 16] and tj["foodPerTap"] == 1
+              and tj["version"] == "6.3", json.dumps(f["meal"]))
+        split_ok = all(sp_[lv] == [s_["mealFood"][lv] // 2, s_["mealFood"][lv] - s_["mealFood"][lv] // 2] and min(sp_[lv]) >= 1 for sp_, s_ in zip(f["split"], tj["species"]) for lv in range(3))
+        check("v6.3 mealSplit: L1-L3 mid = floor(total / 2), end = the rest (Guppy L3 4 -> 2+2, Ram L3 5 -> 2+3), every meal >= 1, every L1 = 1+1; L4 one meal of mealFood[3]",
+              split_ok and all(sp_[0] == [1, 1] for sp_ in f["split"]) and all(sp_[3] == [s_["mealFood"][3]] for sp_, s_ in zip(f["split"], tj["species"]))
+              and f["split"][3][2] == [2, 3] and "mealSplit" in tj, json.dumps(f["split"][:4]))
         gsum = sum(next(s for s in tj["species"] if s["id"] == "guppy")["growSec"])
         check("Guppy grows 3 / 6 / 12 min and reaches adult in 21 min with prompt feeding; just-bought is GROWING with no death timer",
               f["adultAt"] == gsum == 21 * 60 and f["bought"] == {"state": "GROWING", "deathLeft": None, "progress": 0}
               and next(s for s in tj["species"] if s["id"] == "guppy")["growSec"] == [180, 360, 720], f"adultAt={f['adultAt']} bought={f['bought']}")
         hung = f["hung"]
-        check("v6 hunger path: L1 mid only, then L2/L3 start+mid (5 hungers to adult); reaching L4 is ADULT not hungry; adult wait = 4 x L3 grow (48 m)",
-              [h_[2] for h_ in hung] == ["mid", "start", "mid", "start", "mid"] and [h_[1] for h_ in hung] == [1, 2, 2, 3, 3] and hung[0][0] == 90 and hung[1][0] == 180
+        check("v6.3 hunger path: L1, L2, L3 each hungry at exactly 50% (mid) and 100% (end) of grow time (6 hungers, Guppy at 1m30 / 3m / 6m / 9m / 15m / 21m); reaching L4 is ADULT not hungry; adult wait = 4 x L3 grow (48 m)",
+              [h_[2] for h_ in hung] == ["mid", "end"] * 3 and [h_[1] for h_ in hung] == [1, 1, 2, 2, 3, 3] and [h_[0] for h_ in hung] == [90, 180, 360, 540, 900, 1260]
+              and [h_[3] for h_ in hung] == [0.5, 1.0] * 3
               and f["adultState"] == "ADULT" and f["adultDeath"] is None and f["adultHunger"] == 2880 == tj["species"][0]["adultHungerSec"]
-              and f["adultMult"] == 4 and f["adultOk"] and tj["hungerPoints"] == [0.0, 0.5], json.dumps({"hung": hung, "adult": f["adultState"]}))
+              and f["adultMult"] == 4 and f["adultOk"] and tj["hungerPoints"] == [0.5, 1.0], json.dumps({"hung": hung, "adult": f["adultState"]}))
         check("hungry at 50% of L1 (Guppy at 1 m 30 s); sell formula (price/2)*level holds for every species",
               f["hungry"] == 90 and abs(f["progressAtHunger"] - 90) < 1e-6 and f["sellFormula"], f"hungry at {f['hungry']}s sell={f['sellFormula']}")
         common = tj["deathSecByRarity"]["common"]
@@ -278,24 +305,46 @@ def main(VW, VH):
               tj["deathSecByRarity"] == {"common": [43200, 50400, 64800, 72000], "uncommon": [43200, 50400, 64800, 72000], "rare": [64800, 75600, 97200, 108000]}
               and [b_["deathLeftAtHunger"] for b_ in bl] == common and [b_["diesAfter"] for b_ in bl] == common
               and f["rareDeath"]["diesAfter"] == f["rareDeath"]["expected"] == 108000, json.dumps({"bl": bl, "rare": f["rareDeath"]}))
-        check("just levelled up to L2: hungry for the start meal with the L2 timer (14 h) and dies 14 h later if not fed",
-              f["justUp"]["level"] == 2 and f["justUp"]["state"] == "HUNGRY" and abs(f["justUp"]["deathLeft"] - common[1]) <= 1 and abs(f["justUp"]["diesAfter"] - common[1]) <= 1, json.dumps(f["justUp"]))
+        ju = f["justUp"]
+        check("v6.3 at 100% of L1: hungry for the end meal, stays L1 (also 10 min later, info says L1) with the L1 timer (12 h); dies 12 h later at L1 if never fed",
+              ju["atEnd"]["level"] == 1 and ju["atEnd"]["state"] == "HUNGRY" and ju["atEnd"]["endMeal"] and abs(ju["atEnd"]["deathLeft"] - common[0]) <= 1 and ju["atEnd"]["progress"] == 180
+              and ju["after10m"] == {"level": 1, "state": "HUNGRY", "progress": 180, "info": 1} and abs(ju["diesAfter"] - common[0]) <= 1 and ju["diedLevel"] == 1, json.dumps(ju))
+        check("v6.3 no meal right after a level-up: the end meal levels it to L2, GROWING from 0%, not hungry, no death timer; next hunger is the mid meal at 50% of L2 (3 m)",
+              ju["afterEnd"] == {"full": True, "levelUp": True, "level": 2, "state": "GROWING", "deathLeft": None, "progress": 0, "needs": False, "fed": 0}
+              and ju["nextHunger"] == {"after": 180, "level": 2, "state": "HUNGRY", "endMeal": False}, json.dumps(ju))
         check("adult hunger after the wait: an ADULT Guppy gets hungry exactly 4 x L3 grow (48 m = 2880 s) after its last meal / reaching L4",
               bl[3]["hungryAt"] == 2880 == 4 * tj["species"][0]["growSec"][2], json.dumps(bl[3]))
-        check("just reached L4: ADULT, not hungry, no death timer, adult wait started (sinceFed 0)",
-              f["justL4"]["level"] == 4 and f["justL4"]["state"] == "ADULT" and f["justL4"]["deathLeft"] is None and 0 <= f["justL4"]["sinceFed"] <= 1, json.dumps(f["justL4"]))
+        check("L3 at 100% waits for its end meal (Guppy 2 food); after it: L4 ADULT, not hungry, no death timer, adult wait started (sinceFed 0)",
+              f["justL4"]["pre"] == {"level": 3, "state": "HUNGRY", "endMeal": True, "need": 2} and f["justL4"]["taps"] == 2
+              and f["justL4"]["level"] == 4 and f["justL4"]["state"] == "ADULT" and f["justL4"]["deathLeft"] is None and 0 <= f["justL4"]["sinceFed"] <= 1, json.dumps(f["justL4"]))
+        for w_ in f["walk"]:
+            sp_ = next(s_ for s_ in tj["species"] if s_["id"] == w_["id"]); mf = sp_["mealFood"]
+            exp = [(lv, e, (mf[lv - 1] - mf[lv - 1] // 2) if e else mf[lv - 1] // 2) for lv in (1, 2, 3) for e in (False, True)]
+            got = [(m_["level"], m_["end"], m_["need"]) for m_ in w_["meals"]]
+            check(f"v6.3 {sp_['name']} L1-L3 ({sp_['rarity']}): bought not hungry; mid at 50% needs floor(total/2) taps, end at 100% needs the rest; panel food = meal; level unchanged until the end meal is eaten, then GROWING, not hungry",
+                  w_["bought"] == ["GROWING", False] and got == exp and all(m_["taps"] == m_["need"] == m_["panel"] for m_ in w_["meals"])
+                  and all(abs(m_["pct"] - (1.0 if m_["end"] else 0.5)) < 1e-9 for m_ in w_["meals"])
+                  and all(set(m_["levelDuring"]) <= {m_["level"]} for m_ in w_["meals"])
+                  and all(m_["levelAfter"] == m_["level"] + (1 if m_["end"] else 0) for m_ in w_["meals"])
+                  and all(m_["stateAfter"] == ("ADULT" if m_["end"] and m_["level"] == 3 else "GROWING") and not m_["hungryAfter"] and m_["deathAfter"] is None for m_ in w_["meals"])
+                  and all(m_["progressAfter"] == 0 for m_ in w_["meals"] if m_["end"])
+                  and sum(m_["taps"] for m_ in w_["meals"]) == sum(mf[:3]) and w_["adult"][:3] == [4, "ADULT", None],
+                  json.dumps([[m_["level"], "end" if m_["end"] else "mid", m_["need"], m_["taps"], m_["levelAfter"], m_["stateAfter"]] for m_ in w_["meals"]]))
+        check("adults unchanged: an L4 Guppy / Ram gets hungry after 4 x L3 grow and needs one meal of mealFood[3] (5 / 6 food), stays L4 ADULT after",
+              all(a_["hungryAt"] == a_["wait"] and a_["need"] == a_["taps"] == a_["meal3"] and a_["after"] == [4, "ADULT", None] for a_ in f["adult"])
+              and [a_["meal3"] for a_ in f["adult"]] == [5, 6], json.dumps(f["adult"]))
         check("a just-bought L1 fish starts GROWING with no death timer; unfed it dies after mid-hunger + 12 h (not WAITING)",
               f["waiting"]["atBuy"] == ["GROWING", None] and f["waiting"]["after24h"][0] == "DEAD", json.dumps(f["waiting"]))
         pm = f["platyMeal"]
-        check("Platy L1 meal = 3 food: taps 1-2 are partial (no XP, dirt clock unchanged); tap 3 completes it: +5 feed XP, dirt clock +300 s, growing",
-              [x_[0] for x_ in pm] == [False, False, True] and [x_[1] for x_ in pm] == [0, 0, 300] and [x_[2] for x_ in pm] == [0, 0, 5] and pm[2][4] == "GROWING"
+        check("Rasbora L3 mid meal = 3 food (7 -> 3+4): taps 1-2 are partial (no XP, dirt clock unchanged); tap 3 completes it: +7 feed XP, dirt clock +300 s, growing",
+              [x_[0] for x_ in pm] == [False, False, True] and [x_[1] for x_ in pm] == [0, 0, 300] and [x_[2] for x_ in pm] == [0, 0, 7] and pm[2][4] == "GROWING"
               and tj["dirt"]["mealAddsSec"] == 300, json.dumps(pm))
         check("a meal that pushes the dirt over a stage line still counts (XP, growing); the next tap is blocked as dirty",
               f["cross"] == {"full": True, "state": "GROWING", "xp": 1, "stage": 1, "next": "dirty", "spots": tj["dirt"]["spots"][0]}, json.dumps(f["cross"]))
 
-        # real taps: 1 food per tap, fed meter, v3 feeding pays 0 and shows no gold float (Platy needs 2 taps at L1)
+        # real taps: 1 food per tap, fed meter, v3 feeding pays 0 and shows no gold float (v6.3: Platy L3 end meal = 5 - 2 = 3 taps, then L4)
         pid = ev("""fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; const f = G.buyFish('platy');
-          f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = G.growSec(G.SPECIES.platy, 1) * 0.5; f.deathLeft = G.deathSecFor(G.SPECIES.platy, 1);
+          f.level = 3; f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.endMeal = true; f.progress = G.growSec(G.SPECIES.platy, 3); f.deathLeft = G.deathSecFor(G.SPECIES.platy, 3);
           AQ.pinFish(f.id, 0.5, 0.45); return f.id;""")
         page.wait_for_timeout(200); tool("food")
         pos = page.evaluate(f"AQ.fishScreen({pid})")
@@ -304,17 +353,29 @@ def main(VW, VH):
         f1 = next(x for x in s1["fish"] if x["id"] == pid); f2 = next(x for x in s2["fish"] if x["id"] == pid)
         page.wait_for_timeout(900); fl = page.evaluate("AQ.floats(true)")
         tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(120); s2 = S(); f2 = next(x for x in s2["fish"] if x["id"] == pid)
-        check("real Food taps: 1 food per tap, Platy fed 1/3, 2/3, then full -> growing, 0 gold (feedGoldPerFish 0)",
-              tj["feedGoldPerFish"] == 0 and s1["food"] == s0["food"] - 1 and f1["fed"] == 1 and f1["state"] == "HUNGRY" and s1["gold"] == s0["gold"]
-              and s2["food"] == s0["food"] - 3 and f2["state"] == "GROWING" and s2["gold"] == s0["gold"],
+        check("real Food taps: 1 food per tap, Platy L3 end meal fed 1/3 (still L3), 2/3, then full -> L4 ADULT; only the level-up gold is paid (feedGoldPerFish 0)",
+              tj["feedGoldPerFish"] == 0 and s1["food"] == s0["food"] - 1 and f1["fed"] == 1 and f1["state"] == "HUNGRY" and f1["level"] == 3 and s1["gold"] == s0["gold"]
+              and s2["food"] == s0["food"] - 3 and f2["state"] == "ADULT" and f2["level"] == 4 and s2["gold"] == s0["gold"] + tj["species"][4]["levelUpGold"][2],
               f"food {s0['food']}->{s1['food']}->{s2['food']} gold {s0['gold']}->{s2['gold']} state {f2['state']}")
         check("full feed shows no gold float at all (no '+0')", not any("gold" in t or "+0" in t for t in fl), str(fl))
+        # v6.3 multi-fish real taps: 4 hungry fish apart; every tap on the Platy (L3 end meal, 3 food) feeds the Platy only
+        mids = ev("""fresh(); G.state.gold = 5000; G.state.tank.xp = 5000; G.state.speed = 1; const out = {};
+          [['guppy', 0.2, 0.62], ['platy', 0.55, 0.4], ['ram', 0.85, 0.62], ['danio', 0.3, 0.3]].forEach(([id, x, y]) => { const f = G.buyFish(id); f.level = 3; f.state = 'HUNGRY'; f.fed = 0;
+            f.hungerDone = true; f.endMeal = true; f.progress = G.growSec(G.SPECIES[id], 3); f.deathLeft = G.deathSecFor(G.SPECIES[id], 3); AQ.pinFish(f.id, x, y); out[id] = f.id; });
+          return out;""")
+        page.wait_for_timeout(250); tool("food"); mfed = []
+        for _k in range(3):
+            pp = page.evaluate(f"AQ.fishScreen({mids['platy']})"); tank_click(pp["x"], pp["y"]); page.wait_for_timeout(120)
+            mfed.append({k_: (fish(v_)["fed"], fish(v_)["level"]) for k_, v_ in mids.items()})
+        check("v6.3 multi-fish real taps: with 4 hungry fish, 3 taps on the Platy (L3 end meal = 3) feed only the Platy (1, 2, then L4); the others stay at 0",
+              [m_["platy"] for m_ in mfed] == [(1, 3), (2, 3), (0, 4)] and all(m_[k_] == (0, 3) for m_ in mfed for k_ in ("guppy", "ram", "danio")), json.dumps(mfed))
+        ev("G.state.fish.forEach((f) => { if (f.state === 'HUNGRY') { f.state = 'GROWING'; f.fed = 0; f.endMeal = false; f.deathLeft = null; f.progress = 0; } });"); s2 = S()
         clear_toasts(); tank_click(pos["x"], pos["y"] - 20); page.wait_for_timeout(150)
         check("tap with nobody hungry: 'Nobody's hungry', no food spent", S()["food"] == s2["food"] and "Nobody's hungry" in page.inner_text("#toasts"), page.inner_text("#toasts"))
 
         # v1 flake shower on every successful tap (NUMBERS.md 3.4), drifting toward the fed fish; blocked taps show none
         fid = ev("""fresh(); G.state.gold = 1000; G.state.tank.xp = 1200; G.state.speed = 1; const f = G.buyFish('platy');
-          f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = G.growSec(G.SPECIES.platy, 1) * 0.5; f.deathLeft = G.deathSecFor(G.SPECIES.platy, 1);
+          f.level = 3; f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = G.growSec(G.SPECIES.platy, 3) * 0.5; f.deathLeft = G.deathSecFor(G.SPECIES.platy, 3);
           AQ.pinFish(f.id, 0.82, 0.55); return f.id;""")
         page.wait_for_timeout(200); tool("food"); b_ = box()
         fl0 = page.evaluate("AQ.flakes()"); food0 = S()["food"]
@@ -351,8 +412,8 @@ def main(VW, VH):
         page.wait_for_timeout(2500); clear_toasts(); tool("hand"); click_fish(gid); page.wait_for_timeout(250)
         ht, gt, mt, wt = page.inner_text("#p-hunger"), page.inner_text("#p-growth"), page.inner_text("#p-meal"), page.inner_text("#p-worth")
         segs = page.evaluate("[...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on'))")
-        check("fish info: 'Hungry! Growth paused · dies in 12h 00m', 'Meal 1 of 1 · needs 1 food' with a 1-segment bar, 'Worth 10 gold'; no tap counts",
-              any(ht.startswith("Hungry! Growth paused · dies in " + t) for t in ("12h 00m", "11h 59m")) and "Growth paused" in gt and mt == "Meal 1 of 1 · needs 1 food"
+        check("fish info: 'Hungry! Growth paused · dies in 12h 00m', v6.3 L1 mid meal 'Meal 1 of 2 · needs 1 food' with a 1-segment bar, 'Worth 10 gold'; no tap counts",
+              any(ht.startswith("Hungry! Growth paused · dies in " + t) for t in ("12h 00m", "11h 59m")) and "Growth paused" in gt and mt == "Meal 1 of 2 · needs 1 food"
               and segs == [False] and wt == "Worth 10 gold" and "tap" not in (ht + mt + gt).lower(), f"{ht} | {gt} | {mt} | {segs} | {wt}")
         page.screenshot(path=shot("panel_hungry"))
         page.keyboard.press("Escape")
@@ -366,16 +427,16 @@ def main(VW, VH):
           const sellXp = T.species.map((sp) => [1, 2, 3, 4].map((lv) => G.xpFor('sell', { sp, level: lv }))), feedXp = T.species.map((sp) => G.xpFor('feed', { sp }));
           return { afterLvl, xp2: gu.levelUpXp[0], gold2: gu.levelUpGold[0], afterSell, table, sellXp, feedXp, retired: G.CFG.XP_SOURCE === undefined && G.CFG.XP_PRESETS === undefined,
             rule: T.tank.xp.fishLevelUp, lv: [0, 59, 60, 399, 400, 1200, 3000].map(G.tankLevelFor) };""")
-        check("tank XP v6: 1 meal (L1 mid) x feed XP 1 + Guppy L2 level-up 10 (pays 1 gold) = 11; selling at L2 adds sellXp 10; tables = tuning",
-              x["rule"] == "species.levelUpXp" and x["afterLvl"] == 1 * 1 + x["xp2"] == 11 and x["gold2"] == 1 and x["afterSell"] == x["afterLvl"] + 10 and x["retired"]
+        check("tank XP v6.3: 2 meals (L1 mid + end) x feed XP 1 + Guppy L2 level-up 10 (pays 1 gold) = 12; selling at L2 adds sellXp 10; tables = tuning",
+              x["rule"] == "species.levelUpXp" and x["afterLvl"] == 2 * 1 + x["xp2"] == 12 and x["gold2"] == 1 and x["afterSell"] == x["afterLvl"] + 10 and x["retired"]
               and x["table"] == [s_["levelUpXp"] for s_ in tj["species"]] and x["sellXp"] == [s_["sellXp"] for s_ in tj["species"]]
               and x["feedXp"] == [s_["feedXp"] for s_ in tj["species"]], json.dumps(x))
         # level-up floats: "+2 gold" and "+20 XP" for a Guppy reaching L3 (NUMBERS.md 1f)
         lf = ev("""fresh(); G.state.gold = 100; G.state.speed = 1; const f = G.buyFish('guppy'); feedFull(f); f.level = 2; f.progress = G.growSec(G.SPECIES.guppy, 2) - 0.5;
-          f.hungerDone = true; AQ.pinFish(f.id, 0.5, 0.5); AQ.floats(true); const g0 = G.state.gold, x0 = G.state.tank.xp; G.tick(1);
-          return { gold: G.state.gold - g0, xp: G.state.tank.xp - x0, level: f.level };""")
+          f.hungerDone = true; AQ.pinFish(f.id, 0.5, 0.5); G.tick(1); const pre = [f.level, f.state]; AQ.floats(true); const g0 = G.state.gold, x0 = G.state.tank.xp; feedFull(f);
+          return { gold: G.state.gold - g0, xp: G.state.tank.xp - x0 - G.SPECIES.guppy.feedXp, level: f.level, pre };""")
         page.wait_for_timeout(100); fl = page.evaluate("AQ.floats(true)")
-        check("level-up pays v3 gold and shows '+2 gold' and '+20 XP' floats (Guppy L3)", lf["gold"] == 2 and lf["xp"] == 20 and lf["level"] == 3 and "+2 gold" in fl and "+20 XP" in fl, f"{lf} {fl}")
+        check("level-up (after the L2 end meal) pays v3 gold and shows '+2 gold' and '+20 XP' floats (Guppy L3)", lf["pre"] == [2, "HUNGRY"] and lf["gold"] == 2 and lf["xp"] == 20 and lf["level"] == 3 and "+2 gold" in fl and "+20 XP" in fl, f"{lf} {fl}")
         check("tank levels at 60 / 400 / 1200 / 3000 XP", x["lv"] == [1, 1, 2, 2, 3, 4, 5], str(x["lv"]))
         ev("fresh(); G.state.gold = 1000; G.state.tank.xp = 55; G.state.speed = 1;")
         page.click("#btn-shop"); page.wait_for_timeout(250)
@@ -488,6 +549,7 @@ def main(VW, VH):
         page.click("#btn-shop"); page.wait_for_timeout(200)
         check("shop disables buying while the tank is full with a dead fish in it", page.locator('button[data-buy="guppy"]').is_disabled())
         page.click('[data-close="shop"]'); tool("hand")
+        ev(f"const i = G.state.fish.findIndex((f) => f.id === {ids['b']}); if (i >= 0) G.state.fish.splice(i, 1);")  # the other dead fish can sit under the tap (1180x820 flake: 'Fish removed ×2')
         gold_b, xp_b = S()["gold"], S()["tank"]["xp"]; clear_toasts(); tool("net"); click_fish(ids["a"], "#toasts .toast"); page.wait_for_timeout(150)
         tl_ = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
         check("Designer NUMBERS 11.4: Net on a dead fish removes it at once (no confirm), 0 gold, 0 XP, 'Fish removed' toast, slot freed",
@@ -712,7 +774,7 @@ def main(VW, VH):
         ev("""fresh(); G.state.gold = 500; G.state.speed = 1;
               [[0.5, 0.45], [0.52, 0.46], [0.48, 0.44], [0.93, 0.3]].forEach(([x, y]) => { const f = G.buyFish('guppy'); feedFull(f); AQ.pinFish(f.id, x, y); });""")
         page.wait_for_timeout(300); clear_toasts()
-        ev("G.state.fish.forEach((f) => { f.progress = G.growSec(G.SPECIES.guppy, f.level) - 0.5; f.hungerDone = true; }); G.tick(1);")
+        ev("G.state.fish.forEach((f) => { f.progress = G.growSec(G.SPECIES.guppy, f.level) - 0.5; f.hungerDone = true; }); G.tick(1); G.state.fish.forEach((f) => feedFull(f));")
         m2, snaps = [], []
         for wait in (80, 250, 450, 600):   # (shorter total so the merged toast is surely still up for the 5th below)
             page.wait_for_timeout(wait)
@@ -732,7 +794,7 @@ def main(VW, VH):
               lv == ["Guppy reached level 2! +1 gold ×4"] and len(tl) == len(set(tl)), json.dumps(tl))
         # the merged toast restarts its timer, and a later identical toast joins it instead of stacking
         # (~2.1 s after the first four: still on screen)
-        ev("const f = G.buyFish('guppy'); feedFull(f); f.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; f.hungerDone = true; AQ.pinFish(f.id, 0.3, 0.7); G.tick(1);"); page.wait_for_timeout(100)
+        ev("const f = G.buyFish('guppy'); feedFull(f); f.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; f.hungerDone = true; AQ.pinFish(f.id, 0.3, 0.7); G.tick(1); feedFull(f);"); page.wait_for_timeout(100)
         tl2 = page.evaluate("[...document.querySelectorAll('#toasts .toast')].map((e) => e.textContent)")
         check("M2: a 5th identical toast while the merged one is still up joins it ('×5'), no second line",
               [t_ for t_ in tl2 if "reached level 2" in t_] == ["Guppy reached level 2! +1 gold ×5"], json.dumps(tl2))
@@ -1078,7 +1140,7 @@ def main(VW, VH):
               all(d_ and t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
         # fish info side panel geometry + meal bar
         fp = ev("""fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('platy');
-          f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.progress = G.growSec(G.SPECIES.platy, 1) * 0.5; f.deathLeft = G.deathSecFor(G.SPECIES.platy, 1);
+          f.level = 3; f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.endMeal = true; f.progress = G.growSec(G.SPECIES.platy, 3); f.deathLeft = G.deathSecFor(G.SPECIES.platy, 3);
           AQ.pinFish(f.id, 0.3, 0.5); G.feedTap(f.x, f.y); return f.id;""")
         page.wait_for_timeout(150); tool("hand"); click_fish(fp); page.wait_for_timeout(250)
         pn = page.evaluate("""(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); const k = r('#tank-wrap'), p = r('#panel');
@@ -1086,9 +1148,9 @@ def main(VW, VH):
                      meal: document.getElementById('p-meal').textContent, segs: [...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on')),
                      segH: document.querySelector('#p-mealbar i') ? document.querySelector('#p-mealbar i').getBoundingClientRect().height : 0, worth: document.getElementById('p-worth').textContent }; })()""")
         page.screenshot(path=shot("fish_info_meal"))
-        check("AD v4 8 / bible 18: fish info docks right (300 / 380 wide, tank height - 16, scrolls); L1 Platy mid meal 'Meal 1 of 1 · needs 2 food' with a 3-segment 10px bar (1 filled), 'Worth 75 gold'",
+        check("AD v4 8 / bible 18: fish info docks right (300 / 380 wide, tank height - 16, scrolls); v6.3 L3 Platy end meal after 1 tap 'Meal 2 of 2 · needs 2 food' with a 3-segment 10px bar (1 filled), still L3 'Worth 225 gold'",
               abs(pn["w"] - (380 if LARGE else 300)) < 0.5 and abs(pn["h"] - (pn["tankH"] - 16)) < 0.5 and abs(pn["right"] - 8) < 0.5 and abs(pn["top"] - 8) < 0.5 and pn["overflowY"] == "auto"
-              and pn["meal"] == "Meal 1 of 1 · needs 2 food" and pn["segs"] == [True, False, False] and abs(pn["segH"] - 10) < 0.5 and pn["worth"] == "Worth 75 gold", json.dumps(pn))
+              and pn["meal"] == "Meal 2 of 2 · needs 2 food" and pn["segs"] == [True, False, False] and abs(pn["segH"] - 10) < 0.5 and pn["worth"] == "Worth 225 gold", json.dumps(pn))
         page.keyboard.press("Escape")
         # away window (NUMBERS v4 11.1)
         aw_ = ev("""fresh(); const quiet = G.catchUp(600); const shownQuiet = AQ.showAway(quiet); const vis1 = !document.getElementById('away').hidden;
@@ -1106,7 +1168,7 @@ def main(VW, VH):
         check("Designer check (a, v6.1): cleaning at stage 1 earns the most gold per day (32/32/24/16/10), never rising with the stage",
               per_day == [32, 32, 24, 16, 10] and all(per_day[i] <= per_day[i - 1] for i in range(1, 5)) and bc["cleanOk"] and bc["cleanPerDay"] == per_day, str(per_day))
         # Designer check (b, v6 10): profit(L) = sell(L) + level-up gold up to L - price - food eaten up to L.
-        # Food to level L: L1 mid only (0.5 meal) of finished levels before L, then start+mid of L2/L3 (5 meals to L4). Food at 0.5 g.
+        # v6.3 food to level L: mid + end meal (= mealFood[L-1] total) of every finished level (6 meals to L4). Food at 0.5 g.
         # L4 must profit and beat L3 for every species.
         food_val = max(p["gold"] / p["food"] for p in tj["foodPacks"])
         prof = {}
@@ -1114,16 +1176,17 @@ def main(VW, VH):
             port = sp["mealFood"]; rows = []; food = 0; feeds = 0; lvl_gold = 0
             for L in range(1, 5):
                 if L > 1:
-                    n = 1 if L - 1 == 1 else 2  # L1 finished = mid only; L2/L3 finished = start+mid
-                    food += n * port[L - 2]; feeds += n; lvl_gold += sp["levelUpGold"][L - 2]
+                    n = 2  # v6.3: every finished level = mid + end meal, together mealFood[L-1]
+                    food += port[L - 2]; feeds += n; lvl_gold += sp["levelUpGold"][L - 2]
                 no_food = sp["sell"][L - 1] + lvl_gold - sp["price"]
                 rows.append((round(no_food - food * food_val + tj["feedGoldPerFish"] * feeds, 2), no_food, food))
             prof[sp["id"]] = rows
         ok_b = all(rows[3][0] > 0 and rows[3][0] > rows[2][0] for rows in prof.values())
-        check("Designer check (b, v6 10): L4 profit beats L3 for every species (Guppy L3 +11.5 / L4 +24.5; food to L4 = 5)",
-              ok_b and bc["sellOk"] and [prof["guppy"][i][0] for i in (2, 3)] == [11.5, 24.5] and prof["guppy"][3][2] == 5
-              and [round(r_["l4perHour"]) for r_ in bc["sell"]] == [70, 145, 188, 244, 218, 251, 326, 279, 320, 396, 398, 503, 509, 622],
-              json.dumps({k: [r[0] for r in v] for k, v in list(prof.items())[:4]}))
+        l4ph = [round(prof[s_["id"]][3][0] / (sum(s_["growSec"]) / 3600), 1) for s_ in tj["species"]]
+        check("Designer check (b, v6.3 10): L4 profit beats L3 for every species (Guppy L3 +10.5 / L4 +22.5; food to L4 = 2+3+4 = 9); game's L4 profit per hour matches",
+              ok_b and bc["sellOk"] and [prof["guppy"][i][0] for i in (2, 3)] == [10.5, 22.5] and prof["guppy"][3][2] == 9
+              and [r_["l4perHour"] for r_ in bc["sell"]] == l4ph and [r_["rows"][3]["food"] for r_ in bc["sell"]] == [sum(s_["mealFood"][:3]) for s_ in tj["species"]],
+              json.dumps({"prof": {k: [r[0] for r in v] for k, v in list(prof.items())[:4]}, "l4ph": l4ph}))
 
         # v6 9 first session: new tank -> first clean -> buy a Guppy -> five meals to adult -> sell
         sl = ev("""G.reset(); const rows = []; const snap = (k) => rows.push([k, G.state.gold, G.state.food, G.state.tank.xp]);
@@ -1131,9 +1194,9 @@ def main(VW, VH):
           while (a.level < 4 && t < 5000) { G.tick(1); t++; if (a.state === 'HUNGRY') { feedFull(a); meals++; } }
           snap('adult'); const lvl = G.tankInfo().level, dirtMoved = G.state.dirt.t - d0 - t; G.sell(a.id); snap('sold');
           return { rows, meals, lvl, dirtMoved, grow: t, adultState: a.state };""")
-        check("v6 first session: start 0/0/0 -> clean 20/50/5 -> buy Guppy 0/50/5 -> five meals to adult 7/45/80 (tank Lv2) -> sell 47/45/160; meals moved dirt 25 min",
-              [r_[1:] for r_ in sl["rows"]] == [[0, 0, 0], [20, 50, 5], [0, 50, 5], [7, 45, 80], [47, 45, 160]] and sl["meals"] == 5 and sl["lvl"] == 2
-              and sl["dirtMoved"] == 1500 and sl["grow"] == 1260 and sl["adultState"] == "ADULT", json.dumps(sl))
+        check("v6.3 first session: start 0/0/0 -> clean 20/50/5 -> buy Guppy 0/50/5 -> six meals (9 food) to adult 7/41/81 (Aquarium Lv2) -> sell 47/41/161; meals moved dirt 30 min",
+              [r_[1:] for r_ in sl["rows"]] == [[0, 0, 0], [20, 50, 5], [0, 50, 5], [7, 41, 81], [47, 41, 161]] and sl["meals"] == 6 and sl["lvl"] == 2
+              and sl["dirtMoved"] == 1800 and sl["grow"] == 1260 and sl["adultState"] == "ADULT", json.dumps(sl))
 
         # ================================================================ G. Art Director look spec (v2 dirt + fish growth)
         a = ev("""const V = G.CFG.VISUAL, sz = AQ.size(); fresh(); G.state.gold = 1000;
