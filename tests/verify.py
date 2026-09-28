@@ -2099,6 +2099,64 @@ def standalone_ios():
           info["sa"] is True and "iPad" in info["ua"] and len(navs) == 1 and navs[0].rstrip("/") == BASE.rstrip("/") and not pages and after["unloads"] == 0 and after["url"] == navs[0]
           and after["alive"] and after["decor"] == 0 and all(s[1] is True for s in steps) and not errs, json.dumps({"info": info, "navs": navs, "pages": pages, "after": after, "steps": [s for s in steps if s[1] is not True], "errs": errs[:3]}))
 
+FIX_SHOTS = os.path.join(HERE, "..", "screenshots", "fixes")
+
+def tank_corners():
+    """Job 2 (Maksims-approved): square tank corners: border-radius 0 / no clip-path on the tank frame, the canvas (water,
+    sand, glass, dirt film and glass overlay are all drawn full-rect on it), their pseudo-elements and every overlay layer
+    that covers the whole tank; the frame ring is square too; the subtle glass highlight line stays on the RIGHT."""
+    os.makedirs(FIX_SHOTS, exist_ok=True)
+    dif = lambda p, q: sum(abs(u - v) for u, v in zip(p, q))
+    FRAME = (0x1d, 0x4b, 0x6b)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"tank-corners {VW}x{VH}"
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=1)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            ev("fresh(); G.state.speed = 1;"); page.wait_for_timeout(350)
+            css = page.evaluate("""(() => { const k = document.getElementById('tank-wrap').getBoundingClientRect(), out = [];
+                const rad = (c) => [c.borderTopLeftRadius, c.borderTopRightRadius, c.borderBottomRightRadius, c.borderBottomLeftRadius];
+                const add = (name, el, pse) => { const c = getComputedStyle(el, pse || null); out.push({ name, rad: rad(c), clip: c.clipPath }); return out[out.length - 1]; };
+                for (const id of ['tank-wrap', 'tank']) { const el = document.getElementById(id); add(id, el); add(id + '::before', el, '::before'); add(id + '::after', el, '::after'); }
+                for (const m of document.querySelectorAll('#tank-wrap > .modal')) { const h = m.hidden; m.hidden = false; const r = m.getBoundingClientRect();
+                  add('#' + m.id, m).covers = Math.abs(r.width - k.width) < 1 && Math.abs(r.height - k.height) < 1; m.hidden = h; }
+                return out; })()""")
+            mods = [q for q in css if q["name"].startswith("#")]
+            check("Maksims: square tank corners in CSS: border-radius 0 (all 4) and no clip-path on #tank-wrap, #tank, their ::before / ::after and every overlay that covers the whole tank",
+                  all(r == "0px" for q in css for r in q["rad"]) and all(q["clip"] == "none" for q in css) and len(mods) >= 3 and all(q["covers"] for q in mods), json.dumps(css))
+            def grab():
+                tb = page.locator("#tank").bounding_box(); m = 8
+                png = page.screenshot(clip={"x": tb["x"] - m, "y": tb["y"] - m, "width": tb["width"] + 2 * m, "height": tb["height"] + 2 * m}); _w, _h, px = png_rgb(png)
+                return tb, (lambda x, y: px(int(x + m), int(y + m)))  # tank-local CSS px (dpr 1)
+            def corners(tb, P):
+                Wt, Ht = int(tb["width"]), int(tb["height"]); out = {}
+                for k, cx, cy, sx, sy in (("tl", 0, 0, 1, 1), ("tr", Wt - 1, 0, -1, 1), ("bl", 0, Ht - 1, 1, -1), ("br", Wt - 1, Ht - 1, -1, -1)):
+                    c = P(cx, cy)
+                    out[k] = {"nb": min(dif(c, P(cx + sx * a, cy + sy * b)) for a, b in ((2, 2), (4, 0), (0, 4), (1, 0), (0, 1))),
+                              "vsFrame": dif(c, FRAME), "outside": dif(P(cx - sx * 2, cy - sy * 2), FRAME)}
+                return out
+            ok_c = lambda cs: all(v["nb"] < 30 and v["vsFrame"] > 40 and v["outside"] < 16 for v in cs.values())
+            tb, P = grab(); c_clean = corners(tb, P)
+            gm = page.evaluate("AQ.geom()"); gl = page.evaluate("AQ.glassLine()")
+            yl = (gm["surf"] + gm["sand"]) / 2; lum = lambda q: sum(q)
+            right = lum(P(gl["x"], yl)) - lum(P(gl["x"] - 9, yl)); left = lum(P(gm["inset"], yl)) - (lum(P(gm["inset"] - 5, yl)) + lum(P(gm["inset"] + 5, yl))) / 2
+            top = lum(P(gl["x"], 1)) - lum(P(gl["x"] - 9, 1))
+            page.screenshot(path=os.path.join(FIX_SHOTS, f"corners_{VW}.png"))
+            ev("toStage(5);"); page.wait_for_timeout(400)
+            tb5, P5 = grab(); c_dirty = corners(tb5, P5); film = page.evaluate("AQ.filmInfo()")
+            check("Maksims: the very corner pixels are tank (not frame) and the frame ring is square (frame colour diagonally outside every corner), clean and at dirt max with the stage-5 film + glass overlay drawn",
+                  ok_c(c_clean) and ok_c(c_dirty) and film["strength"] > 0, json.dumps({"clean": c_clean, "dirtMax": c_dirty, "film": film["strength"]}))
+            check("Maksims: the subtle glass highlight line stays on the tank's RIGHT edge (VISUAL.glassLineSide 'right', at W - inset, visible in the water and the air gap); none on the left",
+                  gl["side"] == "right" and abs(gl["x"] - (gm["W"] - gm["inset"])) < 1e-6 and gl["x"] > gm["W"] / 2 and right > 20 and top > 20 and left < 20,
+                  json.dumps({"line": gl, "right": right, "top": top, "left": left}))
+            check("tank corners: no page errors", not errs, "; ".join(errs[:3]))
+            ctx.close()
+        browser.close()
+
 DECOR_SHOTS = os.path.join(HERE, "..", "screenshots", "decor")
 
 def decor_v1():
@@ -2299,7 +2357,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()
