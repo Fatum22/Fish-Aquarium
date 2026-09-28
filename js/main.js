@@ -936,8 +936,8 @@
       });
       Object.keys(T.decorations.types).filter((type) => DECOR_TYPES[type]).forEach((type) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.decor = type;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">Free · move, size and colour it</div>
-          <button class="btn buy" data-buydecor="${type}"><span class="price">${T.decorations.price ? T.decorations.price + ' gold' : 'Free'}</span><span class="lbl"></span></button>`;
+        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${decorType(type).name}</div><div class="s">Move, size and colour it</div>
+          <button class="btn buy" data-buydecor="${type}"><svg><use href="#i-coin"/></svg><span class="price">${G.decorPrice(type)}</span><span class="lbl"></span></button>`;
         $('shop-decor').appendChild(card);
         drawDecorCard(card.querySelector('canvas').getContext('2d'), type);
         card.querySelector('button').addEventListener('click', () => {
@@ -968,13 +968,15 @@
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
-      b.disabled = dfull; b.querySelector('.price').hidden = dfull;
+      const poor = G.state.gold < G.decorPrice(b.dataset.buydecor);
+      b.disabled = dfull || poor; b.classList.toggle('poor', poor && !dfull);
+      b.querySelector('.price').hidden = dfull; b.querySelector('svg').style.display = dfull ? 'none' : '';
       b.querySelector('.lbl').textContent = dfull ? 'Tank is full of decorations' : '';
     });
     const dead = G.state.fish.length - G.living();
     $('shop-note').textContent = shopTab === 'fish'
       ? `Tank: ${G.state.fish.length} / ${G.capacity()} fish${dead ? ` (${dead} dead: use the Net to remove)` : ''}. ${G.tankInfo().level < T.tank.maxLevel ? `Aquarium level ${T.tank.maxLevel}: room for ${G.capacityAt(T.tank.maxLevel)} fish.` : ''}`
-      : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds what it cost.`;
+      : shopTab === 'food' ? `You have ${G.state.food} food.` : `Decorations: ${G.state.decor.length} / ${T.decorations.maxInTank}. Selling one refunds half its price.`;
   }
 
   // ------------------------------------------------------------ decoration edit mode (AD v4 7)
@@ -1033,7 +1035,7 @@
     document.querySelectorAll('#deco-menu [data-size]').forEach((b) => b.classList.toggle('capped', cap[b.dataset.size]));
     const c = $('dm-color'); if (document.activeElement !== c) c.value = d.color;
     c.style.setProperty('--track', decorGradientCss(d.type)); c.style.setProperty('--thumb', decorColorCss(d));
-    $('dm-sell').textContent = `Sell · refund ${d.paid || 0} gold`;
+    $('dm-sell').textContent = `Sell · refund ${G.decorRefund(d)} gold`;
   }
   function clampDecor(d) {
     const g = decorGeom(d), half = g.half, lo = (INSET + half) / W, hi = (W - INSET - half) / W;
@@ -1076,7 +1078,7 @@
   $('dm-sell').addEventListener('click', () => {
     const d = decorById(selDecor); if (!d) return;
     const noun = decorType(d.type).noun;
-    confirmBox(`Sell this ${noun}? You get ${d.paid || 0} gold back.`, 'Sell', () => { G.sellDecor(d.id); deselectDecor(); G.save(); },
+    confirmBox(`Sell this ${noun}? You get ${G.decorRefund(d)} gold back.`, 'Sell', () => { G.sellDecor(d.id); deselectDecor(); G.save(); },
       (pc) => { const c = pc.getContext('2d'); c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pc.width, pc.height); drawDecorCard(c, d.type); }, 'danger');
   });
   /** drag (edit mode): the base follows the finger / mouse from where it was pressed, clamped like the d-pad moves.
@@ -1280,7 +1282,7 @@
         break;
       case 'hungry': toast(`${name} is hungry!`, 'bad'); break;
       case 'death': toast(`${name} died`, 'bad'); break;
-      case 'removed': anim.delete(d.fish.id); toast('Fish removed', '', { ms: 1600 }); if (selectedId === d.fish.id) closePanel(); break;
+      case 'removed': anim.delete(d.fish.id); toast(`Fish removed · +${d.gold} gold`, '', { ms: 1600 }); if (selectedId === d.fish.id) closePanel(); break; // v6.8: floor(price / 4), no XP, no confirm
       case 'feedblocked': blockedFeed(); break;
       case 'feedfail': toast(d.reason === 'nofood' ? 'Out of food' : "Nobody's hungry", d.reason === 'nofood' ? 'bad' : ''); break;
       case 'cleaned': toast(`Tank clean! +${d.gold} gold${d.food ? ` · +${d.food} food` : ''}${d.xp ? ` · +${d.xp} XP` : ''}`, 'good'); break;
@@ -1290,7 +1292,10 @@
         if (d.xp) floatText(`+${d.xp} XP`, fx, fy, '#9fdcff', true);
         break;
       case 'foodbought': toast(`+${d.food} food (−${d.gold} gold)`); break;
-      case 'decorsold': toast(`Sold the ${d.decor.type} (+${d.gold} gold)`); break;
+      case 'decorsold': toast(`Sold the ${decorType(d.decor.type).noun} (+${d.gold} gold)`); break;
+      case 'decorbought': // v6.8: 2 gold; +1 XP on the first copy of each type only
+        if (d.xp) { const g = decorGeom(d.decor); floatText(`+${d.xp} XP`, g.bx, g.y0 - 12, '#9fdcff', true); }
+        break;
       case 'grant': toast(`Starter grant: gold topped up to ${d.gold}`, 'good'); break;
       case 'msg': toast(d.text, 'bad'); break;
       case 'reset': anim.clear(); pellets.length = 0; closePanel(); closeShop(); exitEdit(); setTool('hand'); $('away').hidden = true; break;
@@ -1354,7 +1359,7 @@
     const list = locked.length > 1 ? `${locked.slice(0, -1).join(', ')} and ${locked[locked.length - 1]}` : locked.join('');
     const fc = T.newTank && T.newTank.firstCleanReward;
     $('newtank-reset').textContent = `Everything resets: ${T.startGold} gold, ${T.startFood} food, ${T.startDiamonds || 0} diamonds, no fish, aquarium level 1 (0 XP)` +
-      (locked.length ? `, ${list} lock again` : '') + `, only the default decorations, and the tank starts dirty (stage ${T.newTank ? T.newTank.dirtStartStage : 3})` +
+      (locked.length ? `, ${list} lock again` : '') + `, ${(T.newTank && Array.isArray(T.newTank.defaultDecorations) && !T.newTank.defaultDecorations.length) ? 'no decorations' : 'only the default decorations'}, and the tank starts dirty (stage ${T.newTank ? T.newTank.dirtStartStage : 3})` +
       (fc ? `. The first clean pays ${fc.gold} gold and ${fc.food} food again.` : '.');
   })();
   $('btn-newtank').addEventListener('click', () => {

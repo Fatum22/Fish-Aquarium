@@ -113,7 +113,7 @@
   // ---------------------------------------------------------------- state
   const SAVE_V = 4;
   /** v4 new tank (NUMBERS.md 1, 6.2, 11.2): 0 gold / 0 food / 0 diamonds, dirt clock at 12 h (stage 3, spots already
-   *  there), first-clean reward armed, default decorations (placed by main.js from VISUAL.defaultDecorations). */
+   *  there), first-clean reward armed. v6.8: a new tank starts EMPTY (tuning newTank.defaultDecorations = []). */
   function newState() {
     const nt = T.newTank || {};
     return {
@@ -129,17 +129,21 @@
       dirt: { t: nt.dirtClockStartSec || 0, spots: [], spawned: 0, grime5: 0, rubStage: 0 }, // t = game s since new tank start / last full clean; rubStage = stage when rubbing started (0 = not started)
       tank: { xp: 0 },
       firstCleanPending: !!nt.firstCleanReward, // the first full clean pays firstCleanReward instead of the stage pay
-      decor: defaultDecor(), // decorations (NUMBERS v4 7, AD LANDSCAPE_LAYOUT_V4 7): [{ id, type, x, y, sh, sw, color, paid, seed }]
+      decor: defaultDecor(), // decorations (NUMBERS 7, AD LANDSCAPE_LAYOUT_V4 7): [{ id, type, x, y, sh, sw, color, pricePaid, seed }]
+      decorBought: {},       // v6.8: decoration types already bought on this tank (first-copy XP only; kept on sell, cleared by a reset)
       starterGrantUsed: false,
       stats: { cleans: 0, feeds: 0, taps: 0, meals: 0, levelUps: 0, deaths: 0, sold: 0, removed: 0 },
     };
   }
 
-  /** default decorations of a new tank: 3 leaves + 1 stone at the Art Director's positions (config VISUAL.defaultDecorations).
-   *  x = base point as a fraction of tank width, y = base point as a fraction of the floor band (0 = sand top edge,
-   *  1 = 60% down the sand band); sh / sw = height / width scale; color 0..100 (light..dark); paid = gold paid (0). */
+  /** default decorations of a new tank. v6.8 (NUMBERS 7, approved 17:55): tuning newTank.defaultDecorations is [] -> a new
+   *  tank starts empty. (Before v6.8: 3 leaves + 1 stone at the Art Director's positions, config VISUAL.defaultDecorations;
+   *  only used if the tuning key is missing.) x = base point as a fraction of tank width, y = base point as a fraction of the
+   *  floor band; sh / sw = height / width scale; color 0..100 (light..dark); pricePaid = gold paid for it. */
   function defaultDecor() {
-    return (CFG.VISUAL.defaultDecorations || []).map((d, i) => ({ id: 'd' + (i + 1), type: d.type, x: d.x, y: d.y, sh: 1, sw: 1, color: d.color, paid: 0, seed: d.seed != null ? d.seed : i * 37 + 11 }));
+    const nt = T.newTank || {};
+    const list = Array.isArray(nt.defaultDecorations) ? [] : (CFG.VISUAL.defaultDecorations || []);
+    return list.map((d, i) => ({ id: 'd' + (i + 1), type: d.type, x: d.x, y: d.y, sh: 1, sw: 1, color: d.color, pricePaid: 0, seed: d.seed != null ? d.seed : i * 37 + 11 }));
   }
 
   let S = newState();
@@ -475,14 +479,19 @@
     return { cleaned: false, touched };
   }
 
-  // ---- decorations (NUMBERS v4 7): free leaf and stone, max 12 counting the defaults, selling refunds the price paid
+  // ---- decorations (NUMBERS 7, v6.8): stone and leaf cost decorations.price[type] (2 gold) each, max 12 in the tank.
+  // XP decorations.placeXp[type] (1) only for the first copy of each type on this tank (decorBought, until a reset).
+  // Selling refunds floor(pricePaid / 2) (decorations.sellRefund) and never takes XP back. Moving / resizing / recolouring is free.
   function decorFull() { return S.decor.length >= T.decorations.maxInTank; }
+  function decorPrice(type) { const p = T.decorations.price; return typeof p === 'number' ? p : (p && p[type]) || 0; }
+  function decorFirstXp(type) { const x = T.decorations.placeXp; return S.decorBought[type] ? 0 : (typeof x === 'number' ? x : (x && x[type]) || 0); }
+  function decorRefund(d) { return Math.floor((d.pricePaid || 0) / 2); }
   /** buy a decoration: base at the floor centre, or the nearest free x (no other base within 0.06 of the width) */
   function buyDecor(type) {
     const D = T.decorations;
     if (!D.types[type]) return null;
     if (decorFull()) { emit('msg', { text: 'Tank is full of decorations' }); return null; }
-    const price = D.price || 0;
+    const price = decorPrice(type);
     if (S.gold < price) { emit('msg', { text: 'Not enough gold' }); return null; }
     let x = 0.5;
     for (let k = 0; k <= 16; k++) {
@@ -491,18 +500,22 @@
       if (S.decor.every((d) => Math.abs(d.x - c) >= 0.06)) { x = c; break; }
     }
     S.gold -= price;
-    const d = { id: 'd' + S.nextId++, type, x, y: 0.5, sh: D.scale.default, sw: D.scale.default, color: D.types[type].defaultColor, paid: price, seed: Math.floor(Math.random() * 1000) };
+    const xp = decorFirstXp(type);
+    S.decorBought[type] = true;
+    const d = { id: 'd' + S.nextId++, type, x, y: 0.5, sh: D.scale.default, sw: D.scale.default, color: D.types[type].defaultColor, pricePaid: price, seed: Math.floor(Math.random() * 1000) };
     S.decor.push(d);
-    emit('decorbought', { decor: d });
+    emit('decorbought', { decor: d, gold: price, xp });
+    addXp(xp, 'decor');
     return d;
   }
   function sellDecor(id) {
     const d = S.decor.find((x) => x.id === id);
     if (!d) return null;
+    const gold = decorRefund(d);
     S.decor = S.decor.filter((x) => x !== d);
-    S.gold += d.paid || 0;
-    emit('decorsold', { decor: d, gold: d.paid || 0 });
-    return d.paid || 0;
+    S.gold += gold; // XP is never taken back; the type stays 'bought' (no second first-copy XP)
+    emit('decorsold', { decor: d, gold });
+    return gold;
   }
 
   function sell(fishId) {
@@ -519,12 +532,18 @@
     return price;
   }
 
-  /** remove a dead fish (0 gold, frees its tank slot) */
+  /** v6.8 (NUMBERS 3.8, tuning deadFish.removeGold "floor(species.price / 4)", approved 17:57): netting a dead fish pays
+   *  floor(price / 4) whatever level it died at (Guppy 5, Danio 12, Discus 812), no XP (removeXp 0), frees its tank slot. */
+  function deadFishGold(sp) {
+    const g = T.deadFish && T.deadFish.removeGold;
+    if (typeof g === 'number') return g;
+    return /floor\(\s*species\.price\s*\/\s*4\s*\)/.test(String(g || '')) ? Math.floor(sp.price / 4) : 0;
+  }
   function removeDead(fishId) {
     const f = S.fish.find((x) => x.id === fishId);
     if (!f || !isDead(f)) return null;
     S.fish = S.fish.filter((x) => x !== f);
-    const gold = T.deadFish ? T.deadFish.removeGold : 0;
+    const gold = deadFishGold(SPECIES[f.sp]);
     S.gold += gold;
     S.stats.removed++;
     emit('removed', { fish: f, gold });
@@ -576,6 +595,13 @@
       // v6.3: a pre-v6.3 fish hungry for a level-up start meal (0%, mid meal still ahead) is not hungry any more
       S.fish.forEach((f) => { if (f.state === 'HUNGRY' && !f.hungerDone && !f.endMeal && f.progress === 0) { f.state = 'GROWING'; f.fed = 0; f.deathLeft = null; } });
       S.decor = Array.isArray(d.decor) ? d.decor.filter((x) => T.decorations.types[x.type]) : defaultDecor();
+      // v6.8 existing saves (tuning decorations.existingSaves): a save from before v6.8 (no decorBought) keeps its placed
+      // stone / leaf, each counted as bought for 0 gold (pricePaid 0 -> sells for 0), and their types count as already
+      // bought (no first-copy XP). pricePaid replaces the old 'paid' field.
+      const pre68 = !d.decorBought || typeof d.decorBought !== 'object';
+      S.decor = S.decor.map((x) => { const y = Object.assign({}, x); y.pricePaid = pre68 ? 0 : Math.max(0, +(x.pricePaid != null ? x.pricePaid : x.paid) || 0); delete y.paid; return y; });
+      S.decorBought = pre68 ? {} : Object.assign({}, d.decorBought);
+      if (pre68) S.decor.forEach((x) => { S.decorBought[x.type] = true; });
       return true;
     } catch (e) { return false; }
   }
@@ -622,7 +648,8 @@
     CFG, T, SPECIES,
     get state() { return S; },
     on(fn) { listeners.push(fn); },
-    tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
+    tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, deadFishGold, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
+    decorPrice, decorFirstXp, decorRefund,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
     fishInfo, portion, mealsOf, mealFor, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER, END_HUNGER,
     tankInfo, tankLevelFor, xpFor, cleanGoldFor, levelUpGold, capacity,

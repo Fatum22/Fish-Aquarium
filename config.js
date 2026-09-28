@@ -35,7 +35,7 @@
  *   - tank.levelAtXp   : total XP needed for tank level 1..5; level5Reward.tankCapacity = 8 fish at level 5
  *   - decorations      : free leaf/stone, max 12, size 0.5-2.0x per axis in 0.1 steps, colour 0-100, move 8 px/tap
  *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
- *   - deadFish         : dead fish float belly-up until removed (0 gold) and take a tank slot
+ *   - deadFish         : dead fish float belly-up until removed (v6.8: the Net pays floor(price / 4) gold, no XP) and take a tank slot
  *   - debugSpeeds / debugDefaultSpeed : on-screen speed control (x1..x20), page opens at x1; ?speed=N (hidden) allows any N
  * ============================================================================
  */
@@ -47,7 +47,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6.7",
+    "version": "6.8",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -836,8 +836,10 @@ window.AQUARIUM_CONFIG = {
     "debugDefaultSpeed": 1,
     "deadFish": {
       "staysUntilRemoved": true,
-      "removeGold": 0,
-      "takesTankSlot": true
+      "removeGold": "floor(species.price / 4)",
+      "takesTankSlot": true,
+      "removeGoldNote": "Approved by Maksims 2026-09-28 17:57. Same at any level the fish died at. No XP. No confirm; toast reads 'Fish removed · +N gold'.",
+      "removeXp": 0
     },
     "startDiamonds": 0,
     "newTank": {
@@ -848,16 +850,7 @@ window.AQUARIUM_CONFIG = {
         "food": 50,
         "replacesStagePay": true
       },
-      "defaultDecorations": [
-        {
-          "type": "stone",
-          "count": 1
-        },
-        {
-          "type": "leaf",
-          "count": 3
-        }
-      ]
+      "defaultDecorations": []
     },
     "foodPacks": [
       {
@@ -933,8 +926,11 @@ window.AQUARIUM_CONFIG = {
       "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 … L4=2*price"
     },
     "decorations": {
-      "price": 0,
-      "sellRefund": "pricePaid",
+      "price": {
+        "stone": 2,
+        "leaf": 2
+      },
+      "sellRefund": "floor(pricePaid / 2)",
       "maxInTank": 12,
       "types": {
         "leaf": {
@@ -968,7 +964,145 @@ window.AQUARIUM_CONFIG = {
         "holdRepeatMs": 100,
         "clampInsideWater": true
       },
-      "positionStoredAs": "fractionOfTankWaterArea"
+      "positionStoredAs": "fractionOfTankWaterArea",
+      "shopItems": {
+        "status": "proposed, waiting for Maksims' OK on the 10-item ladder (6 decorations + 4 corals) and art",
+        "items": [
+          {
+            "id": "driftwood",
+            "name": "Driftwood Branch",
+            "unlockTankLevel": 2,
+            "price": 60,
+            "placeXp": 15,
+            "lookNote": "Twisted bleached branch lying on the sand, bark detail and knots",
+            "colorSlider": false
+          },
+          {
+            "id": "coralFan",
+            "name": "Fan Coral",
+            "unlockTankLevel": 2,
+            "price": 100,
+            "placeXp": 25,
+            "lookNote": "Flat lacy sea-fan shape (shape name is a suggestion; Art Director owns the look)",
+            "colorSlider": true,
+            "colorRange": "pinkToRedToDarkRed",
+            "colorSliderRange": [
+              0,
+              100
+            ],
+            "defaultColor": 50
+          },
+          {
+            "id": "amphora",
+            "name": "Clay Amphora",
+            "unlockTankLevel": 3,
+            "price": 150,
+            "placeXp": 38,
+            "lookNote": "Old terracotta jar on its side, chipped rim, faded painted band",
+            "colorSlider": false
+          },
+          {
+            "id": "coralStaghorn",
+            "name": "Staghorn Coral",
+            "unlockTankLevel": 3,
+            "price": 220,
+            "placeXp": 55,
+            "lookNote": "Branching antler-like arms (shape name is a suggestion; Art Director owns the look)",
+            "colorSlider": true,
+            "colorRange": "lightBlueToDarkBlue",
+            "colorSliderRange": [
+              0,
+              100
+            ],
+            "defaultColor": 50
+          },
+          {
+            "id": "chest",
+            "name": "Treasure Chest",
+            "unlockTankLevel": 4,
+            "price": 300,
+            "placeXp": 75,
+            "lookNote": "Wooden chest with iron bands, lid ajar, a few gold coins spilling out",
+            "colorSlider": false
+          },
+          {
+            "id": "coralBrain",
+            "name": "Brain Coral",
+            "unlockTankLevel": 4,
+            "price": 420,
+            "placeXp": 105,
+            "lookNote": "Round dome with winding grooves (shape name is a suggestion; Art Director owns the look)",
+            "colorSlider": true,
+            "colorRange": "lightGreenToDarkGreen",
+            "colorSliderRange": [
+              0,
+              100
+            ],
+            "defaultColor": 50
+          },
+          {
+            "id": "helmet",
+            "name": "Diver's Helmet",
+            "unlockTankLevel": 5,
+            "price": 600,
+            "placeXp": 150,
+            "lookNote": "Brass diving helmet with round portholes, green patina",
+            "colorSlider": false
+          },
+          {
+            "id": "coralTube",
+            "name": "Tube Coral",
+            "unlockTankLevel": 5,
+            "price": 800,
+            "placeXp": 200,
+            "lookNote": "Cluster of upright hollow tubes (shape name is a suggestion; Art Director owns the look)",
+            "colorSlider": true,
+            "colorRange": "yellowToOrangeToDarkOrange",
+            "colorSliderRange": [
+              0,
+              100
+            ],
+            "defaultColor": 50
+          },
+          {
+            "id": "castle",
+            "name": "Castle Ruins",
+            "unlockTankLevel": 6,
+            "price": 1000,
+            "placeXp": 250,
+            "lookNote": "Crumbling stone tower with an arched doorway and broken battlements",
+            "colorSlider": false
+          },
+          {
+            "id": "shipwreck",
+            "name": "Sunken Ship",
+            "unlockTankLevel": 7,
+            "price": 1600,
+            "placeXp": 400,
+            "lookNote": "Broken wooden hull tilted in the sand, mast snapped, torn sail",
+            "colorSlider": false
+          }
+        ],
+        "xpRule": "placeXp = price / 4 (rounded). Paid when the bought decoration is placed in the tank. Moving, resizing or recolouring later pays nothing.",
+        "xpOncePerType": true,
+        "xpOncePerTypeNote": "XP is paid only the first time each shop decoration is bought on this tank (until reset). Repeat copies cost gold and pay 0 XP. Reason: selling refunds the full price, so per-copy XP could be farmed by buy/sell loops.",
+        "colorSlider": false,
+        "scaleAndMove": "same as leaf/stone",
+        "countsTowardMaxInTank": true,
+        "lockedLabel": "Unlocks at Aquarium Lv {N}",
+        "sellRefund": "floor(pricePaid / 2)",
+        "sellRemovesXp": false,
+        "colorSliderNote": "Corals use the same colour slider as leaf/stone (0 light to 100 dark). The other 6 have fixed colours."
+      },
+      "placeXp": {
+        "stone": 1,
+        "leaf": 1
+      },
+      "basicXpNote": "Stone and leaf: XP paid only for the first copy of each type on this tank (until reset), same rule as shopItems. Both available from Aquarium Lv 1. Colour slider stays.",
+      "existingSaves": "Stone/leaf already placed in a save from before v6.8 are kept, counted as bought with pricePaid 0 (so selling them refunds 0), and their type counts as already bought for first-copy XP. Only brand-new tanks start empty.",
+      "basicStatus": "approved by Maksims 2026-09-28 17:55 (stone/leaf 2 gold, 1 XP first buy, new tanks empty, existing-saves rule)",
+      "sellRemovesXp": false,
+      "sellRefundNote": "Approved by Maksims 2026-09-28 17:56. 2-gold stone/leaf sells for 1; old free pieces (pricePaid 0) sell for 0. XP is never taken back."
     },
     "deathSecBy": "species.rarity → deathSecByRarity[rarity][fishLevel-1]; uncommon matches common; rare is longer at every level",
     "levelCommonBaseline": {
