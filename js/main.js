@@ -798,47 +798,15 @@
   function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 160); }
   /** bottle fill steps (AD v4 2): 0 empty, 1-4 quarter, 5-9 half, 10-19 three quarters, 20+ full */
   function bottleFill(n) { return n <= 0 ? 0 : n < 5 ? 0.25 : n < 10 ? 0.5 : n < 20 ? 0.75 : 1; }
-  // ---- Food button pot V1 (Art Director art/food-v1/FOOD_V1.md 'Food button'): food/food_button.svg, square viewBox
-  // -58 -110 116 116, layers #body (empty glass, always), #fill (full food, already clipped to the pot by #fill-clip) and #rim
-  // (outline, label, shine, lid) on top. Loaded from its relative URL and imported into #food-icon (ids prefixed 'fb-'); the
-  // food is revealed from y = -84 x level down to y = 0 (level = bottleFill(food): 0 / .25 / .5 / .75 / 1); level 0 = no fill
-  // drawn = the empty glass pot. Until it loads (or if it fails) the old 24-unit bottle stays. Button size / hit target unchanged.
+  // ---- Food button pot (Art Director art/food-v1 'Food button', now inlined as the toolbar icons V1 food.svg by
+  // tools/sync_toolbar_art.py): #food-icon (viewBox 0 0 120 120, pot in translate(60 113) scale(.98)), layers #fb-body (empty
+  // glass, always), #fb-fill (full food, clipped to the pot by #fb-fill-clip) inside #food-level, and #fb-rim (outline, label,
+  // shine, lid) on top. The food is revealed from pot y = -84 x level down to y = 0 through #food-level-clip (level =
+  // bottleFill(food): 0 / .25 / .5 / .75 / 1); level 0 = no fill drawn = the empty glass pot. Static art: no button animations.
   const FOOD_BTN_TOP = -84;
-  let foodBtnArt = false;
-  function loadFoodButton() {
-    if (!window.fetch || !window.DOMParser) return;
-    fetch('food/food_button.svg').then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status))))).then((txt) => {
-      const src = new DOMParser().parseFromString(txt, 'image/svg+xml').documentElement;
-      const body = src.querySelector('#body'), fill = src.querySelector('#fill'), rim = src.querySelector('#rim');
-      if (!body || !fill || !rim) return;
-      const NS = 'http://www.w3.org/2000/svg', svg = $('food-icon');
-      const pre = (el) => { // prefix every id and every url(#id) / href="#id" reference so nothing collides with the page
-        el.querySelectorAll('[id]').forEach((n) => { n.id = 'fb-' + n.id; }); if (el.id) el.id = 'fb-' + el.id;
-        [el, ...el.querySelectorAll('*')].forEach((n) => [...n.attributes].forEach((a) => {
-          if (/url\(#/.test(a.value)) n.setAttribute(a.name, a.value.replace(/url\(#/g, 'url(#fb-'));
-          else if ((a.name === 'href' || a.name === 'xlink:href') && a.value[0] === '#') n.setAttribute(a.name, '#fb-' + a.value.slice(1));
-        }));
-        return document.importNode(el, true);
-      };
-      const defs = document.createElementNS(NS, 'defs');
-      src.querySelectorAll('defs > *, svg > clipPath').forEach((d) => defs.appendChild(pre(d)));
-      const lvl = document.createElementNS(NS, 'clipPath'); lvl.id = 'food-level-clip'; lvl.setAttribute('clipPathUnits', 'userSpaceOnUse');
-      const lr = document.createElementNS(NS, 'rect'); lr.id = 'food-level-rect'; lr.setAttribute('x', '-60'); lr.setAttribute('width', '120'); lr.setAttribute('y', '0'); lr.setAttribute('height', '0');
-      lvl.appendChild(lr); defs.appendChild(lvl);
-      const g = document.createElementNS(NS, 'g'); g.id = 'food-level'; g.setAttribute('clip-path', 'url(#food-level-clip)'); g.appendChild(pre(fill));
-      svg.replaceChildren(defs, pre(body), g, pre(rim));
-      svg.setAttribute('viewBox', src.getAttribute('viewBox') || '-58 -110 116 116');
-      svg.dataset.art = 'v1'; foodBtnArt = true; lastFoodLevel = null;
-    }).catch(() => { /* keep the old bottle */ });
-  }
   let lastFoodLevel = null;
   function setFoodLevel(fill) {
     const icon = $('food-icon'); icon.dataset.fill = fill;
-    if (!foodBtnArt) { // pre-V1 bottle (until the art loads)
-      $('food-empty').toggleAttribute('hidden', fill > 0); $('food-partial').toggleAttribute('hidden', fill === 0);
-      const cr = $('food-clip-rect'), bh = 15 * fill; cr.setAttribute('y', String(21 - bh)); cr.setAttribute('height', String(bh));
-      return;
-    }
     if (fill === lastFoodLevel) return;
     lastFoodLevel = fill;
     const top = FOOD_BTN_TOP * fill, lr = $('food-level-rect');
@@ -1668,7 +1636,6 @@
   checkOrientation();
   resize();
   setTool('hand');
-  loadFoodButton();
   if (awaySummary && awaySummary.sec >= 60) showAway(awaySummary);
   G.save();
   requestAnimationFrame((t) => { last = t; frame(t); });
@@ -1712,11 +1679,11 @@
         dirt: rect($('dirt-win')), badge: rect($('food-badge')), foodIcon: rect($('food-icon')),
         scrollW: document.documentElement.scrollWidth, scrollH: document.documentElement.scrollHeight };
     },
-    foodButton() { // Food button pot V1 state: art loaded, level, the level clip (viewBox units) and whether #fill is drawn
-      const icon = $('food-icon'), lr = $('food-level-rect'), lv = $('food-level');
+    foodButton() { // Food button pot state: art, level, the level clip (pot units) and whether #fb-fill is drawn; layers = the pot group's children
+      const icon = $('food-icon'), lr = $('food-level-rect'), lv = $('food-level'), pot = icon.querySelector('.pot > g');
       return { art: icon.dataset.art || null, fill: +icon.dataset.fill, viewBox: icon.getAttribute('viewBox'), rect: rect(icon),
         clipY: lr ? +lr.getAttribute('y') : null, clipH: lr ? +lr.getAttribute('height') : null, fillShown: !!lv && lv.style.display !== 'none',
-        layers: [...icon.children].map((n) => n.id || n.tagName) };
+        potTransform: pot ? pot.getAttribute('transform') : null, layers: pot ? [...pot.children].map((n) => n.id || n.tagName) : [] };
     },
     fishIcon(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); if (!f || !m) return null; const L = fishLen(f), p = statusIconPos(f, L, m); return { x: m.x + p.x, y: m.y + p.y, L, face: m.faceAnim >= 0 ? 1 : -1, halfDepth: bodyHalfDepth(L, f) }; },
     fishBody(id) { const f = G.state.fish.find((x) => x.id === id), m = anim.get(id); return f && m ? bodyTarget(f, fishLen(f), m) : null; },

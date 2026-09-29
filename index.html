@@ -19,34 +19,94 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
   <title>Aquarium (prototype)</title>
-  <link rel="stylesheet" href="style.css?v=202609290230">
+  <link rel="stylesheet" href="style.css?v=202609290240">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f5c542"/><circle cx="12" cy="12" r="7" fill="none" stroke="#c9961a" stroke-width="2"/><path d="M9 8.5h4.5a2 2 0 0 1 0 4H10.5a2 2 0 0 0 0 4H15" fill="none" stroke="#a87808" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-gem" viewBox="0 0 24 24"><path d="M7 4h10l4 5-9 12L3 9z" fill="#2ba8d8"/><path d="M3 9h18L12 21z" fill="#2ba8d8"/><path d="M3 9l9 12L8 9z" fill="#5fe3ff"/><path d="M7 4l1 5H3z" fill="#5fe3ff"/><path d="M7 4h10l-1 5H8z" fill="#e6fbff"/><path d="M8 9h8l-4 12z" fill="#5fe3ff" opacity=".55"/><path d="M7 4h10l4 5-9 12L3 9z" fill="none" stroke="#0b2233" stroke-width="1" stroke-linejoin="round"/></symbol>
-      <symbol id="i-food" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="15" rx="3" fill="#ff8a3d"/><rect x="7" y="3" width="10" height="4" rx="1.5" fill="#d9d9d9"/><circle cx="10" cy="12" r="1.3" fill="#fff4"/><circle cx="14" cy="15" r="1.3" fill="#fff4"/><circle cx="11" cy="17.5" r="1.1" fill="#fff4"/></symbol>
-      <symbol id="i-food-empty" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="15" rx="3" fill="rgba(255,255,255,0.08)" stroke="#ff8a3d" stroke-opacity=".6" stroke-width="1.2"/><rect x="7" y="3" width="10" height="4" rx="1.5" fill="#d9d9d9"/></symbol>
-      <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11V4a1.5 1.5 0 0 1 3 0v7V5.5a1.5 1.5 0 0 1 3 0V13v-3a1.5 1.5 0 0 1 3 0v4.5c0 4-3 7.5-7 7.5h-1c-2.5 0-4-1.2-5.2-3L4.5 14a1.6 1.6 0 0 1 2.6-1.8z" fill="#ffe0bf" stroke="#8a5a3a" stroke-width="1.2" stroke-linejoin="round"/></symbol>
-      <symbol id="i-sponge" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="11" rx="3" fill="#ffd84a" stroke="#c8a21a" stroke-width="1.2"/><rect x="3" y="14" width="18" height="4" rx="1.5" fill="#3aa35a"/><circle cx="8" cy="10.5" r="1.1" fill="#c8a21a"/><circle cx="13" cy="11.5" r="1.3" fill="#c8a21a"/><circle cx="17" cy="10" r="0.9" fill="#c8a21a"/></symbol>
-      <symbol id="i-net" viewBox="0 0 24 24"><path d="M10.2 13.8L3 21" stroke="#c98a4b" stroke-width="3" stroke-linecap="round"/><g stroke="#9fd8ff" stroke-opacity=".7" stroke-width="1"><path d="M11.2 5.6L18.4 12.8M12.2 4.6l6.2 3.2M10.6 8.2l8 1.6M12.4 3.9l1.6 8M10.3 6.8l3.2 6.2M15.4 3.3l-4.9 8.3M17.6 4.4l-6.9 7.6M19.7 7.3l-8.4 5.3"/></g><circle cx="15" cy="9" r="6.6" fill="none" stroke="#d9e3ea" stroke-width="2.5"/></symbol>
-      <symbol id="i-brush" viewBox="0 0 24 24"><path d="M20.5 3.5L12 12" stroke="#c98a4b" stroke-width="3" stroke-linecap="round"/><path d="M13.6 9.2l1.9 1.9-2.6 2.6-1.9-1.9z" fill="#cfd8dc" stroke="#8fa0a8" stroke-width=".6"/><path d="M11 11.9l1.8 1.8c-.3 3.2-2.6 5.8-6.6 7.3-1.2.4-2.4-.2-1.9-1.3 1.6-3.5 3.9-6.9 6.7-7.8z" fill="#3ddc84"/><path d="M4.3 19.7c.4-1.1 1-2.2 1.6-3.2 1 .2 1.8 1 2 2-1.1.7-2.3 1.3-3.6 1.2z" fill="#23a35f"/></symbol>
-      <symbol id="i-shop" viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2z" fill="#6fd3ff" stroke="#1f7fb0" stroke-width="1.2" stroke-linejoin="round"/><path d="M9 9V6.5a3 3 0 0 1 6 0V9" fill="none" stroke="#1f7fb0" stroke-width="1.6" stroke-linecap="round"/><path d="M8.5 15c1.2-1.4 3.5-1.6 5 0l1.5-1v2l-1.5-1c-1.5 1.6-3.8 1.4-5 0z" fill="#ff7a3d"/></symbol>
-      <clipPath id="food-clip" clipPathUnits="userSpaceOnUse"><rect id="food-clip-rect" x="0" y="6" width="24" height="15"/></clipPath>
     </defs>
   </svg>
 
   <div id="app">
     <nav id="tools" aria-label="Tools">
-      <button class="tool" data-tool="hand" aria-pressed="true"><svg><use href="#i-hand"/></svg><span>Look</span></button>
-      <button class="tool" data-tool="food"><span class="ico">
-          <svg id="food-icon" viewBox="0 0 24 24"><g id="food-partial"><use href="#i-food-empty"/><g clip-path="url(#food-clip)"><use href="#i-food"/></g></g><use id="food-empty" href="#i-food-empty" hidden/></svg>
+      <!-- Toolbar icons V1 (Art Director art/toolbar-v1): each icon's SVG inlined by tools/sync_toolbar_art.py between the
+           tb markers (no <use>); static art, pressed = blue border only (no button animations); Food = pot with the food level -->
+      <button class="tool" data-tool="hand" aria-pressed="true"><span class="ico"><!--tb:hand--><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-hand"><defs><radialGradient id="tbh-skin" cx=".38" cy=".35" r=".8"><stop offset="0" stop-color="#ffe9d2"/><stop offset=".6" stop-color="#ffcf9f"/><stop offset="1" stop-color="#eaa06a"/></radialGradient></defs>
+<g transform="scale(5) translate(-0.2 -0.6)">
+ <path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11V4a1.5 1.5 0 0 1 3 0v7V5.5a1.5 1.5 0 0 1 3 0V13v-3a1.5 1.5 0 0 1 3 0v4.5c0 4-3 7.5-7 7.5h-1c-2.5 0-4-1.2-5.2-3L4.5 14a1.6 1.6 0 0 1 2.6-1.8z" fill="url(#tbh-skin)" stroke="#7a3f1c" stroke-width=".7" stroke-linejoin="round"/>
+ <path d="M8.2 16.5c1.2 2.4 3.4 3.6 6.2 3.4 2.6-.2 4.4-2 5-4.4" fill="none" stroke="#e79a66" stroke-opacity=".7" stroke-width=".8" stroke-linecap="round"/>
+ <path d="M11 11v1.6M14 11v1.6M17 12v1.2" stroke="#b86a3c" stroke-width=".55" stroke-linecap="round"/>
+ <g fill="#fff" fill-opacity=".75"><ellipse cx="9.5" cy="5.6" rx=".75" ry=".95"/><ellipse cx="12.5" cy="4.1" rx=".75" ry=".95"/><ellipse cx="15.5" cy="5.6" rx=".75" ry=".95"/><ellipse cx="18.5" cy="10.1" rx=".75" ry=".95"/></g>
+ <path d="M9 7.5v4M12 6v4.5" stroke="#fff" stroke-opacity=".55" stroke-width=".7" stroke-linecap="round"/>
+</g></svg><!--/tb:hand--></span><span>Look</span></button>
+      <button class="tool" data-tool="food"><span class="ico"><!--tb:food--><svg id="food-icon" data-art="toolbar-v1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-food"><defs><linearGradient id="fb-fbb-food" x1="0" x2="1"><stop offset="0" stop-color="#e0621c"/><stop offset=".28" stop-color="#ff9a4a"/><stop offset=".55" stop-color="#ff8a3d"/><stop offset="1" stop-color="#c9501a"/></linearGradient>
+<linearGradient id="fb-fbb-lid" x1="0" x2="1"><stop offset="0" stop-color="#8e969e"/><stop offset=".3" stop-color="#eef1f4"/><stop offset=".6" stop-color="#c9ced4"/><stop offset="1" stop-color="#7c848c"/></linearGradient>
+<linearGradient id="fb-fbb-lab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7e6"/><stop offset="1" stop-color="#f1dfbd"/></linearGradient>
+<linearGradient id="fb-fbb-glass" x1="0" x2="1"><stop offset="0" stop-color="#cfe9ff" stop-opacity=".26"/><stop offset=".5" stop-color="#cfe9ff" stop-opacity=".12"/><stop offset="1" stop-color="#cfe9ff" stop-opacity=".22"/></linearGradient><clipPath id="food-level-clip" clipPathUnits="userSpaceOnUse"><rect id="food-level-rect" x="-60" y="0" width="120" height="0"/></clipPath></defs><clipPath id="fb-fill-clip" clipPathUnits="userSpaceOnUse"><path id="fb-fill-clip-path" d="M-32 -83 Q-34.5 -83 -34.5 -80 L-34.5 -10.5 Q-34.5 -1.5 -25.5 -1.5 L25.5 -1.5 Q34.5 -1.5 34.5 -10.5 L34.5 -80 Q34.5 -83 32 -83 Z"/></clipPath>
+
+<g class="pot"><g transform="translate(60 113) scale(.98)"><g id="fb-body"><!-- empty glass pot: always drawn first -->
+ <path d="M-33 -84 Q-36 -84 -36 -80 L-36 -10 Q-36 0 -26 0 L26 0 Q36 0 36 -10 L36 -80 Q36 -84 33 -84 Z" fill="url(#fb-fbb-glass)"/>
+</g>
+<g id="food-level" clip-path="url(#food-level-clip)" style="display:none"><g id="fb-fill" clip-path="url(#fb-fill-clip)"><!-- the food, full (y -84 .. 0). Clip it to the current level: visible from y = -84 * level down to 0 -->
+ <rect x="-40" y="-86" width="80" height="88" fill="url(#fb-fbb-food)"/>
+ <rect x="-40" y="-18" width="80" height="20" fill="#b8461a" opacity=".45"/>
+ <circle cx="-18" cy="-70" r="3.2" fill="#ffd2a6" opacity=".75"/><circle cx="16" cy="-74" r="2.6" fill="#ffd2a6" opacity=".7"/><circle cx="22" cy="-24" r="3" fill="#ffd2a6" opacity=".6"/><circle cx="-20" cy="-26" r="2.4" fill="#ffd2a6" opacity=".6"/><circle cx="6" cy="-12" r="2.2" fill="#ffd2a6" opacity=".5"/>
+</g></g>
+<g id="fb-rim"><!-- drawn last, on top of the fill: outline, label, shine, lid -->
+ <path d="M-33 -84 Q-36 -84 -36 -80 L-36 -10 Q-36 0 -26 0 L26 0 Q36 0 36 -10 L36 -80 Q36 -84 33 -84 Z" fill="none" stroke="#6b2a0c" stroke-width="3" stroke-linejoin="round"/>
+ <path d="M-32 -83 Q-34.5 -83 -34.5 -80 L-34.5 -10.5 Q-34.5 -1.5 -25.5 -1.5 L25.5 -1.5 Q34.5 -1.5 34.5 -10.5 L34.5 -80 Q34.5 -83 32 -83 Z" fill="none" stroke="#ffe0c4" stroke-opacity=".55" stroke-width="1.6"/>
+ <rect x="-27" y="-62" width="54" height="32" rx="6" fill="url(#fb-fbb-lab)" stroke="#6b2a0c" stroke-width="2.2"/>
+ <path d="M-14 -46 Q-4 -56 8 -46 Q-4 -36 -14 -46 Z M8 -46 L17 -53 L17 -39 Z" fill="#2f9bd6" stroke="#16557d" stroke-width="1.4" stroke-linejoin="round"/>
+ <circle cx="-7" cy="-47.5" r="1.6" fill="#0d2f45"/>
+ <path d="M-29 -78 Q-31 -40 -28 -12" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="5" stroke-linecap="round"/>
+ <rect x="-40" y="-104" width="80" height="22" rx="5" fill="url(#fb-fbb-lid)" stroke="#3e464e" stroke-width="3"/>
+ <path d="M-30 -101 V-85 M-20 -101 V-85 M-10 -101 V-85 M0 -101 V-85 M10 -101 V-85 M20 -101 V-85 M30 -101 V-85" stroke="#6d757d" stroke-opacity=".55" stroke-width="2"/>
+ <path d="M-34 -99 H30" stroke="#fff" stroke-opacity=".7" stroke-width="2.5" stroke-linecap="round"/>
+</g></g></g></svg><!--/tb:food-->
           <b id="food-badge" class="badge">0</b></span><span>Food</span></button>
-      <button class="tool" data-tool="sponge"><svg><use href="#i-sponge"/></svg><span>Clean</span></button>
-      <button class="tool" data-tool="net"><svg><use href="#i-net"/></svg><span>Net</span></button>
-      <button class="tool" data-tool="brush"><svg><use href="#i-brush"/></svg><span>Decorate</span></button>
-      <button class="tool action" id="btn-shop"><svg><use href="#i-shop"/></svg><span>Shop</span></button>
+      <button class="tool" data-tool="sponge"><span class="ico"><!--tb:sponge--><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-sponge"><defs><linearGradient id="tbs-yel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff08a"/><stop offset=".55" stop-color="#ffd23d"/><stop offset="1" stop-color="#f2b21c"/></linearGradient><linearGradient id="tbs-grn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4ccf6e"/><stop offset="1" stop-color="#23813f"/></linearGradient></defs>
+
+<g class="sponge"><g transform="rotate(-8 60 68)">
+ <rect x="14" y="40" width="92" height="56" rx="12" fill="url(#tbs-yel)" stroke="#8a620a" stroke-width="3.5"/>
+ <path d="M15.8 78 H104.2 V84 Q104.2 94.2 94 94.2 H26 Q15.8 94.2 15.8 84 Z" fill="url(#tbs-grn)"/>
+ <path d="M24 82l6 8M36 82l6 8M48 82l6 8M60 82l6 8M72 82l6 8M84 82l6 8M96 82l4 6" stroke="#1d6b33" stroke-opacity=".6" stroke-width="2.2" stroke-linecap="round"/>
+ <path d="M15.8 78 H104.2" stroke="#1d6b33" stroke-width="2.5"/>
+ <rect x="14" y="40" width="92" height="56" rx="12" fill="none" stroke="#8a620a" stroke-width="3.5"/>
+ <g fill="#dca317"><ellipse cx="34" cy="56" rx="5" ry="4"/><ellipse cx="58" cy="62" rx="6" ry="4.6"/><ellipse cx="84" cy="54" rx="4.4" ry="3.6"/><ellipse cx="94" cy="68" rx="3.4" ry="2.8"/><ellipse cx="44" cy="70" rx="3.2" ry="2.6"/><ellipse cx="72" cy="71" rx="2.8" ry="2.3"/></g>
+ <g fill="#a87908"><ellipse cx="34" cy="57.2" rx="3.3" ry="2.4"/><ellipse cx="58" cy="63.4" rx="4" ry="2.8"/><ellipse cx="84" cy="55.1" rx="2.9" ry="2.1"/></g>
+ <path d="M24 48 H74" stroke="#fff" stroke-opacity=".75" stroke-width="4" stroke-linecap="round"/>
+</g></g></svg><!--/tb:sponge--></span><span>Clean</span></button>
+      <button class="tool" data-tool="net"><span class="ico"><!--tb:net--><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-net"><defs><clipPath id="tbn-clip"><path d="M52 62 C49 97 84 114 100 95 C110 83 109 50 104 26 Z"/><ellipse cx="78" cy="44" rx="32" ry="28" transform="rotate(-35 78 44)"/></clipPath><linearGradient id="tbn-wood" x1="0" x2="1"><stop offset="0" stop-color="#e3a562"/><stop offset="1" stop-color="#a8652c"/></linearGradient><linearGradient id="tbn-steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#c9d2da"/><stop offset="1" stop-color="#8d979f"/></linearGradient></defs>
+<path d="M50 64 L16 104" stroke="#5a3212" stroke-width="12" stroke-linecap="round"/>
+<path d="M50 64 L16 104" stroke="url(#tbn-wood)" stroke-width="6.5" stroke-linecap="round"/>
+<path d="M44 70 L22 96" stroke="#fff" stroke-opacity=".45" stroke-width="2" stroke-linecap="round"/>
+<path d="M52 62 C49 97 84 114 100 95 C110 83 109 50 104 26 Z" fill="#bfe6ff" fill-opacity=".28"/><ellipse cx="78" cy="44" rx="32" ry="28" transform="rotate(-35 78 44)" fill="#bfe6ff" fill-opacity=".2"/>
+<g transform="translate(80 86) rotate(-12)"><path d="M-12 0 Q0 -10 12 0 Q0 10 -12 0 Z M11 0 L19 -6 L19 6 Z" fill="#ff8a3d" stroke="#6b2a0c" stroke-width="2.2" stroke-linejoin="round"/><circle cx="-5" cy="-1.5" r="1.8" fill="#2a1206"/></g>
+<g clip-path="url(#tbn-clip)" stroke="#fff" stroke-opacity=".6" stroke-width="1.5"><path d="M-110 0 L10 120"/><path d="M10 0 L-110 120"/><path d="M-99 0 L21 120"/><path d="M21 0 L-99 120"/><path d="M-88 0 L32 120"/><path d="M32 0 L-88 120"/><path d="M-77 0 L43 120"/><path d="M43 0 L-77 120"/><path d="M-66 0 L54 120"/><path d="M54 0 L-66 120"/><path d="M-55 0 L65 120"/><path d="M65 0 L-55 120"/><path d="M-44 0 L76 120"/><path d="M76 0 L-44 120"/><path d="M-33 0 L87 120"/><path d="M87 0 L-33 120"/><path d="M-22 0 L98 120"/><path d="M98 0 L-22 120"/><path d="M-11 0 L109 120"/><path d="M109 0 L-11 120"/><path d="M0 0 L120 120"/><path d="M120 0 L0 120"/><path d="M11 0 L131 120"/><path d="M131 0 L11 120"/><path d="M22 0 L142 120"/><path d="M142 0 L22 120"/><path d="M33 0 L153 120"/><path d="M153 0 L33 120"/><path d="M44 0 L164 120"/><path d="M164 0 L44 120"/><path d="M55 0 L175 120"/><path d="M175 0 L55 120"/><path d="M66 0 L186 120"/><path d="M186 0 L66 120"/><path d="M77 0 L197 120"/><path d="M197 0 L77 120"/><path d="M88 0 L208 120"/><path d="M208 0 L88 120"/><path d="M99 0 L219 120"/><path d="M219 0 L99 120"/><path d="M110 0 L230 120"/><path d="M230 0 L110 120"/></g>
+<path d="M52 62 C49 97 84 114 100 95 C110 83 109 50 104 26" fill="none" stroke="#e6f6ff" stroke-opacity=".9" stroke-width="2.4" stroke-linecap="round"/>
+<ellipse cx="78" cy="44" rx="32" ry="28" transform="rotate(-35 78 44)" fill="none" stroke="#3e464e" stroke-width="9"/>
+<ellipse cx="78" cy="44" rx="32" ry="28" transform="rotate(-35 78 44)" fill="none" stroke="url(#tbn-steel)" stroke-width="4.5"/>
+<rect x="45" y="56" width="12" height="14" rx="3" fill="#b8c0c8" stroke="#3e464e" stroke-width="2.5" transform="rotate(40 51 63)"/></svg><!--/tb:net--></span><span>Net</span></button>
+      <button class="tool" data-tool="brush"><span class="ico"><!--tb:brush--><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-brush"><defs><linearGradient id="tbb-wood" x1="0" x2="1"><stop offset="0" stop-color="#e3a562"/><stop offset="1" stop-color="#a8652c"/></linearGradient><linearGradient id="tbb-steel" x1="0" x2="1"><stop offset="0" stop-color="#8e969e"/><stop offset=".35" stop-color="#f2f5f7"/><stop offset="1" stop-color="#7c848c"/></linearGradient></defs>
+<g class="brushg">
+ <path d="M104 14 L62 56" stroke="#5a3212" stroke-width="15" stroke-linecap="round"/>
+ <path d="M104 14 L62 56" stroke="url(#tbb-wood)" stroke-width="9.5" stroke-linecap="round"/>
+ <path d="M100 15 L70 45" stroke="#fff" stroke-opacity=".45" stroke-width="2.5" stroke-linecap="round"/>
+ <rect x="-10" y="-9" width="20" height="18" rx="3" fill="url(#tbb-steel)" stroke="#3e464e" stroke-width="3" transform="translate(56 62) rotate(45)"/>
+ <path d="M50 58 C38 60 26 76 20 96 C18 102 22 104 28 102 C46 96 60 82 62 70 Z" fill="#7a4a24" stroke="#3a1e0a" stroke-width="3" stroke-linejoin="round"/>
+ <path d="M37 72 C30 80 25 90 22 97 C20 102 23 103 28 101 C40 96 50 88 55 80 C48 82 41 78 37 72 Z" fill="#3ddc84" stroke="#1d7a44" stroke-width="2.5" stroke-linejoin="round"/>
+ <path d="M31 86 C28 90 26 94 25 97" stroke="#caffdf" stroke-width="2.5" stroke-linecap="round"/>
+</g></svg><!--/tb:brush--></span><span>Decorate</span></button>
+      <button class="tool action" id="btn-shop"><span class="ico"><!--tb:shop--><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" class="tb tb-shop"><defs><linearGradient id="tbp-bag" x1="0" x2="1"><stop offset="0" stop-color="#7fd8ff"/><stop offset=".5" stop-color="#48b6f0"/><stop offset="1" stop-color="#2a8bcb"/></linearGradient></defs>
+<path d="M42 50 C42 20 78 20 78 50" fill="none" stroke="#134e75" stroke-width="9" stroke-linecap="round"/>
+<path d="M42 50 C42 20 78 20 78 50" fill="none" stroke="#f4f7fa" stroke-width="4" stroke-linecap="round"/>
+<path d="M24 44 H96 L102 106 Q102 112 96 112 H24 Q18 112 18 106 Z" fill="url(#tbp-bag)" stroke="#134e75" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M24.2 45.8 H95.8 L96.8 56 H23.2 Z" fill="#1f78b4" opacity=".55"/>
+<circle cx="42" cy="51" r="3" fill="#0d3a57"/><circle cx="78" cy="51" r="3" fill="#0d3a57"/>
+<path d="M28 62 L25 102" stroke="#fff" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/>
+<g transform="translate(58 83) scale(1.35)"><path d="M-14 0 Q-3 -11 9 0 Q-3 11 -14 0 Z M8 0 L17 -7 L17 7 Z" fill="#ff8a3d" stroke="#6b2a0c" stroke-width="1.8" stroke-linejoin="round"/><circle cx="-7" cy="-1.5" r="1.7" fill="#2a1206"/><path d="M-9 -4 Q-3 -7 2 -5" stroke="#ffd2a6" stroke-width="1.5" fill="none" stroke-linecap="round"/></g></svg><!--/tb:shop--></span><span>Shop</span></button>
     </nav>
 
     <header id="hud">
@@ -194,11 +254,11 @@
     <div id="rotate-text">Turn your device sideways</div>
   </div>
 
-  <script src="config.js?v=202609290230"></script>
-  <script src="js/fishdata.js?v=202609290230"></script>
-  <script src="js/fishart.js?v=202609290230"></script>
-  <script src="decor/decor-v1-data.js?v=202609290230"></script>
-  <script src="js/game.js?v=202609290230"></script>
-  <script src="js/main.js?v=202609290230"></script>
+  <script src="config.js?v=202609290240"></script>
+  <script src="js/fishdata.js?v=202609290240"></script>
+  <script src="js/fishart.js?v=202609290240"></script>
+  <script src="decor/decor-v1-data.js?v=202609290240"></script>
+  <script src="js/game.js?v=202609290240"></script>
+  <script src="js/main.js?v=202609290240"></script>
 </body>
 </html>
