@@ -401,7 +401,7 @@ def main(VW, VH):
         fl2 = page.evaluate("AQ.flakes()")
         check("flakes fall slowly (< 25 px/s) and the fed fish rushes to them and eats every one: none left, all counted eaten, within 8 s",
               sink and max(sink) < 25 and eaten_at is not None and fl2["eaten"] - fl0["eaten"] >= n_new and trail[-1] < fx0 - 40,
-              f"sink px/s max={max(sink) if sink else None:.1f} eaten after {eaten_at}s; eaten {fl2['eaten'] - fl0['eaten']}/{n_new}; fish x {fx0:.0f} -> {trail[-3:]}")
+              f"sink px/s max={(f'{max(sink):.1f}' if sink else 'none')} eaten after {eaten_at}s; eaten {fl2['eaten'] - fl0['eaten']}/{n_new}; fish x {fx0:.0f} -> {trail[-3:]}")
         blocked = {}
         for why, setup in [("nobody hungry", "fresh(); feedFull(G.buyFish('guppy'));"),
                            ("out of food", "G.buyFish('guppy'); G.state.food = 0;"),
@@ -864,7 +864,7 @@ def main(VW, VH):
         page.wait_for_function("document.getElementById('food-icon').dataset.art === 'toolbar-v1'", timeout=10000)   # Food pot (toolbar icons V1, inline)
         b0 = bottle()
         check("AD v4 2: at 0 food the badge reads 0 with --danger border and text, and the pot is the empty glass pot (no food drawn)",
-              b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["art"] == "v1" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
+              b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["art"] == "toolbar-v1" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
         fills = {}
         for n in (1, 4, 5, 9, 10, 19, 20, 250, 1000):
             ev(f"G.state.food = {n};"); page.wait_for_timeout(60); q = bottle(); fills[n] = (q["fill"], q["text"], q["clipH"], q["border"])
