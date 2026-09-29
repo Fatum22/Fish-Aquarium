@@ -18,5 +18,5 @@
  <path d="M-30 -101 V-85 M-20 -101 V-85 M-10 -101 V-85 M0 -101 V-85 M10 -101 V-85 M20 -101 V-85 M30 -101 V-85" stroke="#6d757d" stroke-opacity=".55" stroke-width="2"/>
  <path d="M-34 -99 H30" stroke="#fff" stroke-opacity=".7" stroke-width="2.5" stroke-linecap="round"/>
 </g></defs>
-<use href="#pot" transform="translate(240.0 229.0) scale(1.04)"/>
+<use href="#pot" transform="translate(240.0 171.4) scale(1.04)"/>
 </svg>

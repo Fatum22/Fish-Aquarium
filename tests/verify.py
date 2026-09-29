@@ -2657,7 +2657,7 @@ def shop_layout():
 def food_icons():
     """Art Director food pack icons V1 (art/food-v1/FOOD_V1.md, Maksims job 4): every Food shop card shows its own pack icon
     (food/food_<n>.svg: 1 / 2 / 3 / 4 / 5 pots for 5 / 10 / 50 / 250 / 500 food), the WHOLE 480x240 image contained in the card
-    (2:1 kept, fit by height, centred, on the bottom; never cropped to the pots, so the pack sizes stay readable); the assets
+    (2:1 kept, fit by height, centred; never cropped to the pots, so the pack sizes stay readable); the assets
     load with HTTP 200 from relative food/ URLs (GitHub Pages subpath); locked packs use the card grey-out."""
     tj = merged_tuning(); sizes = [pk["food"] for pk in tj["foodPacks"]]
     with sync_playwright() as p:
@@ -2687,7 +2687,7 @@ def food_icons():
                 sc = h / 240 if h else 0
                 exp = {k: c["art"][k] * sc + (x if k[0] == "x" else y) for k in ("x0", "x1", "y0", "y1")}
                 ok = (c["icon"] == f"food/food_{c['food']}.svg" and abs(w / h - 2) < 1e-6 and x >= 0 and y >= 0 and x + w <= c["cw"] + 1e-6 and y + h <= c["ch"] + 1e-6
-                      and abs(h - c["ch"]) < 1e-6 and abs(x - (c["cw"] - w) / 2) < 1e-6 and abs(c["cssW"] / c["cssH"] - c["cw"] / c["ch"]) < 0.02
+                      and abs(h - c["ch"]) < 1e-6 and abs(x - (c["cw"] - w) / 2) < 1e-6 and abs(y - (c["ch"] - h) / 2) < 1e-6 and abs(c["cssW"] / c["cssH"] - c["cw"] / c["ch"]) < 0.02
                       and all(abs(c["got"][k] - exp[k]) <= 2.5 for k in exp) and c["got"]["n"] > 0 and c["art"]["n"] > 0)
                 if not ok: bad.append({k: c[k] for k in ("food", "icon", "rect", "cw", "ch", "got", "art")})
             check("food shop: every pack card shows its own icon (food/food_<n>.svg for 5 / 10 / 50 / 250 / 500), the whole 480x240 art contained: 2:1 kept, fit by height, centred, inside the canvas, "

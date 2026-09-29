@@ -1015,7 +1015,7 @@
   document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => setShopTab(b.dataset.tab)));
   // ---- food pack icons V1 (Art Director art/food-v1/FOOD_V1.md): food/food_<n>.svg, 480x240 (2:1), transparent, the same
   // pot size in every file (1 / 2 / 3 / 4 / 5 pots for 5 / 10 / 50 / 250 / 500 food). The WHOLE viewBox is drawn contained
-  // in the card (fit by height, centred, on the card bottom) and never cropped to the pots, so the pack sizes stay readable.
+  // in the card (fit by height, centred) and never cropped to the pots, so the pack sizes stay readable.
   // PNG fallback food/food_<n>-512.png if the SVG fails; the old flat bottles only for a pack size without art.
   const FOOD_ICON_SIZES = [5, 10, 50, 250, 500], foodImg = new Map(); // food -> { img, src, ok, waiting: [canvas ctx] }
   function foodIcon(n) {
@@ -1037,7 +1037,7 @@
     const cw = c.canvas.width, ch = c.canvas.height, e = foodIcon(n);
     if (!e || e.failed) { c.save(); c.setTransform(cw / 240, 0, 0, ch / 96, 0, 0); drawBottleCard(c, n); c.restore(); c.canvas.dataset.icon = 'bottles'; return; }
     if (!e.ok) { if (!e.waiting.includes(c)) e.waiting.push(c); return; }
-    const s = Math.min(cw / 480, ch / 240), w = 480 * s, h = 240 * s, x = (cw - w) / 2, y = ch - h; // contain, bottom-centred
+    const s = Math.min(cw / 480, ch / 240), w = 480 * s, h = 240 * s, x = (cw - w) / 2, y = (ch - h) / 2; // contain, centred (FOOD_V1.md; the 1 / 2 pot centring is in the files)
     c.clearRect(0, 0, cw, ch); c.drawImage(e.img, x, y, w, h);
     c.canvas.dataset.icon = e.src; c.canvas.dataset.rect = [x, y, w, h].map((v) => +v.toFixed(2)).join(',');
   }
