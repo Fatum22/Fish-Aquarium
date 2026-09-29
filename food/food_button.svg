@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-58 -110 116 116" width="116" height="116">
+<!-- Aquarium Food button pot V1 (same pot as food_5). Draw order: body, fill (clipped to level), rim. Level 1 = food top at y -84, level 0 = y 0 (empty glass). -->
+<defs><linearGradient id="fbb-food" x1="0" x2="1"><stop offset="0" stop-color="#e0621c"/><stop offset=".28" stop-color="#ff9a4a"/><stop offset=".55" stop-color="#ff8a3d"/><stop offset="1" stop-color="#c9501a"/></linearGradient>
+<linearGradient id="fbb-lid" x1="0" x2="1"><stop offset="0" stop-color="#8e969e"/><stop offset=".3" stop-color="#eef1f4"/><stop offset=".6" stop-color="#c9ced4"/><stop offset="1" stop-color="#7c848c"/></linearGradient>
+<linearGradient id="fbb-lab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7e6"/><stop offset="1" stop-color="#f1dfbd"/></linearGradient>
+<linearGradient id="fbb-glass" x1="0" x2="1"><stop offset="0" stop-color="#cfe9ff" stop-opacity=".26"/><stop offset=".5" stop-color="#cfe9ff" stop-opacity=".12"/><stop offset="1" stop-color="#cfe9ff" stop-opacity=".22"/></linearGradient></defs>
+<clipPath id="fill-clip" clipPathUnits="userSpaceOnUse"><path id="fill-clip-path" d="M-32 -83 Q-34.5 -83 -34.5 -80 L-34.5 -10.5 Q-34.5 -1.5 -25.5 -1.5 L25.5 -1.5 Q34.5 -1.5 34.5 -10.5 L34.5 -80 Q34.5 -83 32 -83 Z"/></clipPath>
+<g id="body"><!-- empty glass pot: always drawn first -->
+ <path d="M-33 -84 Q-36 -84 -36 -80 L-36 -10 Q-36 0 -26 0 L26 0 Q36 0 36 -10 L36 -80 Q36 -84 33 -84 Z" fill="url(#fbb-glass)"/>
+</g>
+<g id="fill" clip-path="url(#fill-clip)"><!-- the food, full (y -84 .. 0). Clip it to the current level: visible from y = -84 * level down to 0 -->
+ <rect x="-40" y="-86" width="80" height="88" fill="url(#fbb-food)"/>
+ <rect x="-40" y="-18" width="80" height="20" fill="#b8461a" opacity=".45"/>
+ <circle cx="-18" cy="-70" r="3.2" fill="#ffd2a6" opacity=".75"/><circle cx="16" cy="-74" r="2.6" fill="#ffd2a6" opacity=".7"/><circle cx="22" cy="-24" r="3" fill="#ffd2a6" opacity=".6"/><circle cx="-20" cy="-26" r="2.4" fill="#ffd2a6" opacity=".6"/><circle cx="6" cy="-12" r="2.2" fill="#ffd2a6" opacity=".5"/>
+</g>
+<g id="rim"><!-- drawn last, on top of the fill: outline, label, shine, lid -->
+ <path d="M-33 -84 Q-36 -84 -36 -80 L-36 -10 Q-36 0 -26 0 L26 0 Q36 0 36 -10 L36 -80 Q36 -84 33 -84 Z" fill="none" stroke="#6b2a0c" stroke-width="3" stroke-linejoin="round"/>
+ <path d="M-32 -83 Q-34.5 -83 -34.5 -80 L-34.5 -10.5 Q-34.5 -1.5 -25.5 -1.5 L25.5 -1.5 Q34.5 -1.5 34.5 -10.5 L34.5 -80 Q34.5 -83 32 -83 Z" fill="none" stroke="#ffe0c4" stroke-opacity=".55" stroke-width="1.6"/>
+ <rect x="-27" y="-62" width="54" height="32" rx="6" fill="url(#fbb-lab)" stroke="#6b2a0c" stroke-width="2.2"/>
+ <path d="M-14 -46 Q-4 -56 8 -46 Q-4 -36 -14 -46 Z M8 -46 L17 -53 L17 -39 Z" fill="#2f9bd6" stroke="#16557d" stroke-width="1.4" stroke-linejoin="round"/>
+ <circle cx="-7" cy="-47.5" r="1.6" fill="#0d2f45"/>
+ <path d="M-29 -78 Q-31 -40 -28 -12" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="5" stroke-linecap="round"/>
+ <rect x="-40" y="-104" width="80" height="22" rx="5" fill="url(#fbb-lid)" stroke="#3e464e" stroke-width="3"/>
+ <path d="M-30 -101 V-85 M-20 -101 V-85 M-10 -101 V-85 M0 -101 V-85 M10 -101 V-85 M20 -101 V-85 M30 -101 V-85" stroke="#6d757d" stroke-opacity=".55" stroke-width="2"/>
+ <path d="M-34 -99 H30" stroke="#fff" stroke-opacity=".7" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+</svg>

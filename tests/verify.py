@@ -857,18 +857,20 @@ def main(VW, VH):
         def bottle():
             return page.evaluate("""(() => { const b = document.getElementById('food-badge'), cs = getComputedStyle(b), i = document.getElementById('food-icon');
               const br = b.getBoundingClientRect(), ir = i.getBoundingClientRect(), btn = b.closest('.tool').getBoundingClientRect();
-              return { text: b.textContent, border: cs.borderTopColor, color: cs.color, fill: +i.dataset.fill, empty: !document.getElementById('food-empty').hasAttribute('hidden'),
-                       partial: !document.getElementById('food-partial').hasAttribute('hidden'), clipH: +document.getElementById('food-clip-rect').getAttribute('height'),
+              const fb = AQ.foodButton();   // Food button pot V1 (job 5): #body always, #fill revealed by the level clip, hidden at 0
+              return { text: b.textContent, border: cs.borderTopColor, color: cs.color, fill: +i.dataset.fill, art: fb.art, empty: !fb.fillShown,
+                       partial: fb.fillShown, clipH: fb.clipH,
                        overlapX: ir.right - br.left, h: br.height, top: br.top - ir.top, inside: br.right <= btn.right + 0.5 && br.left >= btn.left }; })()""")
+        page.wait_for_function("document.getElementById('food-icon').dataset.art === 'v1'", timeout=10000)   # food button pot V1 loaded
         b0 = bottle()
-        check("AD v4 2: at 0 food the badge reads 0 with --danger border and text, and the bottle is the empty i-food-empty (no orange body)",
-              b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
+        check("AD v4 2: at 0 food the badge reads 0 with --danger border and text, and the pot is the empty glass pot (no food drawn)",
+              b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["art"] == "v1" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
         fills = {}
         for n in (1, 4, 5, 9, 10, 19, 20, 250, 1000):
             ev(f"G.state.food = {n};"); page.wait_for_timeout(60); q = bottle(); fills[n] = (q["fill"], q["text"], q["clipH"], q["border"])
         check("AD v4 2: bottle fill steps 1-4 quarter, 5-9 half, 10-19 three quarters, 20+ full (body clipped from the bottom); badge '999+' above 999, orange border when > 0",
               [fills[n][0] for n in (1, 4, 5, 9, 10, 19, 20, 250)] == [0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1] and fills[1000][1] == "999+" and fills[250][1] == "250"
-              and abs(fills[5][2] - 7.5) < 1e-6 and all(fills[n][3] == "rgb(255, 138, 61)" for n in (1, 250)), json.dumps(fills))
+              and abs(fills[5][2] - 42) < 1e-6 and all(fills[n][3] == "rgb(255, 138, 61)" for n in (1, 250)), json.dumps(fills))
         check("AD v4 2: food badge at the icon's top-right, overlapping it by >= 6px, height 18 / 22, inside the button",
               b0["overlapX"] >= 5.5 and abs(b0["h"] - (22 if LARGE else 18)) < 0.6 and b0["top"] <= 0 and b0["inside"], json.dumps(b0))
         # top bar
@@ -2698,8 +2700,8 @@ def food_icons():
                   all(areas[i] > areas[i - 1] * 1.2 for i in range(1, len(areas))), json.dumps(areas))
             fa = page.evaluate("AQ.foodArt()")
             food_resp = [q for q in resp if "/food/" in q[1]]
-            check("food icons: food/food_<n>.svg load with HTTP 200 from relative food/ URLs (works under a subpath), 480x240 each; no 4xx/5xx",
-                  food_resp and all(q[0] == 200 for q in food_resp) and {q[1].split("/food/")[1].split("?")[0] for q in food_resp} == {f"food_{n}.svg" for n in sizes}
+            check("food icons: food/food_<n>.svg (+ the Food button pot food_button.svg) load with HTTP 200 from relative food/ URLs (works under a subpath), 480x240 each; no 4xx/5xx",
+                  food_resp and all(q[0] == 200 for q in food_resp) and {q[1].split("/food/")[1].split("?")[0] for q in food_resp} == {f"food_{n}.svg" for n in sizes} | {"food_button.svg"}
                   and all(v["ok"] and not v["failed"] and v["w"] == 480 and v["h"] == 240 for v in fa.values()) and len(fa) == len(sizes) and not any(q[0] >= 400 for q in resp),
                   json.dumps({"resp": food_resp, "art": fa}))
             # locked packs (tank Lv1): the same icon under the card grey-out
@@ -2710,6 +2712,74 @@ def food_icons():
                   any(c["locked"] for c in lk) and all(c["icon"] == f"food/food_{c['food']}.svg" for c in lk)
                   and all(("grayscale" in c["filter"] and float(c["opacity"]) < 1) if c["locked"] else (c["filter"] == "none" and float(c["opacity"]) == 1) for c in lk), json.dumps(lk))
             check("food icons: no page errors", not errs, "; ".join(errs[:3]))
+            page.evaluate("() => { AQ.game.reset(); AQ.game.save(); }")
+            ctx.close()
+        browser.close()
+
+def food_button():
+    """Food button pot V1 (Art Director art/food-v1/FOOD_V1.md 'Food button', Maksims job 5): food/food_button.svg imported into
+    #food-icon (square viewBox -58 -110 116 116); layers #body (empty glass, always), #fill (full food clipped to #fill-clip,
+    revealed from y = -84 * level down to y = 0) and #rim on top; level = bottleFill(food) (the existing steps); level 0 = no food
+    drawn = the empty glass pot; button size / hit target unchanged (68x54 / 96x88, icon 36 / 52); badge kept."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"food-button {VW}x{VH}"; LARGE = VW >= 1000
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []; resp = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.on("response", lambda r: resp.append((r.status, r.url)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game")
+            page.wait_for_function("document.getElementById('food-icon').dataset.art === 'v1'", timeout=10000)
+            page.evaluate("() => { AQ.game.reset(); }"); page.wait_for_timeout(150)
+            fb = page.evaluate("AQ.foodButton()")
+            btn_resp = [q for q in resp if q[1].split("?")[0].endswith("/food/food_button.svg")]
+            check("food button: food/food_button.svg loads with HTTP 200 from a relative URL; #food-icon = square viewBox -58 -110 116 116, layers body, level-clipped fill, rim (rim on top)",
+                  btn_resp and all(q[0] == 200 for q in btn_resp) and fb["art"] == "v1" and fb["viewBox"] == "-58 -110 116 116"
+                  and fb["layers"] == ["defs", "fb-body", "food-level", "fb-rim"], json.dumps({"resp": btn_resp, "fb": fb}))
+            bw, bh, ic = (96, 88, 52) if LARGE else (68, 54, 36)
+            def px_rows(n):
+                """rasterise the live #food-icon at 4x and return per-row counts of orange food pixels in a strip inside the pot right of the label (x 28..33: no label, no shine, no bubbles)"""
+                page.evaluate(f"AQ.game.state.food = {n}"); page.wait_for_timeout(120)
+                return page.evaluate("""async () => {
+                  const svg = document.getElementById('food-icon').cloneNode(true); svg.setAttribute('width', '464'); svg.setAttribute('height', '464');
+                  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                  const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+                  await img.decode(); const c = document.createElement('canvas'); c.width = c.height = 464; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+                  const d = g.getImageData(0, 0, 464, 464).data, rows = [];
+                  // viewBox -58 -110 116 116 at 4x: x = (vx + 58) * 4, y = (vy + 110) * 4. Food = saturated orange (r high, b low)
+                  for (let vy = -83; vy <= -2; vy++) { let n = 0; const y = Math.round((vy + 110) * 4);
+                    for (let vx = 28; vx <= 33; vx += 0.25) { const x = Math.round((vx + 58) * 4), i = (y * 464 + x) * 4; if (d[i] > 150 && d[i + 2] < 110 && d[i] - d[i + 2] > 90) n++; }
+                    rows.push([vy, n]); }
+                  return rows; }""")
+            res = {}
+            for n, lvl, name in ((20, 1, "full"), (5, 0.5, "half"), (1, 0.25, "low"), (0, 0, "empty")):
+                rows = px_rows(n); st = page.evaluate("AQ.foodButton()")
+                food_rows = [vy for vy, k in rows if k > 0]
+                top = min(food_rows) if food_rows else None
+                res[name] = {"fill": st["fill"], "clipY": st["clipY"], "clipH": st["clipH"], "shown": st["fillShown"], "top": top, "rect": st["rect"]}
+                exp_top = -84 * lvl
+                if lvl > 0:
+                    ok = (st["fill"] == lvl and abs(st["clipY"] - exp_top) < 1e-6 and abs(st["clipH"] + exp_top) < 1e-6 and st["fillShown"]
+                          and top is not None and abs(top - max(exp_top, -80)) <= 2.5 and all(k > 0 for vy, k in rows if vy >= max(exp_top, -80) + 2 and vy <= -6))
+                    check(f"food button {name} (food {n}, level {lvl}): food revealed from y = -84 x {lvl} = {exp_top:g} down to y = 0 (clip rect y {exp_top:g} h {-exp_top:g}; rendered top of the food within 2.5 units (the lid covers y < -80), solid below)",
+                          ok, json.dumps(res[name]))
+                else:
+                    check(f"food button empty (food 0): level 0, no food drawn (fill layer hidden, no orange pixels): only the empty glass pot + rim",
+                          st["fill"] == 0 and not st["fillShown"] and top is None and st["clipH"] == 0, json.dumps(res[name]))
+                if name in ("full", "low", "empty"):
+                    r = st["rect"]; page.screenshot(path=os.path.join(FIX_SHOTS, f"food_button_{name}_{VW}.png"),
+                                                     clip={"x": 0, "y": max(0, r["y"] - 40), "width": min(VW, r["x"] + r["w"] + 60), "height": r["h"] + 90})
+            lay = page.evaluate("AQ.layout()"); t = next(x for x in lay["tools"] if x["label"] == "Food")
+            check(f"food button: button {bw}x{bh}, icon {ic}x{ic} (size / hit target unchanged at every level), count badge kept",
+                  abs(t["w"] - bw) < 0.5 and abs(t["h"] - bh) < 0.5 and all(abs(v["rect"]["w"] - ic) < 0.5 and abs(v["rect"]["h"] - ic) < 0.5 for v in res.values())
+                  and lay["badge"]["w"] > 0, json.dumps({"tool": t, "res": res}))
+            # the level follows the food count live (feeding / buying) without a reload
+            page.evaluate("AQ.game.state.food = 12"); page.wait_for_timeout(120); a = page.evaluate("AQ.foodButton()")
+            page.evaluate("AQ.game.state.food = 3"); page.wait_for_timeout(120); b = page.evaluate("AQ.foodButton()")
+            check("food button: the level follows the food count live (12 -> 0.75, 3 -> 0.25)", a["fill"] == 0.75 and abs(a["clipY"] + 63) < 1e-6 and b["fill"] == 0.25 and abs(b["clipY"] + 21) < 1e-6,
+                  json.dumps([a, b]))
+            check("food button: no page errors, no 4xx/5xx", not errs and not any(q[0] >= 400 for q in resp), "; ".join(errs[:3]))
             page.evaluate("() => { AQ.game.reset(); AQ.game.save(); }")
             ctx.close()
         browser.close()
@@ -2729,7 +2799,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout), ("food_icons", food_icons)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout), ("food_icons", food_icons), ("food_button", food_button)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

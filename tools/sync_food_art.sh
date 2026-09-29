@@ -2,7 +2,8 @@
 # Copy the Art Director's food pack icons V1 into the game (food/, relative URLs, works under a GitHub Pages subpath).
 # Repeatable: re-run whenever art/food-v1 changes, then commit food/ (bump the ?v= build id only if JS/CSS changed).
 #   tools/sync_food_art.sh [SRC]   (default SRC = /workspace/studio/briefs/aquarium/art/food-v1)
-# Ships food_<n>.svg (what the game draws: the whole 480x240 viewBox, contained) + thumbs/food_<n>-512.png (fallback).
+# Ships food_<n>.svg (what the game draws: the whole 480x240 viewBox, contained) + thumbs/food_<n>-512.png (fallback)
+# and food_button.svg (the Food tool-bar button pot).
 set -euo pipefail
 SRC="${1:-/workspace/studio/briefs/aquarium/art/food-v1}"
 DST="$(cd "$(dirname "$0")/.." && pwd)/food"
@@ -16,7 +17,13 @@ for n in $SIZES; do
   cp -p "$svg" "$DST/food_$n.svg"
   cp -p "$png" "$DST/food_$n-512.png"
 done
+# the Food tool-bar button pot (FOOD_V1.md 'Food button'): #body / #fill / #rim, square viewBox; main.js imports it into #food-icon
+btn="$SRC/food_button.svg"
+[ -f "$btn" ] || { echo "missing $btn" >&2; exit 1; }
+for id in body fill rim fill-clip; do grep -q "id=\"$id\"" "$btn" || { echo "$btn: no #$id" >&2; exit 1; }; done
+cp -p "$btn" "$DST/food_button.svg"
 echo "synced from $SRC:"
 for n in $SIZES; do
   printf '  food_%-4s svg %s  %s\n' "$n" "$(date -r "$DST/food_$n.svg" '+%Y-%m-%d %H:%M:%S %Z')" "$(sha1sum "$DST/food_$n.svg" | cut -c1-10)"
 done
+printf '  food_button svg %s  %s\n' "$(date -r "$DST/food_button.svg" '+%Y-%m-%d %H:%M:%S %Z')" "$(sha1sum "$DST/food_button.svg" | cut -c1-10)"
