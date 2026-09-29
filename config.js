@@ -1089,7 +1089,7 @@ window.AQUARIUM_CONFIG = {
         "colorSlider": false,
         "scaleAndMove": "same as leaf/stone",
         "countsTowardMaxInTank": true,
-        "lockedLabel": "Unlocks at Aquarium Lv {N}",
+        "lockedLabel": "Unlocks at Aquarium lvl {N}",
         "sellRefund": "floor(pricePaid / 2)",
         "sellRemovesXp": false,
         "colorSliderNote": "Corals use the same colour slider as leaf/stone (0 light to 100 dark). The other 6 have fixed colours."
@@ -1251,7 +1251,7 @@ window.AQUARIUM_CONFIG = {
       "endMeal": "mealFood[L] - midMeal",
       "L4": "mealFood[3] is one adult meal per adult wait"
     },
-    "foodPackLockedLabel": "Unlocks at Aquarium Lv {N}",
+    "foodPackLockedLabel": "Unlocks at Aquarium lvl {N}",
     "foodPackLockedShown": true
   },
   // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----

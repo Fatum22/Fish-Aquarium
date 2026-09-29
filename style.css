@@ -186,7 +186,7 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 .card .btn.poor .price { color: #ff8a8a; }
 .card.locked { opacity: .55; filter: grayscale(.8); }
 .card.locked .btn:disabled { background: #2d3b47; color: #c9d6e0; }
-/* v6.7: food packs use 3 wider columns on Large so '500 food · 125 gold' and 'Unlocks at Aquarium Lv 9' stay on one line */
+/* v6.7: food packs use 3 wider columns on Large so '500 food · 125 gold' and 'Unlocks at Aquarium lvl 9' stay on one line */
 .card.locked .btn .lbl { font-size: 10px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @media (min-height: 600px) { .card .n { font-size: 15px; } .card .s { font-size: 12px; } .card .btn { font-size: 14px; padding: 7px 8px; } }
 .note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }

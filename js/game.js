@@ -529,7 +529,7 @@
   function buyDecor(type) {
     const D = T.decorations;
     if (!decorKnown(type)) return null;
-    if (!decorUnlocked(type)) { emit('msg', { text: String(D.shopItems.lockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', decorUnlockLevel(type)) }); return null; }
+    if (!decorUnlocked(type)) { emit('msg', { text: String(D.shopItems.lockedLabel || 'Unlocks at Aquarium lvl {N}').replace('{N}', decorUnlockLevel(type)) }); return null; }
     if (decorFull()) { emit('msg', { text: 'Tank is full of decorations' }); return null; }
     const price = decorPrice(type);
     if (S.gold < price) { emit('msg', { text: 'Not enough gold' }); return null; }

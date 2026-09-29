@@ -877,11 +877,11 @@ def main(VW, VH):
         hud = page.evaluate("""(() => { const q = (s) => document.querySelector(s); const r = (s) => q(s).getBoundingClientRect();
             return { order: [...q('#hud').children].map((e) => e.id), food: !!q('#res-food'), gold: r('#res-gold'), gem: r('#res-gem'), lvl: r('#tanklvl'), dirt: r('#dirt-win'), hud: r('#hud'),
                      gems: q('#gems').textContent, label: q('#tank-label').textContent, xp: q('#tank-xp').textContent, pillFs: getComputedStyle(q('#res-gold')).fontSize, tab: getComputedStyle(q('#gold')).fontVariantNumeric }; })()""")
-        check("AD v4 3: top bar = gold pill, diamond pill (no food pill; 0 diamonds), 'Aquarium Lv 1' block with '0 / 60', dirt window 240x36 / 320x48 right-aligned; pills 32 / 42 high",
-              hud["order"] == ["res-gold", "res-gem", "tanklvl", "dirt-win"] and not hud["food"] and hud["gems"] == "0" and hud["label"] == "Aquarium Lv 1" and hud["xp"] == "0 / 60"
+        check("AD v4 3: top bar = gold pill, diamond pill (no food pill; 0 diamonds), 'Aquarium lvl 1' block with '0 / 60', dirt window 240x36 / 320x48 right-aligned; pills 32 / 42 high",
+              hud["order"] == ["res-gold", "res-gem", "tanklvl", "dirt-win"] and not hud["food"] and hud["gems"] == "0" and hud["label"] == "Aquarium lvl 1" and hud["xp"] == "0 / 60"
               and abs(hud["dirt"]["width"] - (320 if LARGE else 240)) < 0.5 and abs(hud["dirt"]["height"] - (48 if LARGE else 36)) < 0.5 and abs(hud["dirt"]["right"] - hud["hud"]["right"]) < 0.5
               and abs(hud["gold"]["height"] - (42 if LARGE else 32)) < 0.5 and hud["lvl"]["width"] >= 160 and hud["pillFs"] == ("20px" if LARGE else "16px") and "tabular-nums" in hud["tab"], json.dumps(hud))
-        # Maksims / AD v4 3 (2026-09-28): the level block reads "Aquarium Lv N"; "Aquarium Lv 12" + "Dirt: max" must fit on one row without clipping
+        # Maksims / AD v4 3 (2026-09-28): the level block reads "Aquarium lvl N"; "Aquarium lvl 12" + "Dirt: max" must fit on one row without clipping
         lv12 = ev("""toStage(5); if (!G.__tankInfo) G.__tankInfo = G.tankInfo; const real = G.__tankInfo; G.tankInfo = () => Object.assign({}, real(), { level: 12 }); return 0;""")
         page.wait_for_timeout(120)
         fit = page.evaluate("""(() => { const q = (s) => document.querySelector(s), r = (s) => q(s).getBoundingClientRect(); const l = q('#tank-label'), cs = getComputedStyle(l);
@@ -890,14 +890,15 @@ def main(VW, VH):
                      inBlock: lb.left >= blk.left - 0.5 && lb.right <= blk.right + 0.5, beforeDirt: blk.right <= dw.left + 0.5, oneRow: hud.scrollHeight <= hud.clientHeight + 0.5 && hud.scrollWidth <= hud.clientWidth + 0.5,
                      title: q('#tanklvl').title }; })()""")
         page.locator("#hud").screenshot(path=shot("topbar_aquarium_lv12"))
+        page.locator("#hud").screenshot(path=os.path.join(FIX_SHOTS, f"topbar_lvl_{VW}.png"))   # Maksims wording fix: 'Aquarium lvl N' (worst case lvl 12 + Dirt: max)
         ev("G.tankInfo = G.__tankInfo; delete G.__tankInfo; clean();"); page.wait_for_timeout(80)
-        check("AD v4 3 rename: top bar reads 'Aquarium Lv 12' (forced level 12) next to 'Dirt: max' on one row: label not clipped or ellipsed (scrollWidth <= clientWidth), inside its block, block left of the dirt window; tooltip says 'Aquarium level'",
-              fit["label"] == "Aquarium Lv 12" and fit["dirt"] == "Dirt: max" and fit["sw"] <= fit["cw"] and fit["dsw"] <= fit["dcw"] and fit["inBlock"] and fit["beforeDirt"] and fit["oneRow"]
+        check("AD v4 3 rename: top bar reads 'Aquarium lvl 12' (forced level 12) next to 'Dirt: max' on one row: label not clipped or ellipsed (scrollWidth <= clientWidth), inside its block, block left of the dirt window; tooltip says 'Aquarium level'",
+              fit["label"] == "Aquarium lvl 12" and fit["dirt"] == "Dirt: max" and fit["sw"] <= fit["cw"] and fit["dsw"] <= fit["dcw"] and fit["inBlock"] and fit["beforeDirt"] and fit["oneRow"]
               and fit["title"].startswith("Aquarium level"), json.dumps(fit))
         ev("fresh(); G.state.tank.xp = 130;"); page.wait_for_timeout(150); page.screenshot(path=shot("aquarium_label_clean_no_timer"))
         vis = page.evaluate("document.body.innerText")
-        check("rename: no player-facing 'Tank Lv' / 'Tank level' text on the main screen; 'Aquarium Lv 2' and 'Dirt: clean' shown with no countdown",
-              "Tank Lv" not in vis and "Tank level" not in vis and "Aquarium Lv 2" in vis and "Dirt: clean" in vis and " in " not in page.evaluate("document.getElementById('dirt-win').innerText"), vis[:300])
+        check("rename: no player-facing 'Tank Lv' / 'Tank level' / old 'Aquarium Lv' text on the main screen; 'Aquarium lvl 2' and 'Dirt: clean' shown with no countdown",
+              "Tank Lv" not in vis and "Tank level" not in vis and "Aquarium Lv" not in vis and "Aquarium lvl 2" in vis and "Dirt: clean" in vis and " in " not in page.evaluate("document.getElementById('dirt-win').innerText"), vis[:300])
         def dirt_txt():
             return page.evaluate("""(() => { const l = document.getElementById('dirt-label'), h = document.getElementById('hud'), w = document.getElementById('dirt-win');
               const a = l.getBoundingClientRect(), wr = w.getBoundingClientRect();
@@ -1003,7 +1004,7 @@ def main(VW, VH):
             const cols = getComputedStyle(document.getElementById('shop-list')).gridTemplateColumns.split(' ').length;
             return { w: s.width, h: s.height, cx: (s.left + s.right) / 2 - (k.left + k.right) / 2, top: s.top - k.top, tankW: k.width, tankH: k.height, closeW: c.width, closeH: c.height,
                      closeCx: (c.left + c.right) / 2 - (s.left + s.right) / 2, closeBottom: s.bottom - parseFloat(getComputedStyle(document.getElementById('shop')).borderBottomWidth) - c.bottom, cols, tabs: [...document.querySelectorAll('#shop .tab')].map((t) => t.textContent),
-                     title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv|Aquarium Lv/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
+                     title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv|Aquarium Lv|Aquarium lvl/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
                      pad: parseFloat(getComputedStyle(document.getElementById('shop-scroll')).paddingBottom) }; })()""")
         check("AD v4 8 / bible 7-8: shop = centred panel min(680, tankW-32) x tankH-16, header 'Shop' + tabs Fish / Food / Decorations, no tank level / XP, 4 fish columns on both sizes (Maksims 2026-09-29, was 5 on Large)",
               abs(sh["w"] - min(680, sh["tankW"] - 32)) < 1 and abs(sh["h"] - (sh["tankH"] - 16)) < 1 and abs(sh["cx"]) < 1 and abs(sh["top"] - 8) < 1 and sh["title"] == "Shop"
@@ -1046,12 +1047,12 @@ def main(VW, VH):
               sc.scrollTop = 0; return { cards: out, hOverflow: sc.scrollWidth > sc.clientWidth + 0.5 }; })()""")
         want = ["5 food · 3 gold", "10 food · 5 gold", "50 food · 20 gold", "250 food · 75 gold", "500 food · 125 gold"]
         want_s = ["0.6 gold per food", "0.5 gold per food", "0.4 gold per food", "0.3 gold per food", "0.25 gold per food"]
-        lock_lbl = lambda n: (tj.get("foodPackLockedLabel") or "Unlocks at Aquarium Lv {N}").replace("{N}", str(n))
+        lock_lbl = lambda n: (tj.get("foodPackLockedLabel") or "Unlocks at Aquarium lvl {N}").replace("{N}", str(n))
         # Lv1 (xp 0): only the 5-food pack buyable; others visible, greyed, locked label where the price was
         p1 = open_food(lvxp(1)); reach1 = packs_reachable()
         check("v6.7 Food packs (5, rendered from tuning): unlockTankLevel 1/2/4/6/9, foodPackLockedLabel, foodPackLockedShown; labels '5 food · 3 gold' and locked labels fit; every pack button reachable (scroll, not under Close), no sideways overflow",
               closed and ver_at_least(tj, "6.7") and tj.get("foodPackLockedShown") is True
-              and tj.get("foodPackLockedLabel") == "Unlocks at Aquarium Lv {N}"
+              and tj.get("foodPackLockedLabel") == "Unlocks at Aquarium lvl {N}"
               and [[p["food"], p["gold"], p["unlockTankLevel"]] for p in tj["foodPacks"]] == [[5, 3, 1], [10, 5, 2], [50, 20, 4], [250, 75, 6], [500, 125, 9]] and len(p1) == len(tj["foodPacks"]) == 5
               and [c["n"] for c in p1] == want and [c["s"] for c in p1] == want_s and all(c["nFits"] for c in p1)
               and [c["locked"] for c in p1] == [False, True, True, True, True] and not any(c["hidden"] for c in p1)
@@ -1085,7 +1086,7 @@ def main(VW, VH):
         page.screenshot(path=shot("shop_food"))
         # Lv6 (xp 10000): 250-food unlocks
         p6 = open_food(lvxp(6))
-        check("v6.7 Lv6: 250-food pack unlocks (75 gold); 500 still locked 'Unlocks at Aquarium Lv 9'",
+        check("v6.7 Lv6: 250-food pack unlocks (75 gold); 500 still locked 'Unlocks at Aquarium lvl 9'",
               [c["locked"] for c in p6] == [False, False, False, False, True] and [c["price"] for c in p6] == ["3", "5", "20", "75", None] and [c["lbl"] for c in p6] == ["", "", "", "", lock_lbl(9)] and p6[4]["lblFits"], json.dumps(p6))
         g4 = S()["gold"]; page.click('#shop-food button[data-food="3"]'); page.wait_for_timeout(80)
         check("v6.7 Lv6 buy 250-food: -75 gold +250 food",
@@ -1222,7 +1223,7 @@ def main(VW, VH):
         page.click("#shop-close"); snap_d = S()["decor"]
         boot("?speed=1"); after_d = S()["decor"]
         check("v4 7: max 12 decorations (Buy disabled with 'Tank is full of decorations'); decorations keep position, size and colour across a reload",
-              all(d_ and (t_ == "Tank is full of decorations" or t_.startswith("Unlocks at Aquarium Lv")) for d_, t_ in full_d) and any(t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
+              all(d_ and (t_ == "Tank is full of decorations" or t_.startswith("Unlocks at Aquarium lvl")) for d_, t_ in full_d) and any(t_ == "Tank is full of decorations" for d_, t_ in full_d) and refused and after_d == snap_d and after_d[0]["x"] == 0.3 and after_d[0]["sh"] == 1.4 and after_d[0]["color"] == 70, json.dumps(full_d))
         # fish info side panel geometry + meal bar
         fp = ev("""fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('platy');
           f.level = 3; f.state = 'HUNGRY'; f.fed = 0; f.hungerDone = true; f.endMeal = true; f.progress = G.growSec(G.SPECIES.platy, 3); f.deathLeft = G.deathSecFor(G.SPECIES.platy, 3);
@@ -1279,7 +1280,7 @@ def main(VW, VH):
           while (a.level < 4 && t < 5000) { G.tick(1); t++; if (a.state === 'HUNGRY') { feedFull(a); meals++; } }
           snap('adult'); const lvl = G.tankInfo().level, dirtMoved = G.state.dirt.t - d0 - t; G.sell(a.id); snap('sold');
           return { rows, meals, lvl, dirtMoved, grow: t, adultState: a.state };""")
-        check("v6.3 first session: start 0/0/0 -> clean 20/50/5 -> buy Guppy 0/50/5 -> six meals (9 food) to adult 7/41/81 (Aquarium Lv2) -> sell 47/41/161; meals moved dirt 30 min",
+        check("v6.3 first session: start 0/0/0 -> clean 20/50/5 -> buy Guppy 0/50/5 -> six meals (9 food) to adult 7/41/81 (Aquarium lvl 2) -> sell 47/41/161; meals moved dirt 30 min",
               [r_[1:] for r_ in sl["rows"]] == [[0, 0, 0], [20, 50, 5], [0, 50, 5], [7, 41, 81], [47, 41, 161]] and sl["meals"] == 6 and sl["lvl"] == 2
               and sl["dirtMoved"] == 1800 and sl["grow"] == 1260 and sl["adultState"] == "ADULT", json.dumps(sl))
 
@@ -2167,7 +2168,7 @@ DECOR_SHOTS = os.path.join(HERE, "..", "screenshots", "decor")
 def decor_v1():
     """Job 2 (approved by Maksims, art approved with no extra review): the 10 shop decorations from tuning
     decorations.shopItems + art/DECOR_V1.md. Shop: leaf, stone, then the 10 in ladder order; locked ones greyed with
-    'Unlocks at Aquarium Lv {N}'; price from tuning; placeXp on the first buy of each type only; sell floor(pricePaid / 2);
+    'Unlocks at Aquarium lvl {N}'; price from tuning; placeXp on the first buy of each type only; sell floor(pricePaid / 2);
     the same edit menu / drag / resize for every piece; height cap maxHeightScale (castle 1.8); traced hit outline;
     corals recolour light (0) to dark (100) through coralColors / tintSvg; every asset loads 200 from relative decor/ URLs."""
     os.makedirs(DECOR_SHOTS, exist_ok=True)
@@ -2189,7 +2190,7 @@ def decor_v1():
                       dis: b.disabled, locked: c.classList.contains('locked'), lbl: b.querySelector('.lbl').textContent, filter: getComputedStyle(c).filter, op: +getComputedStyle(c).opacity }; })""")
             def open_decor_shop():
                 page.evaluate("AQ.openShop(); AQ.setShopTab('decor')"); page.wait_for_timeout(200)
-            # shop at Aquarium Lv 1: leaf, stone, then all 10 in ladder order, all 10 locked (greyed, label, no price, disabled)
+            # shop at Aquarium lvl 1: leaf, stone, then all 10 in ladder order, all 10 locked (greyed, label, no price, disabled)
             ev("fresh(); G.state.gold = 99999; G.state.tank.xp = 0;")
             open_decor_shop(); c1 = shop_cards()
             exp_ids = ["leaf", "stone"] + ids
@@ -2197,7 +2198,7 @@ def decor_v1():
             ok1 = [c["id"] for c in c1] == exp_ids and all(c["n"] == it["name"] and c["price"] == str(it["price"]) for c, it in zip(c1[2:], items)) \
                 and all(c["locked"] and c["dis"] and c["priceHidden"] and c["lbl"] == lab(it["unlockTankLevel"]) and "grayscale" in c["filter"] and c["op"] < 0.7 for c, it in zip(c1[2:], items)) \
                 and not c1[0]["locked"] and not c1[1]["locked"]
-            check("shop at Aquarium Lv 1: Leaf, Stone, then the 10 shop decorations in ladder order with tuning names / prices; all 10 locked: greyed like locked food packs, disabled, 'Unlocks at Aquarium Lv {N}' instead of the price",
+            check("shop at Aquarium lvl 1: Leaf, Stone, then the 10 shop decorations in ladder order with tuning names / prices; all 10 locked: greyed like locked food packs, disabled, 'Unlocks at Aquarium lvl {N}' instead of the price",
                   ok1, json.dumps(c1[:4]))
             # the shop fits (no horizontal overflow) and scrolls to the last card
             fit = page.evaluate("""(() => { const s = document.getElementById('shop-scroll'), r = s.getBoundingClientRect(); const cards = [...document.querySelectorAll('#shop-decor .card')];
@@ -2218,7 +2219,7 @@ def decor_v1():
             ok_g = all(g[0] == lv and g[1] == [it["id"] for it in items if it["unlockTankLevel"] <= lv] and g[2] == [it["id"] for it in items if it["unlockTankLevel"] > lv] for lv, g in zip(range(1, 8), gate))
             ev(f"G.state.tank.xp = {lvl_xp[3]}; G.state.gold = 1234; AQ.openShop(); AQ.setShopTab('decor');"); page.wait_for_timeout(400)
             trunc = page.evaluate("[...document.querySelectorAll('#shop-decor .card.locked .lbl')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent)")
-            check("locked labels 'Unlocks at Aquarium Lv {N}' are shown in full (not cut off with an ellipsis)", not trunc, json.dumps(trunc))
+            check("locked labels 'Unlocks at Aquarium lvl {N}' are shown in full (not cut off with an ellipsis)", not trunc, json.dumps(trunc))
             if VW == 844: page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)  # show the locked row too
             page.screenshot(path=os.path.join(DECOR_SHOTS, f"shop_{VW}.png"))
             # Art Director nit: portraits fit the card by their limiting dimension (contain on the art's opaque bounds), locked cards too
@@ -2247,7 +2248,7 @@ def decor_v1():
             page.evaluate("document.querySelector('#shop-close').click()")
             refused = ev(f"""G.state.tank.xp = 0; G.state.gold = 99999; const out = {{}};
                 for (const it of T.decorations.shopItems.items) {{ const g = G.state.gold, r = G.buyDecor(it.id); out[it.id] = [r === null, G.state.gold - g, G.state.decor.length]; }} return out;""")
-            check("unlock gating: at Aquarium Lv 1..7 exactly the items with unlockTankLevel <= level are buyable (the rest locked); buying a locked one is refused (no gold taken, nothing placed)",
+            check("unlock gating: at Aquarium lvl 1..7 exactly the items with unlockTankLevel <= level are buyable (the rest locked); buying a locked one is refused (no gold taken, nothing placed)",
                   ok_g and all(v == [True, 0, 0] for v in refused.values()), json.dumps([gate, refused]))
             # prices, XP once per type, pricePaid, sell floor(pricePaid / 2), XP never taken back
             buy = ev("""fresh(); G.state.gold = 999999; G.state.tank.xp = T.tank.levelAtXp[T.tank.levelAtXp.length - 1]; G.state.decorBought = {}; const out = {};

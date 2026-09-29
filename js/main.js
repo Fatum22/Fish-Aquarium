@@ -831,7 +831,7 @@
     $('dirt-label').textContent = st === 0 ? 'Dirt: clean' : st >= maxSt ? 'Dirt: max' : `Dirt: stage ${st} of ${maxSt}`;
     // tank level block
     const ti = G.tankInfo();
-    $('tank-label').textContent = `Aquarium Lv ${ti.level}`;
+    $('tank-label').textContent = `Aquarium lvl ${ti.level}`;
     $('tank-xp').textContent = ti.max ? 'Max level' : `${ti.xp} / ${ti.next}`;
     $('tank-xpbar').style.width = (ti.max ? 100 : Math.min(100, ((ti.xp - ti.cur) / (ti.next - ti.cur)) * 100)).toFixed(1) + '%';
     $('tankover').hidden = !G.tankOver();
@@ -1124,22 +1124,22 @@
     });
     $('shop-food').querySelectorAll('button[data-food]').forEach((b) => {
       // v6.7: every pack has unlockTankLevel (1/2/4/6); locked packs stay visible (foodPackLockedShown) but greyed and unbuyable,
-      // with foodPackLockedLabel ("Unlocks at Aquarium Lv {N}") where the price was.
+      // with foodPackLockedLabel ("Unlocks at Aquarium lvl {N}") where the price was.
       const p = T.foodPacks[+b.dataset.food], locked = !G.packUnlocked(p), poor = G.state.gold < p.gold, shown = T.foodPackLockedShown !== false;
       b.closest('.card').hidden = locked && !shown;
       b.disabled = poor || locked; b.classList.toggle('poor', poor && !locked);
       b.closest('.card').classList.toggle('locked', locked);
       b.querySelector('.price').hidden = locked; b.querySelector('svg').style.display = locked ? 'none' : '';
-      b.querySelector('.lbl').textContent = locked ? String(T.foodPackLockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', p.unlockTankLevel) : '';
+      b.querySelector('.lbl').textContent = locked ? String(T.foodPackLockedLabel || 'Unlocks at Aquarium lvl {N}').replace('{N}', p.unlockTankLevel) : '';
     });
     const dfull = G.decorFull();
     $('shop-decor').querySelectorAll('button[data-buydecor]').forEach((b) => {
-      // shop decorations: locked ones stay visible, greyed like locked food packs, 'Unlocks at Aquarium Lv {N}' where the price was
+      // shop decorations: locked ones stay visible, greyed like locked food packs, 'Unlocks at Aquarium lvl {N}' where the price was
       const type = b.dataset.buydecor, locked = !G.decorUnlocked(type), poor = G.state.gold < G.decorPrice(type);
       b.disabled = locked || dfull || poor; b.classList.toggle('poor', poor && !dfull && !locked);
       b.closest('.card').classList.toggle('locked', locked);
       b.querySelector('.price').hidden = locked || dfull; b.querySelector('svg').style.display = locked || dfull ? 'none' : '';
-      b.querySelector('.lbl').textContent = locked ? String(T.decorations.shopItems.lockedLabel || 'Unlocks at Aquarium Lv {N}').replace('{N}', G.decorUnlockLevel(type))
+      b.querySelector('.lbl').textContent = locked ? String(T.decorations.shopItems.lockedLabel || 'Unlocks at Aquarium lvl {N}').replace('{N}', G.decorUnlockLevel(type))
         : dfull ? 'Tank is full of decorations' : '';
     });
     const dead = G.state.fish.length - G.living();
