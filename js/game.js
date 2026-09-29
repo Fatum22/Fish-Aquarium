@@ -29,7 +29,7 @@
     return (k ? sp.growSec[T.maxLevel - 2] * k : sp.adultHungerSec) * rarityGrowthMult(sp.rarity);
   }
   /** v6 NUMBERS 3a: death timer by rarity and by the fish's level at the moment it gets hungry:
-   *  deathSecByRarity[rarity][level-1] (common / uncommon 12 / 14 / 18 / 20 h, rare 18 / 21 / 27 / 30 h).
+   *  deathSecByRarity[rarity][level-1] (numbers only in tuning.json; v6.9: common 14/16/20/24 h, uncommon 15/18/22/26 h, rare 24/30/40/48 h, epic / legendary reserved).
    *  v6.3: a fish hungry for its end meal at 100% is still at its current level and uses that level's value.
    *  Fallbacks: the species' own deathSec copy, then the global deathSec (a plain number = one timer for every level). */
   function deathSecFor(sp, level) {

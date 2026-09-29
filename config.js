@@ -47,7 +47,7 @@ window.AQUARIUM_CONFIG = {
 
   // ---- VERBATIM tuning.json ------------------------------------------------
   TUNING: {
-    "version": "6.8",
+    "version": "6.9",
     "startGold": 0,
     "startFood": 0,
     "tankCapacity": 6,
@@ -55,10 +55,10 @@ window.AQUARIUM_CONFIG = {
     "foodPerTap": 1,
     "feedGoldPerFish": 0,
     "deathSec": [
-      43200,
       50400,
-      64800,
-      72000
+      57600,
+      72000,
+      86400
     ],
     "offlineProgress": true,
     "debugSpeeds": [
@@ -112,10 +112,10 @@ window.AQUARIUM_CONFIG = {
           80
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -161,10 +161,10 @@ window.AQUARIUM_CONFIG = {
           160
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -210,10 +210,10 @@ window.AQUARIUM_CONFIG = {
           240
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -259,10 +259,10 @@ window.AQUARIUM_CONFIG = {
           560
         ],
         "deathSec": [
-          64800,
-          75600,
-          97200,
-          108000
+          86400,
+          108000,
+          144000,
+          172800
         ]
       },
       {
@@ -308,10 +308,10 @@ window.AQUARIUM_CONFIG = {
           400
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -357,10 +357,10 @@ window.AQUARIUM_CONFIG = {
           600
         ],
         "deathSec": [
-          43200,
-          50400,
+          54000,
           64800,
-          72000
+          79200,
+          93600
         ]
       },
       {
@@ -406,10 +406,10 @@ window.AQUARIUM_CONFIG = {
           1160
         ],
         "deathSec": [
-          64800,
-          75600,
-          97200,
-          108000
+          86400,
+          108000,
+          144000,
+          172800
         ]
       },
       {
@@ -455,10 +455,10 @@ window.AQUARIUM_CONFIG = {
           640
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -504,10 +504,10 @@ window.AQUARIUM_CONFIG = {
           960
         ],
         "deathSec": [
-          43200,
-          50400,
+          54000,
           64800,
-          72000
+          79200,
+          93600
         ]
       },
       {
@@ -553,10 +553,10 @@ window.AQUARIUM_CONFIG = {
           1440
         ],
         "deathSec": [
-          43200,
-          50400,
+          54000,
           64800,
-          72000
+          79200,
+          93600
         ]
       },
       {
@@ -602,10 +602,10 @@ window.AQUARIUM_CONFIG = {
           1360
         ],
         "deathSec": [
-          43200,
           50400,
-          64800,
-          72000
+          57600,
+          72000,
+          86400
         ]
       },
       {
@@ -651,10 +651,10 @@ window.AQUARIUM_CONFIG = {
           3080
         ],
         "deathSec": [
-          64800,
-          75600,
-          97200,
-          108000
+          86400,
+          108000,
+          144000,
+          172800
         ]
       },
       {
@@ -700,10 +700,10 @@ window.AQUARIUM_CONFIG = {
           2880
         ],
         "deathSec": [
-          43200,
-          50400,
+          54000,
           64800,
-          72000
+          79200,
+          93600
         ]
       },
       {
@@ -749,10 +749,10 @@ window.AQUARIUM_CONFIG = {
           5760
         ],
         "deathSec": [
-          64800,
-          75600,
-          97200,
-          108000
+          86400,
+          108000,
+          144000,
+          172800
         ]
       }
     ],
@@ -922,8 +922,11 @@ window.AQUARIUM_CONFIG = {
         "later": true
       },
       "mealFoodCap": 16,
-      "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built; v6.2: mealFood set directly per species (mealFoodRule), rarity m no longer used",
-      "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 … L4=2*price"
+      "note": "rarity independent of unlock level; sell is v6 formula; deathSec longer for rare; multipliers only document how price/grow/meals/xp were built; v6.2: mealFood set directly per species (mealFoodRule), rarity m no longer used; v6.9: longer starvation timers per rarity, uncommon now above common, epic and legendary rows reserved (no species yet)",
+      "sellFormula": "(price / 2) * fishLevel, integer; L1=price/2 … L4=2*price",
+      "legendary": {
+        "later": true
+      }
     },
     "decorations": {
       "price": {
@@ -1108,7 +1111,7 @@ window.AQUARIUM_CONFIG = {
       },
       "leafNote": "Maksims 2026-09-28 19:13: leaf costs 1 gold, sells back for the full price paid (1 gold; old free leaves still sell for 0), gives no XP. Stone stays 2 gold, 1 XP first buy, sells for 1."
     },
-    "deathSecBy": "species.rarity → deathSecByRarity[rarity][fishLevel-1]; uncommon matches common; rare is longer at every level",
+    "deathSecBy": "species.rarity → deathSecByRarity[rarity][fishLevel-1]; v6.9: common < uncommon < rare < epic < legendary at every level; epic and legendary have no species yet",
     "levelCommonBaseline": {
       "1": {
         "price": 20,
@@ -1223,22 +1226,34 @@ window.AQUARIUM_CONFIG = {
     },
     "deathSecByRarity": {
       "common": [
-        43200,
         50400,
-        64800,
-        72000
+        57600,
+        72000,
+        86400
       ],
       "uncommon": [
-        43200,
-        50400,
+        54000,
         64800,
-        72000
+        79200,
+        93600
       ],
       "rare": [
-        64800,
-        75600,
-        97200,
-        108000
+        86400,
+        108000,
+        144000,
+        172800
+      ],
+      "epic": [
+        115200,
+        144000,
+        180000,
+        216000
+      ],
+      "legendary": [
+        144000,
+        180000,
+        216000,
+        259200
       ]
     },
     "adultHungerMultOfL3Grow": 4,

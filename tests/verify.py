@@ -236,7 +236,7 @@ def main(VW, VH):
             f.state = lv === 4 ? 'ADULT' : 'GROWING'; f.progress = 0; f.hungerDone = false; f.sinceFed = 0; let t = 0, h = null, d = null, dl = null;
             while (d === null && t < 40 * H) { G.tick(1); t++; if (h === null && G.needsFood(f)) { h = t; dl = f.deathLeft; } if (f.state === 'DEAD') d = t; }
             return { lv, hungryAt: h, deathLeftAtHunger: dl, diesAfter: d - h }; });
-          out.rareDeath = (() => { fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('ram'); f.level = 4; f.state = 'ADULT_HUNGRY'; f.fed = 0; f.deathLeft = G.deathSecFor(G.SPECIES.ram, 4); let t = 0; while (f.state !== 'DEAD' && t < 40 * H) { G.tick(1); t++; } return { diesAfter: t, expected: G.deathSecFor(G.SPECIES.ram, 4) }; })();
+          out.rareDeath = (() => { fresh(); G.state.tank.xp = 5000; G.state.gold = 1000; const f = G.buyFish('ram'); f.level = 4; f.state = 'ADULT_HUNGRY'; f.fed = 0; f.deathLeft = G.deathSecFor(G.SPECIES.ram, 4); let t = 0; while (f.state !== 'DEAD' && t < 60 * H) { G.tick(1); t++; } return { diesAfter: t, expected: G.deathSecFor(G.SPECIES.ram, 4) }; })();
           // v6.3: at 100% of L1 the fish is hungry for its end meal and stays L1 (L1 death timer) until fed; the end meal levels
           // it up to L2, GROWING from 0% and NOT hungry (no death timer), next hunger at 50% of L2
           fresh(); const u = G.buyFish('guppy'); u.hungerDone = true; u.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; G.tick(1);
@@ -245,7 +245,7 @@ def main(VW, VH):
           const r1 = G.feedTap(u.x, u.y);
           up.afterEnd = { full: r1.full, levelUp: r1.levelUp, level: u.level, state: u.state, deathLeft: u.deathLeft, progress: u.progress, needs: G.needsFood(u), fed: u.fed };
           let tt = 0; while (u.state === 'GROWING' && tt < 40 * H) { G.tick(1); tt++; } up.nextHunger = { after: tt, level: u.level, state: u.state, endMeal: !!u.endMeal };
-          // an unfed fish waiting at 100% dies on its level's death timer (L1 12 h)
+          // an unfed fish waiting at 100% dies on its level's death timer (L1 14 h in v6.9)
           fresh(); const u2 = G.buyFish('guppy'); u2.hungerDone = true; u2.progress = G.growSec(G.SPECIES.guppy, 1) - 0.5; G.tick(1); tt = 0;
           while (u2.state !== 'DEAD' && tt < 40 * H) { G.tick(1); tt++; } up.diesAfter = tt + 0.5; up.diedLevel = u2.level;
           out.justUp = up;
@@ -303,15 +303,18 @@ def main(VW, VH):
         check("hungry at 50% of L1 (Guppy at 1 m 30 s); sell formula (price/2)*level holds for every species",
               f["hungry"] == 90 and abs(f["progressAtHunger"] - 90) < 1e-6 and f["sellFormula"], f"hungry at {f['hungry']}s sell={f['sellFormula']}")
         common = tj["deathSecByRarity"]["common"]
-        check("death exactly deathSecByRarity.common[L1] (12 h) after an L1 fish gets hungry; the dead fish stays in the tank",
-              f["deathAfter"] == common[0] == 43200 and f["deadState"] == "DEAD" and f["deadStays"], f"deathAfter={f['deathAfter']}")
+        check("death exactly deathSecByRarity.common[L1] (v6.9: 14 h) after an L1 fish gets hungry; the dead fish stays in the tank",
+              f["deathAfter"] == common[0] == 50400 and f["deadState"] == "DEAD" and f["deadStays"], f"deathAfter={f['deathAfter']}")
         bl = f["byLevel"]
-        check("death timer by rarity+level (v6 3a): common/uncommon 12/14/18/20 h, rare 18/21/27/30 h; Guppy uses common",
-              tj["deathSecByRarity"] == {"common": [43200, 50400, 64800, 72000], "uncommon": [43200, 50400, 64800, 72000], "rare": [64800, 75600, 97200, 108000]}
+        check("death timer by rarity+level (v6.9, Maksims): common 14/16/20/24 h, uncommon 15/18/22/26 h, rare 24/30/40/48 h, epic 32/40/50/60 h (reserved), legendary 40/50/60/72 h; "
+              "every species' deathSec = its rarity row; the game's tables = tuning; Guppy uses common, Ram (rare) L4 dies after 48 h",
+              tj["deathSecByRarity"] == {"common": [50400, 57600, 72000, 86400], "uncommon": [54000, 64800, 79200, 93600], "rare": [86400, 108000, 144000, 172800],
+                                         "epic": [115200, 144000, 180000, 216000], "legendary": [144000, 180000, 216000, 259200]}
+              and f["deathTables"] == tj["deathSecByRarity"] and tj["deathSec"] == common and all(s_["deathSec"] == tj["deathSecByRarity"][s_["rarity"]] for s_ in tj["species"])
               and [b_["deathLeftAtHunger"] for b_ in bl] == common and [b_["diesAfter"] for b_ in bl] == common
-              and f["rareDeath"]["diesAfter"] == f["rareDeath"]["expected"] == 108000, json.dumps({"bl": bl, "rare": f["rareDeath"]}))
+              and f["rareDeath"]["diesAfter"] == f["rareDeath"]["expected"] == 172800, json.dumps({"bl": bl, "rare": f["rareDeath"]}))
         ju = f["justUp"]
-        check("v6.3 at 100% of L1: hungry for the end meal, stays L1 (also 10 min later, info says L1) with the L1 timer (12 h); dies 12 h later at L1 if never fed",
+        check("v6.3 at 100% of L1: hungry for the end meal, stays L1 (also 10 min later, info says L1) with the L1 timer (v6.9: 14 h); dies 14 h later at L1 if never fed",
               ju["atEnd"]["level"] == 1 and ju["atEnd"]["state"] == "HUNGRY" and ju["atEnd"]["endMeal"] and abs(ju["atEnd"]["deathLeft"] - common[0]) <= 1 and ju["atEnd"]["progress"] == 180
               and ju["after10m"] == {"level": 1, "state": "HUNGRY", "progress": 180, "info": 1} and abs(ju["diesAfter"] - common[0]) <= 1 and ju["diedLevel"] == 1, json.dumps(ju))
         check("v6.3 no meal right after a level-up: the end meal levels it to L2, GROWING from 0%, not hungry, no death timer; next hunger is the mid meal at 50% of L2 (3 m)",
@@ -338,7 +341,7 @@ def main(VW, VH):
         check("adults unchanged: an L4 Guppy / Ram gets hungry after 4 x L3 grow and needs one meal of mealFood[3] (5 / 6 food), stays L4 ADULT after",
               all(a_["hungryAt"] == a_["wait"] and a_["need"] == a_["taps"] == a_["meal3"] and a_["after"] == [4, "ADULT", None] for a_ in f["adult"])
               and [a_["meal3"] for a_ in f["adult"]] == [5, 6], json.dumps(f["adult"]))
-        check("a just-bought L1 fish starts GROWING with no death timer; unfed it dies after mid-hunger + 12 h (not WAITING)",
+        check("a just-bought L1 fish starts GROWING with no death timer; unfed it dies after mid-hunger + 14 h (v6.9; not WAITING)",
               f["waiting"]["atBuy"] == ["GROWING", None] and f["waiting"]["after24h"][0] == "DEAD", json.dumps(f["waiting"]))
         pm = f["platyMeal"]
         check("Rasbora L3 mid meal = 3 food (7 -> 3+4): taps 1-2 are partial (no XP, dirt clock unchanged); tap 3 completes it: +7 feed XP, dirt clock +300 s, growing",
@@ -417,8 +420,9 @@ def main(VW, VH):
         page.wait_for_timeout(2500); clear_toasts(); tool("hand"); click_fish(gid); page.wait_for_timeout(250)
         ht, gt, mt, wt = page.inner_text("#p-hunger"), page.inner_text("#p-growth"), page.inner_text("#p-meal"), page.inner_text("#p-worth")
         segs = page.evaluate("[...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on'))")
-        check("fish info: 'Hungry! · dies in 12h 00m' (Growth line says paused), v6.3 L1 mid meal 'needs 1 food' with a 1-segment bar, 'Worth 10' + coin; no tap counts",
-              any(ht == "Hungry! · dies in " + t for t in ("12h 00m", "11h 59m")) and "Growth paused" in gt and mt == "needs 1 food"
+        l1h = tj["deathSecByRarity"]["common"][0] // 3600   # v6.9: 14 h
+        check(f"fish info: 'Hungry! · dies in {l1h}h 00m' (L1 common death timer, v6.9; Growth line says paused), v6.3 L1 mid meal 'needs 1 food' with a 1-segment bar, 'Worth 10' + coin; no tap counts",
+              l1h == 14 and any(ht == "Hungry! · dies in " + t for t in (f"{l1h}h 00m", f"{l1h - 1}h 59m")) and "Growth paused" in gt and mt == "needs 1 food"
               and segs == [False] and wt == "Worth 10" and "tap" not in (ht + mt + gt).lower(), f"{ht} | {gt} | {mt} | {segs} | {wt}")
         page.screenshot(path=shot("panel_hungry"))
         page.keyboard.press("Escape")
@@ -519,8 +523,8 @@ def main(VW, VH):
           return { a: a.id, b: b.id, t0: G.state.gameTime };""")
         boot(); page.wait_for_timeout(600)
         s = S(); a = fish(ids["a"]); b = fish(ids["b"])
-        check("offline 49 h: dirt stage 5, both unfed guppies died at 1m30 + 12h (L1 death) and stay DEAD",
-              stage() == 5 and a and a["state"] == "DEAD" and abs(a["diedAt"] - ids["t0"] - 43290) <= 5 and b and b["state"] == "DEAD",
+        check("offline 49 h: dirt stage 5, both unfed guppies died at 1m30 + 14h (L1 common death, v6.9) and stay DEAD",
+              stage() == 5 and a and a["state"] == "DEAD" and abs(a["diedAt"] - ids["t0"] - (90 + tj["deathSecByRarity"]["common"][0])) <= 5 and b and b["state"] == "DEAD",
               f"stage={stage()} a={a and a['state']} diedAt-t0={a and a['diedAt'] - ids['t0']:.0f} b={b and b['state']}")
         aw = page.locator("#away").is_visible(); at_ = page.inner_text("#away-time") if aw else ""; al = page.inner_text("#away-list") if aw else ""
         if aw: page.screenshot(path=shot("away_window"))
@@ -1932,8 +1936,8 @@ def tuning_68():
             page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(250)
         ev = lambda body: page.evaluate("() => { " + JS + body + " }")
         boot()
-        check("tuning.json 6.8 in config.js verbatim; decorations.price stone 2 / leaf 1, placeXp 1 / 0, sellRefund floor(pricePaid / 2), sellRefundOverride leaf pricePaid, newTank.defaultDecorations [], deadFish.removeGold floor(species.price / 4)",
-              page.evaluate("AQ.game.T") == tj and tj["version"] == "6.8" and D["price"].get("stone") == 2 and D["price"].get("leaf") == 1 and D["placeXp"].get("stone") == 1 and D["placeXp"].get("leaf") == 0 and D.get("sellRefundOverride") == {"leaf": "pricePaid"}
+        check("tuning.json (6.8 rules, now 6.9) in config.js verbatim; decorations.price stone 2 / leaf 1, placeXp 1 / 0, sellRefund floor(pricePaid / 2), sellRefundOverride leaf pricePaid, newTank.defaultDecorations [], deadFish.removeGold floor(species.price / 4)",
+              page.evaluate("AQ.game.T") == tj and ver_at_least(tj, "6.8") and D["price"].get("stone") == 2 and D["price"].get("leaf") == 1 and D["placeXp"].get("stone") == 1 and D["placeXp"].get("leaf") == 0 and D.get("sellRefundOverride") == {"leaf": "pricePaid"}
               and D["sellRefund"] == "floor(pricePaid / 2)" and tj["newTank"]["defaultDecorations"] == [] and tj["deadFish"]["removeGold"] == "floor(species.price / 4)", tj["version"])
         # new game: empty tank; the reset path too
         page.evaluate("localStorage.clear()"); boot()
@@ -2382,6 +2386,7 @@ def real_clock():
     dsec = tj["deathSecByRarity"]["common"]; stage_at = tj["dirt"]["stageAtSec"]; CAP = 7 * 86400
     mid = gup["growSec"][0] * 0.5; adult_wait = gup["growSec"][2] * tj["adultHungerMultOfL3Grow"]
     H_MS = 3600 * 1000
+    LONG = int(dsec[0] // 3600) + 1   # long gap: 1 h past the L1 common death timer (v6.9: 14 h -> 15 h), so the two L1 guppies die while away
     def stage_of(t): return sum(1 for x in stage_at if t >= x)
     def dismiss(pg):
         if pg.locator("#away").is_visible(): pg.click("#away-ok")
@@ -2428,7 +2433,7 @@ def real_clock():
                 return all(out), d
 
             # ---- (a) clock jump while the page stays open (device slept; performance.now / rAF frozen, no visibility events)
-            for hours in (2, 13):
+            for hours in (2, LONG):
                 ids = ev(SETUP); page.wait_for_timeout(250)
                 ev("G.save(); return 0;")
                 saved_raw = page.evaluate("localStorage.getItem(AQ.game.CFG.VISUAL.saveKey)")
@@ -2508,10 +2513,10 @@ def real_clock():
             saved = page.evaluate("JSON.parse(localStorage.getItem(AQ.game.CFG.VISUAL.saveKey))")
             base = {"g": saved["gameTime"], "w": saved["lastSeen"], "dirt": saved["dirt"]["t"], "fish": saved["fish"]}
             page.close(run_before_unload=False)
-            page = open_page(jump_ms=13 * H_MS); s1 = snap()
+            page = open_page(jump_ms=LONG * H_MS); s1 = snap()
             ok, d = expect(base, s1, ids, "closed")
-            check("(d) tab closed, clock +13h, reopened: the load path replays the 13h from the saved lastSeen (two guppies died, adult hungry, dirt stage 4) and shows the away window",
-                  ok and 13 * 3600 <= d < 13 * 3600 + 8 and s1["away"] and s1["awayList"].split("\n") == ["Guppy died", "Guppy died", "Guppy is hungry", "Tank is at dirt stage 4"],
+            check(f"(d) tab closed, clock +{LONG}h, reopened: the load path replays the {LONG}h from the saved lastSeen (two guppies died, adult hungry, dirt stage 4) and shows the away window",
+                  ok and LONG == 15 and LONG * 3600 <= d < LONG * 3600 + 8 and s1["away"] and s1["awayList"].split("\n") == ["Guppy died", "Guppy died", "Guppy is hungry", "Tank is at dirt stage 4"],
                   json.dumps({"d": d, "fish": s1["fish"], "away": s1["awayList"]}))
             dismiss(page)
             ev = lambda body, arg=None: page.evaluate("(arg) => { " + JS + body + " }", arg)
@@ -2545,7 +2550,7 @@ def real_clock():
         browser.close()
 
 def fish_info_text():
-    """Maksims (2026-09-29): fish info text. Hunger line 'Hungry! · dies in 17h 59m' (no repeated 'Growth paused'; the Growth
+    """Maksims (2026-09-29): fish info text. Hunger line 'Hungry! · dies in 19h 59m' (v6.9 timers; no repeated 'Growth paused'; the Growth
     line keeps it); Food line only what is left ('needs 2 food', then 'needs 1 food' after one feed; no 'Meal 2 of 2 ·');
     Value 'Worth 30' + the HUD gold coin (same #i-coin symbol), no word 'gold', coin vertically centred on the text."""
     os.makedirs(FIX_SHOTS, exist_ok=True)
@@ -2558,7 +2563,7 @@ def fish_info_text():
             page.on("pageerror", lambda e: errs.append(str(e)))
             page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
             ev = lambda body: page.evaluate("() => { " + JS + body + " }")
-            # an L3 Guppy hungry for its mid meal (L3 meals 2 + 2 food) for one minute: dies in 18 h - 1 min = 17h 59m
+            # an L3 Guppy hungry for its mid meal (L3 meals 2 + 2 food) for one minute: dies in 20 h - 1 min = 19h 59m (v6.9 common L3)
             fid = ev("""fresh(); G.state.speed = 1; G.state.food = 50; const f = G.buyFish('guppy'); f.level = 3; f.progress = G.growSec(G.SPECIES.guppy, 3) * G.MID_HUNGER - 1;
                 G.tick(1); G.tick(60); AQ.pinFish(f.id, 0.4, 0.5); document.getElementById('toasts').innerHTML = ''; return f.id;""")
             page.evaluate("AQ.setTool('hand')"); page.wait_for_timeout(200)
@@ -2574,8 +2579,8 @@ def fish_info_text():
                   panel: document.getElementById('panel').innerText, state: AQ.game.state.fish.find((f) => f.id === %d).state }; })()""" % fid
             r0 = page.evaluate(READ)
             page.screenshot(path=os.path.join(FIX_SHOTS, f"fish_info_{VW}.png"))
-            check("Maksims: hungry fish Hunger line reads exactly 'Hungry! · dies in 17h 59m' (no 'Growth paused' in it); the Growth line still says 'Growth paused'",
-                  r0["open"] and r0["state"] == "HUNGRY" and r0["hunger"] == "Hungry! · dies in 17h 59m" and "Growth paused" in r0["growth"] and r0["panel"].count("Growth paused") == 1, json.dumps(r0))
+            check("Maksims: hungry fish Hunger line reads exactly 'Hungry! · dies in 19h 59m' (L3 common 20 h, v6.9) (no 'Growth paused' in it); the Growth line still says 'Growth paused'",
+                  r0["open"] and r0["state"] == "HUNGRY" and r0["hunger"] == "Hungry! · dies in 19h 59m" and "Growth paused" in r0["growth"] and r0["panel"].count("Growth paused") == 1, json.dumps(r0))
             check("Maksims: Food line shows only what is left: 'needs 2 food' (no 'Meal 2 of 2' / 'Meal' anywhere in the panel)",
                   r0["meal"] == "needs 2 food" and "Meal" not in r0["panel"], json.dumps({"meal": r0["meal"]}))
             ev(f"const f = G.state.fish.find((x) => x.id === {fid}); G.feedTap(f.x, f.y);"); page.wait_for_timeout(450)
@@ -2593,8 +2598,8 @@ def fish_info_text():
             page.wait_for_timeout(200); bc = page.evaluate(f"AQ.fishBody({aid})"); tb = page.locator("#tank").bounding_box()
             page.mouse.click(tb["x"] + bc["cx"], tb["y"] + bc["cy"]); page.wait_for_timeout(350)
             ra = page.evaluate(READ.replace("=== %d)" % fid, "=== %d)" % aid))
-            check("adult hungry: 'Hungry! · dies in 19h 59m', Food 'needs 5 food', 'Worth 40' + coin",
-                  ra["open"] and ra["state"] == "ADULT_HUNGRY" and ra["hunger"] == "Hungry! · dies in 19h 59m" and ra["meal"] == "needs 5 food" and ra["worth"] == "Worth 40" and ra["coinVis"], json.dumps({k: ra[k] for k in ("state", "hunger", "meal", "worth")}))
+            check("adult hungry: 'Hungry! · dies in 23h 59m' (L4 common 24 h, v6.9), Food 'needs 5 food', 'Worth 40' + coin",
+                  ra["open"] and ra["state"] == "ADULT_HUNGRY" and ra["hunger"] == "Hungry! · dies in 23h 59m" and ra["meal"] == "needs 5 food" and ra["worth"] == "Worth 40" and ra["coinVis"], json.dumps({k: ra[k] for k in ("state", "hunger", "meal", "worth")}))
             page.keyboard.press("Escape")
             check("fish info text: no page errors", not errs, "; ".join(errs[:3]))
             ev("G.reset(); G.save();")
