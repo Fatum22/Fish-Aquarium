@@ -119,7 +119,7 @@
     return {
       v: SAVE_V,
       gameTime: 0,
-      lastSeen: Date.now(),  // wall clock (ms) of the last save; offline catch-up starts here
+      lastSeen: Date.now(),  // wall clock (ms) the game time has been advanced up to (sync / resume); saved as is, catch-up starts here
       gold: T.startGold,
       food: T.startFood,
       diamonds: T.startDiamonds || 0,
@@ -342,17 +342,33 @@
     return { sec, lines, text: 'While you were away: ' + lines.join(', '), died: ev.died.length, stage: st };
   }
 
-  /** offline progress: replay the wall-clock time since the last save at the saved speed (clock backwards = 0, cap 7 days) */
-  function resume(nowMs) {
-    if (!T.offlineProgress) return null;
-    let away = ((nowMs || Date.now()) - (S.lastSeen || 0)) / 1000;
-    if (!(away > 0)) away = 0;
-    const game = Math.min(CFG.OFFLINE_CAP_SEC, away * (S.speed || 1));
-    S.lastSeen = nowMs || Date.now();
-    if (game <= 0) return null;
-    const r = catchUp(game);
+  /** REAL-CLOCK driver (Maksims, top-priority bug): every second of game time comes from the wall clock (Date.now()),
+   *  never from performance.now() / rAF timestamps, which iOS / iPadOS (Safari and home-screen apps) stop while the device
+   *  is locked or the app is in the background. S.lastSeen = the wall-clock ms the game has been advanced up to; sync(now)
+   *  replays (now - lastSeen) x speed game seconds and moves lastSeen to now, so calling it from the frame loop AND from
+   *  visibilitychange / pageshow / focus counts every real second exactly once (a second call finds no gap).
+   *  Gaps over SUMMARY_GAP_SEC real seconds (the old frame-loop threshold) go through catchUp() - the SAME replay the game
+   *  runs on load: 7-day cap, meal rules, dirt - and return its summary; shorter gaps are a plain tick() (no summary).
+   *  Clock set backwards (or no gap) = 0: lastSeen just follows the new clock. */
+  const SUMMARY_GAP_SEC = 5;
+  function sync(nowMs, opts) {
+    const now = nowMs != null ? nowMs : Date.now();
+    const away = (now - (S.lastSeen || 0)) / 1000;
+    S.lastSeen = now;
+    if (!(away > 0)) return null;
+    const game = away * (S.speed || 1);
+    if (away <= SUMMARY_GAP_SEC && !(opts && opts.summary)) { tick(game); return null; }
+    const r = catchUp(game); // caps one replay at OFFLINE_CAP_SEC (7 days) of game time
     r.realSec = away;
     return r;
+  }
+
+  /** offline progress on load (NUMBERS.md 9.2): replay the wall-clock time since the saved lastSeen at the saved speed
+   *  (clock backwards = 0, cap 7 days). Same path as sync(), always with a summary. */
+  function resume(nowMs) {
+    const now = nowMs != null ? nowMs : Date.now();
+    if (!T.offlineProgress) { S.lastSeen = now; return null; }
+    return sync(now, { summary: true });
   }
 
   // ---------------------------------------------------------------- actions
@@ -596,10 +612,11 @@
   }
 
   // ---------------------------------------------------------------- save/load
-  // Offline progress (v2): the save stores the wall-clock time (lastSeen); on load, main.js calls
-  // resume() which replays the time away in order and returns the "while you were away" summary.
+  // Offline progress (v2): the save stores lastSeen = the wall-clock time the game time was advanced up to (sync() moves it
+  // every frame); on load, main.js calls resume() which replays the time away in order and returns the "while you were
+  // away" summary. save() must NOT set lastSeen to now: a save made while hidden (periodic timer, pagehide) without the game
+  // being advanced would silently drop that time on the next load.
   function save(storage) {
-    S.lastSeen = Date.now();
     try { (storage || root.localStorage).setItem(CFG.VISUAL.saveKey, JSON.stringify(S)); } catch (e) { /* ignore */ }
   }
   function load(storage) {
@@ -672,7 +689,7 @@
     CFG, T, SPECIES,
     get state() { return S; },
     on(fn) { listeners.push(fn); },
-    tick, catchUp, resume, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, deadFishGold, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
+    tick, catchUp, resume, sync, buyFish, buyFood, packUnlocked, capacityAt, feedTap, rub, sell, removeDead, deadFishGold, canBuy, isUnlocked, buyDecor, sellDecor, decorFull,
     decorPrice, decorFirstXp, decorRefund, shopItem, shopItemIds, decorUnlocked, decorUnlockLevel, decorDefaultColor,
     dirtStage: () => dirtStage(S.dirt.t), dirtStageAt: dirtStage, dirtFilm, dirtNextIn, tickDirt,
     fishInfo, portion, mealsOf, mealFor, tapsFor, sellPrice, growSec, deathSecFor, adultHungerSec, needsFood, MID_HUNGER, END_HUNGER,

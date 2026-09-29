@@ -71,6 +71,8 @@ Presentation-only values are in `VISUAL` (tank geometry, glass line side, fish s
 
 Progress is saved to `localStorage` (`aquarium.save.v4`) every 2 s and when the page hides, with the wall-clock time for offline catch-up (capped at 7 days). Older saves are ignored (fresh start).
 
+Game time runs on the real wall clock (`Date.now()`), never on `performance.now()` / rAF timestamps (iOS stops those while the device is locked or the app is in the background). `state.lastSeen` is the wall-clock time the game has been advanced up to: `Game.sync()` runs every frame and on `visibilitychange` / `pageshow` / `focus`, replays the gap once (gaps over 5 s through the same catch-up as on load: 7-day cap, clock backwards = 0), and a reload or closed tab resumes from the saved `lastSeen`.
+
 ## Files
 
 - `index.html`, `style.css`: landscape frame (tool column / top bar / tank / debug row), rotate screen, panels, shop, edit menu

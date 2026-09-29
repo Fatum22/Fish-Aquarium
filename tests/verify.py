@@ -526,11 +526,13 @@ def main(VW, VH):
         if aw: page.screenshot(path=shot("away_window"))
         check("'While you were away' summary: 49h, Guppy died, 'Tank is at dirt stage 5'", aw and "49h 00m" in at_ and "Guppy died" in al and "Tank is at dirt stage 5" in al and "clean" not in al.lower(), f"{at_} | {al}")
         page.click("#away-ok")
+        # (the page's own clock never went back: lastSeen is put back to now afterwards, or the real-clock frame loop would
+        #  correctly count the faked hour when the page's Date.now() is 1 h ahead of it)
         r = ev("""const t0 = G.state.gameTime; G.state.lastSeen = Date.now(); const back = G.resume(Date.now() - H * 1000); const d1 = G.state.gameTime - t0;
-          const s = G.newState(); return { back, d1 };""")
+          G.state.lastSeen = Date.now(); return { back, d1 };""")
         check("clock set backwards counts as 0 offline time", r["back"] is None and r["d1"] == 0, json.dumps(r))
         r = ev("""const snap = JSON.stringify(G.state); G.state.lastSeen = Date.now() - 30 * 24 * H * 1000; const t0 = G.state.gameTime;
-          const res = G.resume(Date.now()); const d1 = G.state.gameTime - t0; G.load({ getItem: () => snap });
+          const res = G.resume(Date.now()); const d1 = G.state.gameTime - t0; G.load({ getItem: () => snap }); G.state.lastSeen = Date.now();
           return { sec: res.sec, d1, cap: G.CFG.OFFLINE_CAP_SEC };""")
         check("offline catch-up capped at 7 days", r["sec"] == r["d1"] == r["cap"] == 7 * 86400, json.dumps(r))
 
@@ -2342,6 +2344,202 @@ def decor_v1():
             ctx.close()
         browser.close()
 
+CLOCK_INIT = """(() => {
+  // real_clock test harness: Date.now() = real wall clock + an offset (kept in localStorage so it survives a reload / a new
+  // tab); performance.now() and rAF can be frozen like iOS does while the device is locked or the app is in the background
+  // (their timestamps do not advance while suspended); document.hidden / visibilitychange / pageshow are simulated.
+  const K = '__aq_clock_off', realNow = Date.now.bind(Date), rawPerf = performance.now.bind(performance), rawRaf = window.requestAnimationFrame.bind(window);
+  let o = 0; try { o = +(localStorage.getItem(K) || 0); } catch (e) { /* ignore */ }
+  let frozen = false, frozenAt = 0, perfOff = 0, held = [], hidden = false, frames = 0;
+  Date.now = () => realNow() + o;
+  performance.now = () => (frozen ? frozenAt : rawPerf() - perfOff);
+  const wrap = (cb) => (t) => { if (frozen) { held.push(cb); return; } frames++; cb(t - perfOff); };
+  window.requestAnimationFrame = (cb) => rawRaf(wrap(cb));
+  Object.defineProperty(Document.prototype, 'hidden', { get: () => hidden, configurable: true });
+  Object.defineProperty(Document.prototype, 'visibilityState', { get: () => (hidden ? 'hidden' : 'visible'), configurable: true });
+  window.__clk = {
+    add(ms) { o += ms; try { localStorage.setItem(K, String(o)); } catch (e) { /* ignore */ } return o; },
+    off: () => o, frames: () => frames, perf: () => performance.now(),
+    freeze() { if (!frozen) { frozenAt = rawPerf() - perfOff; frozen = true; } },
+    thaw() { if (frozen) { perfOff = rawPerf() - frozenAt; frozen = false; const h = held; held = []; h.forEach((cb) => rawRaf(wrap(cb))); } },
+    hide() { hidden = true; document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('blur')); },
+    show() { hidden = false; document.dispatchEvent(new Event('visibilitychange')); },
+    pageshow(persisted) { window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: !!persisted })); },
+    focus() { window.dispatchEvent(new Event('focus')); },
+  };
+})();"""
+
+def real_clock():
+    """Maksims TOP PRIORITY: game time must follow the REAL wall clock through a device lock, an app switch, a closed tab and
+    a reload (iOS / iPadOS home-screen app). performance.now() / rAF timestamps stop while iOS suspends the page, so the game
+    accounts time from Date.now() (state.lastSeen = wall clock accounted up to); on return the SAME catch-up as on load runs
+    (7-day cap, clock backwards = 0, meal rules, dirt 1.5/3/6/12/24 h since the last clean with or without fish), exactly once."""
+    tj = merged_tuning(); gup = next(s for s in tj["species"] if s["id"] == "guppy")
+    dsec = tj["deathSecByRarity"]["common"]; stage_at = tj["dirt"]["stageAtSec"]; CAP = 7 * 86400
+    mid = gup["growSec"][0] * 0.5; adult_wait = gup["growSec"][2] * tj["adultHungerMultOfL3Grow"]
+    H_MS = 3600 * 1000
+    def stage_of(t): return sum(1 for x in stage_at if t >= x)
+    def dismiss(pg):
+        if pg.locator("#away").is_visible(): pg.click("#away-ok")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"real-clock {VW}x{VH}"
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=1)
+            ctx.add_init_script(CLOCK_INIT)
+            errs = []
+            def open_page(q="?speed=1", jump_ms=0):
+                pg = ctx.new_page(); pg.on("pageerror", lambda e: errs.append(str(e)))
+                if jump_ms:  # move the wall clock while no game page is open (a closed tab / killed home-screen app)
+                    pg.goto(BASE + "manifest.webmanifest"); pg.evaluate(f"__clk.add({jump_ms})")
+                pg.goto(BASE + q); pg.wait_for_function("window.AQ && window.AQ.game"); pg.wait_for_timeout(300)
+                return pg
+            page = open_page()
+            ev = lambda body, arg=None: page.evaluate("(arg) => { " + JS + body + " }", arg)
+            SNAP = """(() => { const G = AQ.game, s = G.state; return { g: s.gameTime, w: s.lastSeen, now: Date.now(), dirt: s.dirt.t, stage: G.dirtStage(), gold: s.gold,
+                fish: s.fish.map((f) => ({ id: f.id, state: f.state, level: f.level, progress: f.progress, deathLeft: f.deathLeft, endMeal: !!f.endMeal, sinceFed: f.sinceFed })),
+                away: !document.getElementById('away').hidden, awayList: document.getElementById('away').hidden ? '' : document.getElementById('away-list').innerText.trim(),
+                awayTime: document.getElementById('away').hidden ? '' : document.getElementById('away-time').innerText.trim(),
+                saved: (JSON.parse(localStorage.getItem(G.CFG.VISUAL.saveKey) || '{}').lastSeen) || 0 }; })()"""
+            snap = lambda pg=None: (pg or page).evaluate(SNAP)
+            # three guppies at speed x1 on a clean tank: A just bought (mid meal at 50% = 90 s), C 100 s into L1 with the mid meal
+            # eaten (end meal at 100% = 180 s, then it waits hungry at L1), B adult just fed (adult wait 48 min)
+            SETUP = """fresh(); G.state.speed = 1; G.state.gold = 1000; document.getElementById('away').hidden = true;
+              const a = G.buyFish('guppy'), c = G.buyFish('guppy'), b = G.buyFish('guppy');
+              c.progress = 100; c.hungerDone = true; b.level = 4; b.state = 'ADULT'; b.progress = 0; b.sinceFed = 0; b.hungerDone = false;
+              return { a: a.id, b: b.id, c: c.id };"""
+            def expect(s0, s1, ids, label):
+                """the analytic result of the meal rules after d = game seconds replayed from the SETUP state"""
+                d = s1["g"] - s0["g"]; f = {x["id"]: x for x in s1["fish"]}; f0 = {x["id"]: x for x in s0["fish"]}; out = []
+                A, B, C = f.get(ids["a"]), f.get(ids["b"]), f.get(ids["c"])
+                a0, b0, c0 = f0[ids["a"]], f0[ids["b"]], f0[ids["c"]]   # the fish at the start of the gap (a few frames after SETUP)
+                def hungry_or_dead(x, at, death, lvl, end):
+                    if d >= at + death: return x and x["state"] == "DEAD" and x["level"] == lvl
+                    return x and x["state"] == "HUNGRY" and x["level"] == lvl and x["endMeal"] == end and abs(x["deathLeft"] - (death - (d - at))) < 0.01
+                out.append(hungry_or_dead(A, mid - a0["progress"], dsec[0], 1, False))                                   # growth stops at 50% while hungry
+                out.append(hungry_or_dead(C, gup["growSec"][0] - c0["progress"], dsec[0], 1, True) and (C["state"] == "DEAD" or abs(C["progress"] - gup["growSec"][0]) < 1e-6))  # waits hungry at 100% of L1
+                bw = adult_wait - b0["sinceFed"]
+                out.append(B and ((B["state"] == "DEAD") if d >= bw + dsec[3] else (B["state"] == "ADULT_HUNGRY" and abs(B["deathLeft"] - (dsec[3] - (d - bw))) < 0.01)))
+                out.append(abs(s1["dirt"] - s0["dirt"] - d) < 0.01 and s1["stage"] == stage_of(s1["dirt"]) == stage_of(d))                     # dirt since the clean, same clock
+                return all(out), d
+
+            # ---- (a) clock jump while the page stays open (device slept; performance.now / rAF frozen, no visibility events)
+            for hours in (2, 13):
+                ids = ev(SETUP); page.wait_for_timeout(250)
+                ev("G.save(); return 0;")
+                saved_raw = page.evaluate("localStorage.getItem(AQ.game.CFG.VISUAL.saveKey)")
+                s0 = page.evaluate("(raw) => { const d = JSON.parse(raw); return { g: d.gameTime, w: d.lastSeen, dirt: d.dirt.t, fish: d.fish }; }", saved_raw)
+                page.evaluate(f"__clk.freeze(); __clk.add({hours} * {H_MS});"); page.wait_for_timeout(150)
+                frozen_g = page.evaluate("AQ.game.state.gameTime")
+                page.evaluate("__clk.thaw()"); page.wait_for_timeout(400)
+                s1 = snap(); ok, d = expect(s0, s1, ids, "session")
+                inv = abs((s1["g"] - s0["g"]) - (s1["w"] - s0["w"]) / 1000)
+                check(f"(a) clock jump +{hours}h with the page open and performance.now/rAF frozen: the frame loop catches up by the wall clock (game +{d:.0f}s, frozen meanwhile) - growth stops at 50% while hungry, the L1 fish at 100% waits hungry at L1, adult hunger, death timers, dirt stage {s1['stage']}",
+                      ok and hours * 3600 <= d < hours * 3600 + 5 and inv < 0.01 and abs(frozen_g - s0["g"]) < 1, json.dumps({"d": d, "inv": inv, "frozen": frozen_g - s0["g"], "fish": s1["fish"], "dirt": s1["dirt"], "stage": s1["stage"]}))
+                exp_lines = (["Guppy, Guppy, Guppy are hungry"] if hours == 2 else ["Guppy died", "Guppy died", "Guppy is hungry"]) + [f"Tank is at dirt stage {stage_of(hours * 3600)}"]
+                check(f"(a) +{hours}h in session: the away window opens with the load-path summary {exp_lines}",
+                      s1["away"] and s1["awayList"].split("\n") == exp_lines and s1["awayTime"].startswith(f"({hours}h 00m"), json.dumps([s1["awayList"], s1["awayTime"]]))
+                # the load path from the same save (reload at the same wall clock): identical result
+                page.evaluate("(raw) => { AQ.game.save = () => {}; localStorage.setItem(AQ.game.CFG.VISUAL.saveKey, raw); }", saved_raw)
+                page.close(); page = open_page()
+                s2 = snap(); ok2, d2 = expect(s0, s2, ids, "load")
+                same = [(x["state"], x["level"], x["endMeal"], round(x["progress"], 6), None if x["deathLeft"] is None else round(x["deathLeft"] + (s2["g"] - s0["g"]), 2)) for x in s2["fish"]] == \
+                       [(x["state"], x["level"], x["endMeal"], round(x["progress"], 6), None if x["deathLeft"] is None else round(x["deathLeft"] + (s1["g"] - s0["g"]), 2)) for x in s1["fish"]]
+                check(f"(a) +{hours}h: the reload (load-path resume from lastSeen) gives the same fish / dirt result and the same away window as the in-session catch-up",
+                      ok2 and same and abs(d2 - d) < 5 and s2["stage"] == s1["stage"] and s2["awayList"] == s1["awayList"], json.dumps({"d": d, "d2": d2, "s1": s1["fish"], "s2": s2["fish"], "away2": s2["awayList"]}))
+                ev = lambda body, arg=None: page.evaluate("(arg) => { " + JS + body + " }", arg)
+                dismiss(page)
+
+            # ---- (b) app switch / lock: hidden + visibilitychange (+ pageshow / focus) with performance.now / rAF frozen
+            for order in ("events-first", "frame-first"):
+                ids = ev(SETUP); page.wait_for_timeout(250)
+                s0 = snap()
+                page.evaluate("__clk.hide(); __clk.freeze();")
+                sh = snap()
+                page.evaluate(f"__clk.add(2 * {H_MS});"); page.wait_for_timeout(100)
+                if order == "events-first":
+                    page.evaluate("__clk.show()"); sv = snap()   # caught up at once by the visibilitychange handler, before any frame
+                    page.evaluate("__clk.pageshow(true); __clk.focus();"); se = snap()
+                    page.evaluate("__clk.thaw()")
+                else:
+                    page.evaluate("__clk.thaw()"); page.wait_for_timeout(200)
+                    sv = snap(); page.evaluate("__clk.show(); __clk.pageshow(true); __clk.focus();"); se = snap()
+                page.wait_for_timeout(500); s1 = snap()
+                ok, d = expect(s0, s1, ids, "switch")
+                inv = abs((s1["g"] - s0["g"]) - (s1["w"] - s0["w"]) / 1000)
+                check(f"(b) {order}: on hide the game saves lastSeen (= now, the wall clock accounted up to)",
+                      sh["saved"] == sh["w"] and abs(sh["now"] - sh["w"]) < 100 and abs(sh["g"] - s0["g"]) < 1, json.dumps({k: sh[k] for k in ("saved", "w", "now")}))
+                check(f"(b) {order}: 2h switched away with rAF/performance.now frozen is caught up EXACTLY once (game time == wall time accounted; pageshow(persisted) + focus add nothing)",
+                      ok and 7200 <= d < 7205 and inv < 0.01 and sv["g"] - s0["g"] >= 7200 and se["g"] - sv["g"] < 0.2 and s1["g"] - se["g"] < 2,
+                      json.dumps({"d": d, "inv": inv, "atShow": sv["g"] - s0["g"], "extraEvents": se["g"] - sv["g"], "after": s1["g"] - se["g"]}))
+                check(f"(b) {order}: the away window opens after the 2h switch (hungry fish, dirt stage 1)", s1["away"] and s1["awayList"].split("\n") == ["Guppy, Guppy, Guppy are hungry", "Tank is at dirt stage 1"], s1["awayList"])
+                dismiss(page)
+            for secs in (3, 40):  # a quick switch on a DIRTY tank: time is caught up but no window (nothing new happened)
+                ev("fresh(); G.state.speed = 1; G.state.dirt.t = T.dirt.stageAtSec[0] + 60; G.tick(0); document.getElementById('away').hidden = true; return 0;"); page.wait_for_timeout(200)
+                s0 = snap(); page.evaluate(f"__clk.hide(); __clk.freeze(); __clk.add({secs * 1000}); __clk.show(); __clk.pageshow(false); __clk.thaw();"); page.wait_for_timeout(400); s1 = snap()
+                check(f"(b) a quick {secs}s app switch (dirty tank) catches up {secs}s of game time and shows NO away window",
+                      secs <= s1["g"] - s0["g"] < secs + 2 and abs((s1["g"] - s0["g"]) - (s1["w"] - s0["w"]) / 1000) < 0.01 and not s1["away"] and s1["stage"] == 1, json.dumps({"d": s1["g"] - s0["g"], "away": s1["away"]}))
+
+            # ---- (c) no fish: buy one, sell every fish -> the game clock and the dirt clock keep running
+            r = ev("""fresh(); G.state.speed = 1; document.getElementById('away').hidden = true; const f = G.buyFish('guppy'); const sold = G.sell(f.id);
+              return { sold, fish: G.state.fish.length };""")
+            page.wait_for_timeout(200); s0 = snap(); page.wait_for_timeout(1000); s1 = snap()
+            check("(c) after buying a fish and selling every fish the game clock and the dirt clock keep running in real time",
+                  r["fish"] == 0 and r["sold"] and 0.8 < s1["g"] - s0["g"] < 1.6 and 0.8 < s1["dirt"] - s0["dirt"] < 1.6, json.dumps({"r": r, "g": s1["g"] - s0["g"], "dirt": s1["dirt"] - s0["dirt"]}))
+            for hours, how in ((2, "switch"), (13, "sleep")):
+                s0 = snap()
+                if how == "switch": page.evaluate(f"__clk.hide(); __clk.freeze(); __clk.add({hours} * {H_MS}); __clk.show(); __clk.thaw();")
+                else: page.evaluate(f"__clk.freeze(); __clk.add({hours - 2} * {H_MS}); __clk.thaw();")
+                page.wait_for_timeout(400); s1 = snap(); d = s1["g"] - s0["g"]
+                check(f"(c) empty tank, clock +{hours}h ({how}): game time and dirt advance together (dirt stage {stage_of(hours * 3600)} at {hours}h since the clean), away window names only the dirt",
+                      s1["fish"] == [] and abs((s1["dirt"] - s0["dirt"]) - d) < 0.01 and s1["stage"] == stage_of(s1["dirt"]) == stage_of(hours * 3600)
+                      and s1["away"] and s1["awayList"] == f"Tank is at dirt stage {stage_of(hours * 3600)}", json.dumps({"d": d, "dirt": s1["dirt"], "stage": s1["stage"], "away": s1["awayList"]}))
+                dismiss(page)
+
+            # ---- (d) closed tab / killed app + reload with the clock moved on: resume() from the saved lastSeen
+            ids = ev(SETUP); page.wait_for_timeout(2600)   # no hide event: the periodic save alone must carry lastSeen
+            s0 = snap()
+            check("(d) the periodic save keeps lastSeen current (saved lastSeen = the wall clock accounted up to, < saveEveryMs + a frame old)",
+                  0 <= s0["now"] - s0["saved"] <= 2700 and abs(s0["saved"] - s0["w"]) <= 2700, json.dumps({k: s0[k] for k in ("now", "saved", "w")}))
+            saved = page.evaluate("JSON.parse(localStorage.getItem(AQ.game.CFG.VISUAL.saveKey))")
+            base = {"g": saved["gameTime"], "w": saved["lastSeen"], "dirt": saved["dirt"]["t"], "fish": saved["fish"]}
+            page.close(run_before_unload=False)
+            page = open_page(jump_ms=13 * H_MS); s1 = snap()
+            ok, d = expect(base, s1, ids, "closed")
+            check("(d) tab closed, clock +13h, reopened: the load path replays the 13h from the saved lastSeen (two guppies died, adult hungry, dirt stage 4) and shows the away window",
+                  ok and 13 * 3600 <= d < 13 * 3600 + 8 and s1["away"] and s1["awayList"].split("\n") == ["Guppy died", "Guppy died", "Guppy is hungry", "Tank is at dirt stage 4"],
+                  json.dumps({"d": d, "fish": s1["fish"], "away": s1["awayList"]}))
+            dismiss(page)
+            ev = lambda body, arg=None: page.evaluate("(arg) => { " + JS + body + " }", arg)
+
+            # ---- (e) clock set backwards counts as 0 (in session and across a reload); time then runs on from the new clock
+            ev("fresh(); G.state.speed = 1; document.getElementById('away').hidden = true; G.buyFish('guppy'); return 0;"); page.wait_for_timeout(200)
+            s0 = snap(); page.evaluate(f"__clk.add(-5 * {H_MS});"); page.wait_for_timeout(300); s1 = snap(); page.wait_for_timeout(1000); s2 = snap()
+            check("(e) clock set back 5h with the page open: counts as 0 (no jump, no negative time), then the clock runs on normally from the new wall time",
+                  0 <= s1["g"] - s0["g"] < 1 and abs(s1["now"] - s1["w"]) < 200 and 0.8 < s2["g"] - s1["g"] < 1.6 and not s2["away"], json.dumps({"d1": s1["g"] - s0["g"], "d2": s2["g"] - s1["g"]}))
+            ev("G.save(); return 0;"); page.close(run_before_unload=False)
+            page = open_page(jump_ms=-5 * H_MS); s3 = snap()
+            check("(e) tab closed, clock set back 5h, reopened: 0 offline time, no away window",
+                  0 <= s3["g"] - s2["g"] < 4 and not s3["away"], json.dumps({"d": s3["g"] - s2["g"], "away": s3["awayList"]}))
+            ev = lambda body, arg=None: page.evaluate("(arg) => { " + JS + body + " }", arg)
+
+            # ---- (f) the 7-day cap: one catch-up replays at most 7 days (in session and on load)
+            ev("fresh(); G.state.speed = 1; document.getElementById('away').hidden = true; return 0;"); page.wait_for_timeout(200)
+            page.evaluate("__clk.hide(); __clk.freeze();"); s0 = snap(); page.evaluate(f"__clk.add(30 * 24 * {H_MS}); __clk.show();"); s1 = snap(); page.evaluate("__clk.thaw()")
+            check("(f) 30 days away in session: exactly 7 days of game time replayed (cap), lastSeen moved to now (no second catch-up later)",
+                  abs((s1["g"] - s0["g"]) - CAP) < 0.01 and abs(s1["now"] - s1["w"]) < 200 and s1["stage"] == 5, json.dumps({"d": s1["g"] - s0["g"], "stage": s1["stage"]}))
+            page.wait_for_timeout(400); s2 = snap()
+            check("(f) after the capped catch-up the clock just runs on (no extra replay)", 0 <= s2["g"] - s1["g"] < 2, f"{s2['g'] - s1['g']:.2f}")
+            dismiss(page)
+            g_saved = ev("G.save(); return JSON.parse(localStorage.getItem(G.CFG.VISUAL.saveKey)).gameTime;"); page.close(run_before_unload=False)
+            page = open_page(jump_ms=30 * 24 * H_MS); s3 = snap()
+            check("(f) tab closed 30 days: the load path replays exactly 7 days (away window: 168h 00m)", 0 <= (s3["g"] - g_saved) - CAP < 1.5 and s3["away"] and s3["awayTime"].startswith("(168h 00m"),
+                  json.dumps({"d": s3["g"] - g_saved, "time": s3["awayTime"]}))
+            check("real clock: no page errors", not errs, "; ".join(errs[:3]))
+            page.evaluate("AQ.game.reset(); AQ.game.save();")
+            ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -2357,7 +2555,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

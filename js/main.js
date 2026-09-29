@@ -1484,7 +1484,7 @@
 
   T.debugSpeeds.forEach((s) => {
     const b = document.createElement('button'); b.className = 'dbg'; b.dataset.speed = s; b.textContent = `×${s}`;
-    b.addEventListener('click', () => { G.state.speed = s; G.save(); });
+    b.addEventListener('click', () => { syncClock(); G.state.speed = s; G.save(); }); // time so far at the old speed
     $('speed-btns').appendChild(b);
   });
   (() => { // "Your tank is empty" modal line, built from the same numbers newState() uses
@@ -1520,13 +1520,19 @@
   // ------------------------------------------------------------ main loop
   let last = performance.now();
   let panelAcc = 0, frames = 0;
+  /** advance the game to the wall clock (G.sync: Date.now() - state.lastSeen, idempotent). Game time never comes from the
+   *  rAF / performance.now() timestamps: iOS stops those while the device is locked or the app is in the background, which
+   *  froze fish growth, hunger and dirt for the whole time away. A gap over 5 s real is the load-path catch-up (7-day cap,
+   *  meal rules, dirt) and opens the away window only with something to report and at least a minute replayed. */
+  function syncClock() {
+    const r = G.sync(Date.now());
+    if (r && r.sec >= 60) showAway(r);
+    return r;
+  }
   function frame(now) {
-    let dtReal = (now - last) / 1000; last = now;
+    let dtReal = (now - last) / 1000; last = now; // animation only (drawing, swimming, panel refresh)
     if (dtReal < 0) dtReal = 0;
-    if (dtReal > 5) { // tab was hidden / device asleep: replay like offline time and summarise
-      const r = G.catchUp(dtReal * G.state.speed);
-      if (r.sec >= 60) showAway(r);
-    } else G.tick(dtReal * G.state.speed); // the game clock runs even while the rotate screen is up
+    syncClock(); // the game clock runs even while the rotate screen is up
     if (portrait) { requestAnimationFrame(frame); return; } // upright: input and drawing pause
     const dtAnim = Math.min(dtReal, 0.05);
     realTime += dtAnim; frames++;
@@ -1554,9 +1560,16 @@
     requestAnimationFrame(frame);
   }
 
+  // saves carry state.lastSeen (the wall clock the game was advanced up to), so a closed tab / killed home-screen app resumes
+  // from there on the next load. Going hidden: advance to now, then save. Coming back (visibilitychange visible, pageshow
+  // incl. bfcache, focus): catch up at once, not only on the next rAF (which iOS may deliver late); sync is idempotent, so
+  // the events and the frame loop never count the same time twice.
   setInterval(() => G.save(), V.saveEveryMs);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) G.save(); });
-  window.addEventListener('pagehide', () => G.save());
+  function onReturn() { if (!document.hidden) syncClock(); }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { syncClock(); G.save(); } else onReturn(); });
+  window.addEventListener('pagehide', () => { syncClock(); G.save(); });
+  window.addEventListener('pageshow', onReturn);
+  window.addEventListener('focus', onReturn);
   /** fluid layout: pin #app to the visible viewport height (real phones: 844x390, 932x430, 667x375, 896x414 ...) */
   function fitViewport() {
     const vv = window.visualViewport, h = vv && vv.scale <= 1.01 ? vv.height : window.innerHeight;
