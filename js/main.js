@@ -910,6 +910,8 @@
     if (!k || k === 'common') return null;
     return { label: k[0].toUpperCase() + k.slice(1), cls: `rar rar-${k}`, word: k };
   }
+  /** Maksims 2026-09-29: shop cards tag Rare and above only (no Common, no Uncommon tag); elsewhere rarityTag() as before */
+  function shopTag(r) { const k = String(r || '').toLowerCase(); return k === 'uncommon' ? null : rarityTag(k); }
   /** name with its rarity in brackets for plain-text toasts / tooltips: "German Blue Ram (rare)", commons: just the name */
   const nameWithRarity = (sp) => { const t = rarityTag(sp.rarity); return t ? `${sp.name} (${t.word})` : sp.name; };
 
@@ -1036,13 +1038,13 @@
       T.species.forEach((sp) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.species = sp.id;
         const total = sp.growSec.reduce((a, b) => a + b, 0);
-        const tg = rarityTag(sp.rarity), rar = tg ? `<span class="${tg.cls}">${tg.label}</span>` : '';
+        const tg = shopTag(sp.rarity), rar = tg ? `<span class="${tg.cls}">${tg.label}</span>` : '';
         if (sp.rarity === 'rare') card.classList.add('rare'); // V6 4: rare cards get a 2 px #b884ff border
-        card.innerHTML = `<canvas width="240" height="96"></canvas>${rar}<div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
+        card.innerHTML = `<canvas width="480" height="192"></canvas>${rar}<div class="n">${sp.name}</div><div class="l">${sp.latin}</div>
           <div class="s">Adult in ${fmt(total)} · sells up to ${G.sellPrice(sp, T.maxLevel)}g</div>
           <button class="btn buy" data-buy="${sp.id}"><svg><use href="#i-coin"/></svg><span class="price">${sp.price}</span><span class="lbl"></span></button>`;
         list.appendChild(card);
-        const c = card.querySelector('canvas').getContext('2d');
+        const c = card.querySelector('canvas').getContext('2d'); c.scale(2, 2); // 2x bitmap: the portrait scales with the (wider, 4-column) card and stays sharp
         const q = fitFish(sp.id, T.maxLevel, 240, 96, 0.5, 0.9); c.translate(q.x, q.y); FishArt.drawFish(c, sp.id, q.L, 0.6, { t: 0.3 });
         card.querySelector('button').addEventListener('click', () => {
           const f = G.buyFish(sp.id);

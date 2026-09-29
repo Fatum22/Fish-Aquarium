@@ -1003,9 +1003,9 @@ def main(VW, VH):
                      closeCx: (c.left + c.right) / 2 - (s.left + s.right) / 2, closeBottom: s.bottom - parseFloat(getComputedStyle(document.getElementById('shop')).borderBottomWidth) - c.bottom, cols, tabs: [...document.querySelectorAll('#shop .tab')].map((t) => t.textContent),
                      title: document.querySelector('#shop h2').textContent, xp: /XP|Tank Lv|Aquarium Lv/.test(document.getElementById('shop').innerText), closeText: document.getElementById('shop-close').textContent,
                      pad: parseFloat(getComputedStyle(document.getElementById('shop-scroll')).paddingBottom) }; })()""")
-        check("AD v4 8 / bible 7-8: shop = centred panel min(680, tankW-32) x tankH-16, header 'Shop' + tabs Fish / Food / Decorations, no tank level / XP, 4 / 5 columns",
+        check("AD v4 8 / bible 7-8: shop = centred panel min(680, tankW-32) x tankH-16, header 'Shop' + tabs Fish / Food / Decorations, no tank level / XP, 4 fish columns on both sizes (Maksims 2026-09-29, was 5 on Large)",
               abs(sh["w"] - min(680, sh["tankW"] - 32)) < 1 and abs(sh["h"] - (sh["tankH"] - 16)) < 1 and abs(sh["cx"]) < 1 and abs(sh["top"] - 8) < 1 and sh["title"] == "Shop"
-              and sh["tabs"] == ["Fish", "Food", "Decorations"] and not sh["xp"] and sh["cols"] == (5 if LARGE else 4), json.dumps(sh))
+              and sh["tabs"] == ["Fish", "Food", "Decorations"] and not sh["xp"] and sh["cols"] == 4, json.dumps(sh))
         page.evaluate("document.getElementById('shop-scroll').scrollTop = 1e6"); page.wait_for_timeout(150)
         vis = page.evaluate("(() => { const c = document.getElementById('shop-close').getBoundingClientRect(), s = document.getElementById('shop').getBoundingClientRect(); const e = document.elementFromPoint((c.left + c.right) / 2, (c.top + c.bottom) / 2); return { onTop: e && e.id === 'shop-close', inside: c.bottom <= s.bottom && c.top >= s.top }; })()")
         page.screenshot(path=shot("shop_scrolled"))
@@ -1830,8 +1830,8 @@ def edit_spacing():
 
 def rarity_tags(base=None, label="after"):
     """AD v4 7 rarity tag (2026-09-28): never a 'Common' tag / badge / frame / text anywhere (shop cards, fish info, toasts,
-    tooltips, hidden DOM too); Uncommon and Rare keep a small pill: 9px/800 uppercase, 14px tall, 0 5px padding, no border
-    (Large 10 / 16 / 6), overlaying the shop card's top-left corner 4px in. label='before' only takes the screenshots
+    tooltips, hidden DOM too); Rare keeps a small pill on shop cards (Maksims 2026-09-29: no Uncommon tag in the shop; the
+    info panel keeps Uncommon and Rare): 8px/800 uppercase, 12px tall, 0 4px padding, no border (Large 9 / 14 / 5), overlaying the shop card's top-left corner 4px in. label='before' only takes the screenshots
     (run against the previous build)."""
     import re
     base = base or BASE
@@ -1886,24 +1886,25 @@ def rarity_tags(base=None, label="after"):
             ev("fresh(); G.state.fish.length = 0;"); page.evaluate("AQ.game.reset(); AQ.game.save()")
             ctx.close()
             if label == "before": continue
-            FS, TH, PX = ("10px", 16, "6px") if LARGE else ("9px", 14, "5px")
+            FS, TH, PX = ("9px", 14, "5px") if LARGE else ("8px", 12, "4px")  # Maksims 2026-09-29 (was 10/16/6 and 9/14/5)
             tj = merged_tuning(); rar = {s_["id"]: s_["rarity"] for s_ in tj["species"]}
             bad = []
             for c in cards:
                 r_ = rar[c["id"]]
                 if re.search(r"\bcommon\b", c["text"], re.I): bad.append([c["id"], "common text"])
                 if r_ == "common" and (c["tag"] is not None or c["border"] != "1px"): bad.append([c["id"], "common has tag/frame", c["tag"], c["border"]])
-                if r_ != "common":
+                if r_ == "uncommon" and (c["tag"] is not None or re.search(r"\buncommon\b", c["text"], re.I)): bad.append([c["id"], "uncommon has a shop tag / text", c["tag"]])
+                if r_ not in ("common", "uncommon"):
                     if not (c["vis"] and c["tag"] == r_.capitalize() and c["fs"] == FS and c["fw"] == "800" and abs(c["h"] - TH) < 0.5 and c["pl"] == PX and c["pr"] == PX and c["bw"] == "0px"
                             and c["tt"] == "uppercase" and not c["clip"] and abs(c["dx"] - 4) < 0.5 and abs(c["dy"] - 4) < 0.5 and float(c["fs"][:-2]) < c["priceFs"]):
                         bad.append([c["id"], {k_: c[k_] for k_ in ("tag", "fs", "fw", "h", "pl", "bw", "clip", "dx", "dy", "priceFs")}])
-            check(f"shop cards: no Common tag / frame / text; Uncommon and Rare show a {FS} bold uppercase {TH}px pill (padding {PX}, no border, not clipped, smaller than the price) on the card's top-left corner 4px in; "
+            check(f"shop cards: no Common tag / frame / text; no Uncommon tag either (Maksims 2026-09-29); Rare shows a {FS} bold uppercase {TH}px pill (padding {PX}, no border, not clipped, smaller than the price) on the card's top-left corner 4px in; "
                   "the whole shop DOM (text, hidden text, attributes) never says 'common'",
-                  not bad and not shop_scan and sum(1 for c in cards if c["tag"]) == sum(1 for v in rar.values() if v != "common"), json.dumps({"bad": bad[:5], "scan": shop_scan[:3]}))
+                  not bad and not shop_scan and sum(1 for c in cards if c["tag"]) == sum(1 for v in rar.values() if v not in ("common", "uncommon")), json.dumps({"bad": bad[:5], "scan": shop_scan[:3]}))
             ok_i = (info["c"]["open"] and info["c"]["text"] == "" and not info["c"]["vis"] and not info["c"]["scan"] and "common" not in info["c"]["panel"].lower()
                     and info["u"]["open"] and info["u"]["text"] == "Uncommon" and info["u"]["vis"] and info["r"]["open"] and info["r"]["text"] == "Rare" and info["r"]["vis"]
                     and all(info[k]["fs"] == FS and abs(info[k]["h"] - TH) < 0.5 and info[k]["bw"] == "0px" and not info[k]["clip"] for k in ("u", "r")) and not info["u"]["scan"] and not info["r"]["scan"])
-            check("fish info panel: a Common fish (Guppy) has no rarity tag and no 'common' anywhere in the DOM (not even hidden); Uncommon (Rasbora) and Rare (Ram) show the small tag",
+            check("fish info panel: a Common fish (Guppy) has no rarity tag and no 'common' anywhere in the DOM (not even hidden); Uncommon (Rasbora) and Rare (Ram) still show the small tag there (8/12, Large 9/14; the Uncommon hide is shop-only)",
                   ok_i, json.dumps({k: {k2: v for k2, v in info[k].items() if k2 not in ("panel",)} for k in info}))
             check("toasts for a common fish ('Guppy added', level-up) and an Aquarium-level toast (Neon Tetra and German Blue Ram (rare)): no 'common', the rare still named",
                   toasts and not toast_scan and any("Guppy added" in t for t in toasts) and any("(rare)" in t and "Neon Tetra" in t for t in toasts)
@@ -2597,6 +2598,61 @@ def fish_info_text():
             ctx.close()
         browser.close()
 
+def shop_layout():
+    """Maksims 2026-09-29 shop fixes: every tab (Fish, Food, Decorations) 4 cards per row on the phone (844x390) and the tablet
+    (1180x820) - fish 5 -> 4 and food 3 -> 4 on the tablet, so the fish portraits (scaled with the card) are bigger; no Uncommon
+    tag on shop cards (Common already none), Rare and above keep a smaller pill (8px / 12px, Large 9px / 14px); no text clipped
+    on any card, locked (tank Lv1) or unlocked. Screenshots of each tab: screenshots/fixes/shop_<tab>_<844|1180>.png."""
+    os.makedirs(FIX_SHOTS, exist_ok=True)
+    tj = merged_tuning(); rar = {s_["id"]: s_["rarity"] for s_ in tj["species"]}
+    TABS = (("fish", "fish"), ("food", "food"), ("decor", "decorations"))
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"shop-layout {VW}x{VH}"; LARGE = VH >= 600
+            FS, TH = ("9px", 14) if LARGE else ("8px", 12)
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            PROBE = """(tab) => { const g = document.querySelector(`#shop .grid[data-tab="${tab}"]`), cards = [...g.querySelectorAll('.card')], clip = [];
+                cards.forEach((c) => c.querySelectorAll('.n, .l, .s, .btn, .price, .lbl, .rar').forEach((e) => {
+                  if (e.offsetParent && (e.scrollWidth > e.clientWidth + 0.5 || e.scrollHeight > e.clientHeight + 1)) clip.push([c.dataset.species || c.dataset.pack || c.dataset.decor, e.className, e.textContent.trim(), e.scrollWidth, e.clientWidth]); }));
+                const vis = cards.filter((c) => c.offsetParent), top0 = Math.round(vis[0].getBoundingClientRect().top);
+                return { cols: getComputedStyle(g).gridTemplateColumns.split(' ').length, firstRow: vis.filter((c) => Math.round(c.getBoundingClientRect().top) === top0).length, n: vis.length,
+                  cards: vis.map((c) => { const cv = c.querySelector('canvas').getBoundingClientRect(), r = c.getBoundingClientRect(), t = c.querySelector('.rar');
+                    const tr = t && t.getBoundingClientRect(), rg = t && document.createRange(); if (t) rg.selectNodeContents(t); const txt = t && rg.getBoundingClientRect();
+                    const cs = getComputedStyle(c);
+                    return { id: c.dataset.species || c.dataset.pack || c.dataset.decor, cardW: r.width, innerW: r.width - ['borderLeftWidth', 'borderRightWidth', 'paddingLeft', 'paddingRight'].reduce((a, k) => a + parseFloat(cs[k]), 0), cvW: cv.width, cvH: cv.height, bmpW: c.querySelector('canvas').width, text: c.textContent,
+                      tag: t ? t.textContent : null, fs: t ? getComputedStyle(t).fontSize : null, h: tr ? tr.height : 0, fits: t ? txt.left >= tr.left - 0.5 && txt.right <= tr.right + 0.5 && txt.height <= tr.height + 0.5 : true,
+                      tagClip: t ? t.scrollWidth > t.clientWidth + 0.5 : false }; }), clip }; }"""
+            for state, setup in (("unlocked", "fresh(); G.state.tank.xp = 99999; G.state.gold = 99999; G.state.decor = [];"), ("locked (tank Lv1, 0 gold)", "G.reset(); G.state.gold = 0;")):
+                ev(setup); page.evaluate("AQ.openShop()"); page.wait_for_timeout(250)
+                for tab, name in TABS:
+                    page.evaluate(f"AQ.setShopTab('{tab}')"); page.wait_for_timeout(250)
+                    r = page.evaluate(PROBE, tab)
+                    check(f"shop {name} tab ({state}): 4 cards per row (grid 4 columns, first row holds 4) and no card text clipped (name, latin, info line, price, locked label, tag)",
+                          r["cols"] == 4 and r["firstRow"] == min(4, r["n"]) and not r["clip"], json.dumps({"cols": r["cols"], "firstRow": r["firstRow"], "n": r["n"], "clip": r["clip"][:4]}))
+                    if tab == "fish":
+                        cs = r["cards"]
+                        unc = [c for c in cs if rar[c["id"]] == "uncommon"]; rares = [c for c in cs if rar[c["id"]] not in ("common", "uncommon")]
+                        check(f"shop fish ({state}): no tag on Common or Uncommon cards (no 'uncommon' text either); every Rare card keeps its pill at {FS} / {TH}px, text inside the pill, not clipped",
+                              unc and rares and all(c["tag"] is None and "uncommon" not in c["text"].lower() for c in cs if rar[c["id"]] in ("common", "uncommon"))
+                              and all(c["tag"] == rar[c["id"]].capitalize() and c["fs"] == FS and abs(c["h"] - TH) < 0.5 and c["fits"] and not c["tagClip"] for c in rares),
+                              json.dumps([{k: c[k] for k in ("id", "tag", "fs", "h", "fits", "tagClip")} for c in unc[:2] + rares[:2]]))
+                        check(f"shop fish ({state}): the portrait scales with the wider card (canvas = the card's full inner width, 5:2, >= 140 px wide; 2x bitmap so it stays sharp)",
+                              all(abs(c["cvW"] - c["innerW"]) < 0.5 and abs(c["cvW"] / c["cvH"] - 2.5) < 0.02 and c["cvW"] >= 140 and c["bmpW"] == 480 for c in cs),
+                              json.dumps([{k: c[k] for k in ("id", "cardW", "innerW", "cvW", "cvH", "bmpW")} for c in cs[:1] + [c for c in cs if abs(c["cvW"] - c["innerW"]) >= 0.5][:3]]))
+                    if state == "unlocked":
+                        page.evaluate("document.getElementById('shop-scroll').scrollTop = 0"); page.wait_for_timeout(100)
+                        page.screenshot(path=os.path.join(FIX_SHOTS, f"shop_{name}_{VW}.png"))
+                page.evaluate("document.querySelector('#shop-close').click()"); page.wait_for_timeout(100)
+            check("shop layout: no page errors", not errs, "; ".join(errs[:3]))
+            ev("G.reset(); G.save();")
+            ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -2612,7 +2668,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()
