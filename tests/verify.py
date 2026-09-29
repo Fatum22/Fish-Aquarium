@@ -417,9 +417,9 @@ def main(VW, VH):
         page.wait_for_timeout(2500); clear_toasts(); tool("hand"); click_fish(gid); page.wait_for_timeout(250)
         ht, gt, mt, wt = page.inner_text("#p-hunger"), page.inner_text("#p-growth"), page.inner_text("#p-meal"), page.inner_text("#p-worth")
         segs = page.evaluate("[...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on'))")
-        check("fish info: 'Hungry! Growth paused · dies in 12h 00m', v6.3 L1 mid meal 'Meal 1 of 2 · needs 1 food' with a 1-segment bar, 'Worth 10 gold'; no tap counts",
-              any(ht.startswith("Hungry! Growth paused · dies in " + t) for t in ("12h 00m", "11h 59m")) and "Growth paused" in gt and mt == "Meal 1 of 2 · needs 1 food"
-              and segs == [False] and wt == "Worth 10 gold" and "tap" not in (ht + mt + gt).lower(), f"{ht} | {gt} | {mt} | {segs} | {wt}")
+        check("fish info: 'Hungry! · dies in 12h 00m' (Growth line says paused), v6.3 L1 mid meal 'needs 1 food' with a 1-segment bar, 'Worth 10' + coin; no tap counts",
+              any(ht == "Hungry! · dies in " + t for t in ("12h 00m", "11h 59m")) and "Growth paused" in gt and mt == "needs 1 food"
+              and segs == [False] and wt == "Worth 10" and "tap" not in (ht + mt + gt).lower(), f"{ht} | {gt} | {mt} | {segs} | {wt}")
         page.screenshot(path=shot("panel_hungry"))
         page.keyboard.press("Escape")
 
@@ -480,7 +480,7 @@ def main(VW, VH):
             btns.append(net_text(fid))
             if lv == 3: page.screenshot(path=shot("net_sell_confirm"))
             page.click("#confirm-no"); page.wait_for_timeout(80)
-        check("fish info has no sell button and shows 'Worth 10 / 20 / 30 / 40 gold' by level", panel_btns == [0, 0, 0, 0] and worth == ["Worth 10 gold", "Worth 20 gold", "Worth 30 gold", "Worth 40 gold"], json.dumps([worth, panel_btns]))
+        check("fish info has no sell button and shows 'Worth 10 / 20 / 30 / 40' (+ coin) by level", panel_btns == [0, 0, 0, 0] and worth == ["Worth 10", "Worth 20", "Worth 30", "Worth 40"], json.dumps([worth, panel_btns]))
         check("Net confirms: Sell Guppy (L1) for 10 gold? / L2 20 + 10 XP / L3 30 + 25 XP / L4 40 + 80 XP",
               btns == ["Sell Guppy (L1) for 10 gold?", "Sell Guppy (L2) for 20 gold and 10 XP?", "Sell Guppy (L3) for 30 gold and 25 XP?", "Sell Guppy (L4) for 40 gold and 80 XP?"], str(btns))
         tool("hand")
@@ -1231,9 +1231,9 @@ def main(VW, VH):
                      meal: document.getElementById('p-meal').textContent, segs: [...document.querySelectorAll('#p-mealbar i')].map((e) => e.classList.contains('on')),
                      segH: document.querySelector('#p-mealbar i') ? document.querySelector('#p-mealbar i').getBoundingClientRect().height : 0, worth: document.getElementById('p-worth').textContent }; })()""")
         page.screenshot(path=shot("fish_info_meal"))
-        check("AD v4 8 / bible 18: fish info docks right (300 / 380 wide, tank height - 16, scrolls); v6.3 L3 Platy end meal after 1 tap 'Meal 2 of 2 · needs 2 food' with a 3-segment 10px bar (1 filled), still L3 'Worth 225 gold'",
+        check("AD v4 8 / bible 18: fish info docks right (300 / 380 wide, tank height - 16, scrolls); v6.3 L3 Platy end meal after 1 tap 'needs 2 food' with a 3-segment 10px bar (1 filled), still L3 'Worth 225' + coin",
               abs(pn["w"] - (380 if LARGE else 300)) < 0.5 and abs(pn["h"] - (pn["tankH"] - 16)) < 0.5 and abs(pn["right"] - 8) < 0.5 and abs(pn["top"] - 8) < 0.5 and pn["overflowY"] == "auto"
-              and pn["meal"] == "Meal 2 of 2 · needs 2 food" and pn["segs"] == [True, False, False] and abs(pn["segH"] - 10) < 0.5 and pn["worth"] == "Worth 225 gold", json.dumps(pn))
+              and pn["meal"] == "needs 2 food" and pn["segs"] == [True, False, False] and abs(pn["segH"] - 10) < 0.5 and pn["worth"] == "Worth 225", json.dumps(pn))
         page.keyboard.press("Escape")
         # away window (NUMBERS v4 11.1)
         aw_ = ev("""fresh(); const quiet = G.catchUp(600); const shownQuiet = AQ.showAway(quiet); const vis1 = !document.getElementById('away').hidden;
@@ -2540,6 +2540,63 @@ def real_clock():
             ctx.close()
         browser.close()
 
+def fish_info_text():
+    """Maksims (2026-09-29): fish info text. Hunger line 'Hungry! · dies in 17h 59m' (no repeated 'Growth paused'; the Growth
+    line keeps it); Food line only what is left ('needs 2 food', then 'needs 1 food' after one feed; no 'Meal 2 of 2 ·');
+    Value 'Worth 30' + the HUD gold coin (same #i-coin symbol), no word 'gold', coin vertically centred on the text."""
+    os.makedirs(FIX_SHOTS, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"fish-info {VW}x{VH}"
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            ev = lambda body: page.evaluate("() => { " + JS + body + " }")
+            # an L3 Guppy hungry for its mid meal (L3 meals 2 + 2 food) for one minute: dies in 18 h - 1 min = 17h 59m
+            fid = ev("""fresh(); G.state.speed = 1; G.state.food = 50; const f = G.buyFish('guppy'); f.level = 3; f.progress = G.growSec(G.SPECIES.guppy, 3) * G.MID_HUNGER - 1;
+                G.tick(1); G.tick(60); AQ.pinFish(f.id, 0.4, 0.5); document.getElementById('toasts').innerHTML = ''; return f.id;""")
+            page.evaluate("AQ.setTool('hand')"); page.wait_for_timeout(200)
+            bc = page.evaluate(f"AQ.fishBody({fid})"); tb = page.locator("#tank").bounding_box()
+            page.mouse.click(tb["x"] + bc["cx"], tb["y"] + bc["cy"]); page.wait_for_timeout(350)
+            READ = """(() => { const t = (id) => document.getElementById(id).innerText.trim(), w = document.getElementById('p-worth'), n = document.getElementById('p-worth-n');
+                const coin = w.querySelector('svg use'), cr = w.querySelector('svg') ? w.querySelector('svg').getBoundingClientRect() : null;
+                const rg = document.createRange(); rg.selectNodeContents(n); const tr = rg.getBoundingClientRect(), hud = document.querySelector('#res-gold svg use');
+                return { open: !document.getElementById('panel').hidden, hunger: t('p-hunger'), growth: t('p-growth'), meal: t('p-meal'), worth: t('p-worth'), worthText: w.textContent.trim(),
+                  coinHref: coin ? coin.getAttribute('href') : null, hudHref: hud ? hud.getAttribute('href') : null, coinVis: !!(cr && cr.width > 0 && w.querySelector('svg').checkVisibility()),
+                  coinW: cr ? cr.width : 0, coinH: cr ? cr.height : 0, textH: tr.height, dy: cr ? (cr.top + cr.height / 2) - (tr.top + tr.height / 2) : 99, gap: cr ? cr.left - tr.right : -1,
+                  inPanel: cr ? cr.right <= document.getElementById('panel').getBoundingClientRect().right : false,
+                  panel: document.getElementById('panel').innerText, state: AQ.game.state.fish.find((f) => f.id === %d).state }; })()""" % fid
+            r0 = page.evaluate(READ)
+            page.screenshot(path=os.path.join(FIX_SHOTS, f"fish_info_{VW}.png"))
+            check("Maksims: hungry fish Hunger line reads exactly 'Hungry! · dies in 17h 59m' (no 'Growth paused' in it); the Growth line still says 'Growth paused'",
+                  r0["open"] and r0["state"] == "HUNGRY" and r0["hunger"] == "Hungry! · dies in 17h 59m" and "Growth paused" in r0["growth"] and r0["panel"].count("Growth paused") == 1, json.dumps(r0))
+            check("Maksims: Food line shows only what is left: 'needs 2 food' (no 'Meal 2 of 2' / 'Meal' anywhere in the panel)",
+                  r0["meal"] == "needs 2 food" and "Meal" not in r0["panel"], json.dumps({"meal": r0["meal"]}))
+            ev(f"const f = G.state.fish.find((x) => x.id === {fid}); G.feedTap(f.x, f.y);"); page.wait_for_timeout(450)
+            r1 = page.evaluate(READ)
+            check("Maksims: after one feed the Food line reads 'needs 1 food'", r1["meal"] == "needs 1 food" and r1["hunger"].startswith("Hungry! · dies in "), json.dumps({"meal": r1["meal"], "hunger": r1["hunger"]}))
+            check("Maksims: Value reads 'Worth 30' with the HUD gold coin (#i-coin, same symbol as the top bar) instead of the word 'gold'",
+                  r0["worth"] == "Worth 30" and r0["worthText"] == "Worth 30" and "gold" not in r0["worthText"].lower() and r0["coinHref"] == "#i-coin" == r0["hudHref"] and r0["coinVis"], json.dumps(r0))
+            check("Maksims: the coin sits right after the number (2-8 px gap), about the text size (0.7-1.5 x the line height) and vertically centred on the text (|dy| <= 1 px), inside the panel",
+                  2 <= r0["gap"] <= 8 and 0.7 * r0["textH"] <= r0["coinH"] <= 1.5 * r0["textH"] and abs(r0["coinW"] - r0["coinH"]) < 0.5 and abs(r0["dy"]) <= 1 and r0["inPanel"],
+                  json.dumps({k: r0[k] for k in ("gap", "coinW", "coinH", "textH", "dy", "inPanel")}))
+            page.keyboard.press("Escape"); page.wait_for_timeout(100)
+            # adult hungry (and the adult meal) use the same wording
+            aid = ev("""fresh(); G.state.speed = 1; const f = G.buyFish('guppy'); f.level = 4; f.state = 'ADULT'; f.progress = 0; f.sinceFed = G.adultHungerSec(G.SPECIES.guppy) - 1;
+                G.tick(2); AQ.pinFish(f.id, 0.4, 0.5); document.getElementById('toasts').innerHTML = ''; return f.id;""")
+            page.wait_for_timeout(200); bc = page.evaluate(f"AQ.fishBody({aid})"); tb = page.locator("#tank").bounding_box()
+            page.mouse.click(tb["x"] + bc["cx"], tb["y"] + bc["cy"]); page.wait_for_timeout(350)
+            ra = page.evaluate(READ.replace("=== %d)" % fid, "=== %d)" % aid))
+            check("adult hungry: 'Hungry! · dies in 19h 59m', Food 'needs 5 food', 'Worth 40' + coin",
+                  ra["open"] and ra["state"] == "ADULT_HUNGRY" and ra["hunger"] == "Hungry! · dies in 19h 59m" and ra["meal"] == "needs 5 food" and ra["worth"] == "Worth 40" and ra["coinVis"], json.dumps({k: ra[k] for k in ("state", "hunger", "meal", "worth")}))
+            page.keyboard.press("Escape")
+            check("fish info text: no page errors", not errs, "; ".join(errs[:3]))
+            ev("G.reset(); G.save();")
+            ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -2555,7 +2612,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

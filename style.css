@@ -120,6 +120,9 @@ body.nodebug #app { grid-template-rows: var(--topbar) minmax(0, 1fr) 0; }
 .p-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; border-bottom: 1px dashed #ffffff14; }
 .p-row .k { color: var(--muted); flex: none; }
 .p-row .v { font-weight: 800; text-align: right; }
+/* fish info Value: 'Worth 30' + the HUD gold coin (same #i-coin symbol), centred on the text line */
+.p-row .v.worth { display: inline-flex; align-items: center; gap: 4px; }
+.p-row .v.worth .coin { width: 1.15em; height: 1.15em; flex: none; }
 #panel .deadonly { display: none; }
 #panel.dead .deadonly { display: flex; }
 #panel.dead p.deadonly { display: block; }

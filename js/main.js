@@ -917,9 +917,6 @@
   let selectedId = null;
   function openPanel(id) { selectedId = id; closeShop(); $('panel').hidden = false; renderPanel(true); }
   function closePanel() { selectedId = null; $('panel').hidden = true; }
-  /** v6.3: L1-L3 each have two meals (mid at 50%, end at 100%; the level-up follows the end meal); adults one */
-  function mealCount(f) { return f.level >= T.maxLevel ? 1 : 2; }
-  function mealIndex(f) { return f.state === 'HUNGRY' ? (f.endMeal ? 2 : 1) : null; }
   function renderPanel() {
     if (selectedId == null) return;
     const f = G.state.fish.find((x) => x.id === selectedId);
@@ -934,7 +931,7 @@
     $('p-rarity').hidden = !tag;
     $('p-rarity').className = tag ? tag.cls : '';
     $('p-level').textContent = i.dead ? 'Dead' : f.level >= T.maxLevel ? `Adult (L${f.level})` : `Level ${f.level} / ${T.maxLevel}`;
-    $('p-worth').textContent = i.dead ? 'Worth 0 gold' : `Worth ${i.sell} gold`;
+    $('p-worth-n').textContent = `Worth ${i.dead ? 0 : i.sell}`; // + the HUD gold coin (#i-coin) after it, no word 'gold' (Maksims)
     if (!i.dead) {
       const gEl = $('p-growth'), hEl = $('p-hunger'), bar = $('p-growbar');
       gEl.className = 'v'; hEl.className = 'v';
@@ -947,18 +944,18 @@
         hEl.textContent = hin != null ? `Fed · hungry in ${fmt(hin)}` : 'Fed'; hEl.classList.add('ok');
       } else if (f.state === 'HUNGRY') {
         gEl.textContent = `L${f.level} · Growth paused`; gEl.classList.add('danger');
-        hEl.textContent = `Hungry! Growth paused · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+        hEl.textContent = `Hungry! · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger'); // the Growth line says paused
       } else if (f.state === 'ADULT') {
         gEl.textContent = `Adult (L${f.level})`;
         hEl.textContent = `Fed · hungry in ${fmt(i.adultHungerIn)}`; hEl.classList.add('ok');
       } else {
         gEl.textContent = `Adult (L${f.level})`;
-        hEl.textContent = `Hungry! dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
+        hEl.textContent = `Hungry! · dies in ${fmt(i.deathLeft)}${realNote(i.deathLeft)}`; hEl.classList.add('danger');
       }
       // meal progress (moved here from above the fish): in food, never taps
-      const k = mealIndex(f), mb = $('p-mealbar');
+      const mb = $('p-mealbar');
       if (i.needsFood) {
-        $('p-meal').textContent = k ? `Meal ${k} of ${mealCount(f)} · needs ${i.needLeft} food` : `Adult meal · needs ${i.needLeft} food`;
+        $('p-meal').textContent = `needs ${i.needLeft} food`; // only what is still needed for this meal (Maksims: no 'Meal 2 of 2')
         if (mb.children.length !== i.portion) mb.replaceChildren(...Array.from({ length: i.portion }, () => document.createElement('i')));
         [...mb.children].forEach((el, n) => el.classList.toggle('on', n < i.fed));
       } else { $('p-meal').textContent = 'Fed'; mb.replaceChildren(); }
