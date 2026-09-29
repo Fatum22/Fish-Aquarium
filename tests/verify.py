@@ -861,7 +861,7 @@ def main(VW, VH):
               return { text: b.textContent, border: cs.borderTopColor, color: cs.color, fill: +i.dataset.fill, art: fb.art, empty: !fb.fillShown,
                        partial: fb.fillShown, clipH: fb.clipH,
                        overlapX: ir.right - br.left, h: br.height, top: br.top - ir.top, inside: br.right <= btn.right + 0.5 && br.left >= btn.left }; })()""")
-        page.wait_for_function("document.getElementById('food-icon').dataset.art === 'v1'", timeout=10000)   # food button pot V1 loaded
+        page.wait_for_function("document.getElementById('food-icon').dataset.art === 'toolbar-v1'", timeout=10000)   # Food pot (toolbar icons V1, inline)
         b0 = bottle()
         check("AD v4 2: at 0 food the badge reads 0 with --danger border and text, and the pot is the empty glass pot (no food drawn)",
               b0["text"] == "0" and b0["border"] == "rgb(255, 90, 90)" and b0["color"] == "rgb(255, 90, 90)" and b0["art"] == "v1" and b0["empty"] and not b0["partial"] and b0["fill"] == 0, json.dumps(b0))
@@ -2700,8 +2700,8 @@ def food_icons():
                   all(areas[i] > areas[i - 1] * 1.2 for i in range(1, len(areas))), json.dumps(areas))
             fa = page.evaluate("AQ.foodArt()")
             food_resp = [q for q in resp if "/food/" in q[1]]
-            check("food icons: food/food_<n>.svg (+ the Food button pot food_button.svg) load with HTTP 200 from relative food/ URLs (works under a subpath), 480x240 each; no 4xx/5xx",
-                  food_resp and all(q[0] == 200 for q in food_resp) and {q[1].split("/food/")[1].split("?")[0] for q in food_resp} == {f"food_{n}.svg" for n in sizes} | {"food_button.svg"}
+            check("food icons: food/food_<n>.svg load with HTTP 200 from relative food/ URLs (works under a subpath), 480x240 each; no 4xx/5xx (the Food button pot is inline since toolbar V1: no food_button.svg request)",
+                  food_resp and all(q[0] == 200 for q in food_resp) and {q[1].split("/food/")[1].split("?")[0] for q in food_resp} == {f"food_{n}.svg" for n in sizes}
                   and all(v["ok"] and not v["failed"] and v["w"] == 480 and v["h"] == 240 for v in fa.values()) and len(fa) == len(sizes) and not any(q[0] >= 400 for q in resp),
                   json.dumps({"resp": food_resp, "art": fa}))
             # locked packs (tank Lv1): the same icon under the card grey-out
@@ -2717,10 +2717,11 @@ def food_icons():
         browser.close()
 
 def food_button():
-    """Food button pot V1 (Art Director art/food-v1/FOOD_V1.md 'Food button', Maksims job 5): food/food_button.svg imported into
-    #food-icon (square viewBox -58 -110 116 116); layers #body (empty glass, always), #fill (full food clipped to #fill-clip,
-    revealed from y = -84 * level down to y = 0) and #rim on top; level = bottleFill(food) (the existing steps); level 0 = no food
-    drawn = the empty glass pot; button size / hit target unchanged (68x54 / 96x88, icon 36 / 52); badge kept."""
+    """Food button pot V1 (Art Director art/food-v1/FOOD_V1.md 'Food button', Maksims job 5), since job 6 the toolbar icons V1
+    food.svg inlined as #food-icon (viewBox 0 0 120 120, pot group translate(60 113) scale(.98)); layers #fb-body (empty glass,
+    always), #fb-fill (full food clipped to #fb-fill-clip, revealed from pot y = -84 * level down to y = 0) and #fb-rim on top;
+    level = bottleFill(food) (the existing steps); level 0 = no food drawn = the empty glass pot; button size / hit target
+    unchanged (68x54 / 96x88, icon 36 / 52); badge kept."""
     with sync_playwright() as p:
         browser = p.chromium.launch()
         for (VW, VH) in ((844, 390), (1180, 820)):
@@ -2730,26 +2731,26 @@ def food_button():
             page.on("pageerror", lambda e: errs.append(str(e)))
             page.on("response", lambda r: resp.append((r.status, r.url)))
             page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game")
-            page.wait_for_function("document.getElementById('food-icon').dataset.art === 'v1'", timeout=10000)
+            page.wait_for_function("document.getElementById('food-icon').dataset.art === 'toolbar-v1'", timeout=10000)
             page.evaluate("() => { AQ.game.reset(); }"); page.wait_for_timeout(150)
             fb = page.evaluate("AQ.foodButton()")
             btn_resp = [q for q in resp if q[1].split("?")[0].endswith("/food/food_button.svg")]
-            check("food button: food/food_button.svg loads with HTTP 200 from a relative URL; #food-icon = square viewBox -58 -110 116 116, layers body, level-clipped fill, rim (rim on top)",
-                  btn_resp and all(q[0] == 200 for q in btn_resp) and fb["art"] == "v1" and fb["viewBox"] == "-58 -110 116 116"
-                  and fb["layers"] == ["defs", "fb-body", "food-level", "fb-rim"], json.dumps({"resp": btn_resp, "fb": fb}))
+            check("food button: the pot is inline (toolbar V1 food.svg, no food_button.svg request); #food-icon = viewBox 0 0 120 120, pot group translate(60 113) scale(.98), layers body, level-clipped fill, rim (rim on top)",
+                  not btn_resp and fb["art"] == "toolbar-v1" and fb["viewBox"] == "0 0 120 120" and fb["potTransform"] == "translate(60 113) scale(.98)"
+                  and fb["layers"] == ["fb-body", "food-level", "fb-rim"], json.dumps({"resp": btn_resp, "fb": fb}))
             bw, bh, ic = (96, 88, 52) if LARGE else (68, 54, 36)
             def px_rows(n):
-                """rasterise the live #food-icon at 4x and return per-row counts of orange food pixels in a strip inside the pot right of the label (x 28..33: no label, no shine, no bubbles)"""
+                """rasterise the live #food-icon at 4x (480 px) and return per-row counts of orange food pixels in a strip inside the pot right of the label (x 28..33: no label, no shine, no bubbles)"""
                 page.evaluate(f"AQ.game.state.food = {n}"); page.wait_for_timeout(120)
                 return page.evaluate("""async () => {
-                  const svg = document.getElementById('food-icon').cloneNode(true); svg.setAttribute('width', '464'); svg.setAttribute('height', '464');
+                  const svg = document.getElementById('food-icon').cloneNode(true); svg.setAttribute('width', '480'); svg.setAttribute('height', '480');
                   svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
                   const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
-                  await img.decode(); const c = document.createElement('canvas'); c.width = c.height = 464; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
-                  const d = g.getImageData(0, 0, 464, 464).data, rows = [];
-                  // viewBox -58 -110 116 116 at 4x: x = (vx + 58) * 4, y = (vy + 110) * 4. Food = saturated orange (r high, b low)
-                  for (let vy = -83; vy <= -2; vy++) { let n = 0; const y = Math.round((vy + 110) * 4);
-                    for (let vx = 28; vx <= 33; vx += 0.25) { const x = Math.round((vx + 58) * 4), i = (y * 464 + x) * 4; if (d[i] > 150 && d[i + 2] < 110 && d[i] - d[i + 2] > 90) n++; }
+                  await img.decode(); const c = document.createElement('canvas'); c.width = c.height = 480; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+                  const d = g.getImageData(0, 0, 480, 480).data, rows = [];
+                  // viewBox 0 0 120 120 at 4x, pot units (vx, vy) -> box (60 + .98 vx, 113 + .98 vy). Food = saturated orange (r high, b low)
+                  for (let vy = -83; vy <= -2; vy++) { let n = 0; const y = Math.round((113 + 0.98 * vy) * 4);
+                    for (let vx = 28; vx <= 33; vx += 0.25) { const x = Math.round((60 + 0.98 * vx) * 4), i = (y * 480 + x) * 4; if (d[i] > 150 && d[i + 2] < 110 && d[i] - d[i + 2] > 90) n++; }
                     rows.push([vy, n]); }
                   return rows; }""")
             res = {}
@@ -2784,6 +2785,157 @@ def food_button():
             ctx.close()
         browser.close()
 
+def toolbar_v1():
+    """Toolbar icons V1 (Art Director art/toolbar-v1/TOOLBAR_V1.md, Maksims job 6; Maksims 2026-09-29 01:36: NO button animations).
+    All six left side-bar icons are the new pot-style art inlined as SVG in each button's .ico span (viewBox 0 0 120 120, class
+    tb tb-<name>, no <use>); pressed = ONLY the blue selected border (no CSS animation / transition / keyframes on the toolbar,
+    the AD's animation-only parts .flake / .bub / .stroke are not in the page, toolbar.css is not loaded); the Food pot keeps the
+    job 5 level (full / low / empty); button sizes, hit targets and spacing unchanged. Screenshots:
+    screenshots/fixes/toolbar_{food,clean,decorate}_{rest,pressed}_{844,1180}.png + toolbar_all_rest_{844,1180}.png."""
+    import re
+    names = [("hand", "Look", "hand"), ("food", "Food", "food"), ("sponge", "Clean", "sponge"), ("net", "Net", "net"), ("brush", "Decorate", "brush"), ("shop", "Shop", None)]
+    html = open(os.path.join(HERE, "..", "index.html")).read()
+    VIEW[0] = "toolbar-v1"
+    src = "/workspace/studio/briefs/aquarium/art/toolbar-v1"
+    if os.path.isdir(src):   # the inlined markup = the AD file minus the animation-only parts (food: + fb- ids and the level clip)
+        same = []
+        for n, _l, _t in names:
+            a = open(os.path.join(src, f"{n}.svg")).read()
+            core = re.sub(r"<defs>.*?</defs>", "", a, flags=re.S)
+            core = re.sub(r'<g class="flakes">.*?</g>\n?|<g class="bubbles">(?:<g class="bub[^"]*">.*?</g>)*</g>\n?|<path class="stroke[^"]*"[^>]*/>\n?', "", core, flags=re.S)
+            m = re.search(r"<!--tb:%s-->(.*?)<!--/tb:%s-->" % (n, n), html, re.S); got = m.group(1) if m else ""
+            if n == "food":   # compare the rim (outline / label / lid) path data, the part the level logic does not touch
+                keys = re.findall(r' d="([^"]+)"', re.search(r'<g id="rim">.*?</g>', a, re.S).group(0)); same.append(all(f' d="{k}"' in got for k in keys) and "translate(60 113) scale(.98)" in got)
+            else: same.append(all(f' d="{k}"' in got for k in re.findall(r' d="([^"]+)"', core)) and 'viewBox="0 0 120 120"' in got)
+        check("toolbar V1: every inlined icon carries the Art Director's art/toolbar-v1/<name>.svg drawing (path data present, food pot rim + transform)", all(same), json.dumps(dict(zip([n for n, _l, _t in names], same))))
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"toolbar-v1 {VW}x{VH}"; LARGE = VH >= 600
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            page.evaluate("() => { AQ.game.reset(); AQ.game.state.food = 50; AQ.setTool('hand'); }"); page.wait_for_timeout(200)
+            bw, bh, ic, gap = (96, 88, 52, 8) if LARGE else (68, 54, 36, 4)
+            dom = page.evaluate("""() => { const btns = [...document.querySelectorAll('#tools .tool')];
+                return { btns: btns.map((b) => { const ico = b.querySelector(':scope > .ico'), svg = ico && ico.querySelector(':scope > svg');
+                    return { label: b.querySelector('span:last-child').textContent, cls: svg ? svg.getAttribute('class') : null, vb: svg ? svg.getAttribute('viewBox') : null,
+                      uses: b.querySelectorAll('use').length, kids: svg ? svg.querySelectorAll('path, rect, circle, ellipse').length : 0 }; }),
+                  oldSymbols: ['i-hand', 'i-food', 'i-food-empty', 'i-sponge', 'i-net', 'i-brush', 'i-shop', 'food-clip'].filter((id) => document.getElementById(id)),
+                  animParts: document.querySelectorAll('#tools .flake, #tools .flakes, #tools .bub, #tools .bubbles, #tools .stroke').length,
+                  tbKeyframes: [...document.styleSheets].flatMap((ss) => { try { return [...ss.cssRules]; } catch (e) { return []; } })
+                    .filter((r) => r.type === CSSRule.KEYFRAMES_RULE && /^tb-/.test(r.name)).map((r) => r.name),
+                  sheets: [...document.styleSheets].map((ss) => ss.href || 'inline') }; }""")
+            want = [(l, f"tb tb-{n}") for n, l, _t in names]
+            check("toolbar V1: the six buttons (Look, Food, Clean, Net, Decorate, Shop) each hold the new inline icon (.ico > svg.tb.tb-<name>, viewBox 0 0 120 120, real drawing, no <use>); old 24-unit symbols removed",
+                  [(b["label"], b["cls"]) for b in dom["btns"]] == want and all(b["vb"] == "0 0 120 120" and b["uses"] == 0 and b["kids"] >= 5 for b in dom["btns"]) and not dom["oldSymbols"],
+                  json.dumps(dom))
+            check("toolbar V1 (Maksims: no button animations): no animation-only parts in the toolbar (.flake / .bub / .stroke), no tb-* keyframes, toolbar.css not loaded",
+                  dom["animParts"] == 0 and not dom["tbKeyframes"] and not any("toolbar.css" in h for h in dom["sheets"]), json.dumps(dom["sheets"]))
+            def icon_png(i, path=None):
+                r = page.evaluate("(i) => document.querySelectorAll('#tools .tool')[i].querySelector('.ico > svg').getBoundingClientRect().toJSON()", i)
+                data = page.screenshot(clip={"x": r["x"], "y": r["y"], "width": r["width"], "height": r["height"]}, path=path)
+                return png_rgb(data), r
+            # each icon renders its art: characteristic colours cover a real part of the icon box
+            sig = {"hand": [lambda c: c[0] > 225 and 160 < c[1] < 240 and 110 < c[2] < 220 and c[0] > c[1] > c[2]],
+                   "food": [lambda c: c[0] > 200 and 80 < c[1] < 175 and c[2] < 90, lambda c: c[2] > 150 and c[0] < 110 and c[1] > 120],
+                   "sponge": [lambda c: c[0] > 215 and c[1] > 170 and c[2] < 120, lambda c: c[1] > 100 and c[1] - c[0] > 40 and c[1] - c[2] > 30],
+                   "net": [lambda c: c[0] > 180 and c[1] > 180 and c[2] > 180, lambda c: c[0] > 180 and 90 < c[1] < 175 and c[2] < 110],
+                   "brush": [lambda c: c[1] > 170 and c[0] < 130 and c[2] < 170, lambda c: c[0] > 150 and 80 < c[1] < 175 and c[2] < 110],
+                   "shop": [lambda c: c[2] > 190 and c[1] > 130 and c[0] < 150, lambda c: c[0] > 200 and 90 < c[1] < 170 and c[2] < 90]}
+            cov = {}
+            for i, (n, _l, _t) in enumerate(names):
+                (w, h, px), _r = icon_png(i); tot = w * h
+                cov[n] = [round(sum(1 for y in range(h) for x in range(w) if f(px(x, y))) / tot, 4) for f in sig[n]]
+            check("toolbar V1: each icon renders the new art at 36 / 52 px (hand skin; pot orange food + blue label fish; sponge yellow + green scrub; net white mesh/hoop + orange fish; brush green tip + wood handle; bag blue + orange fish)",
+                  all(c[0] >= 0.015 and all(v >= 0.004 for v in c) for c in cov.values()), json.dumps(cov))
+            lay = page.evaluate("AQ.layout()"); tl = lay["tools"]
+            check(f"toolbar V1: buttons {bw}x{bh}, icons {ic}x{ic}, {gap}px apart (+6 above Shop), same as before (size / hit target / spacing unchanged)",
+                  all(abs(t["w"] - bw) < 0.5 and abs(t["h"] - bh) < 0.5 and abs(t["icon"]["w"] - ic) < 0.5 and abs(t["icon"]["h"] - ic) < 0.5 for t in tl)
+                  and all(abs(tl[i + 1]["y"] - tl[i]["y"] - bh - gap) < 0.5 for i in range(4)) and abs(tl[5]["y"] - tl[4]["y"] - bh - gap - 6) < 0.5,
+                  json.dumps([(t["label"], t["x"], t["y"], t["w"], t["h"], t["icon"]["w"]) for t in tl]))
+            # screenshots at rest (default state: Look selected) + the whole toolbar
+            def btn_shot(i, path):
+                r = page.evaluate("(i) => document.querySelectorAll('#tools .tool')[i].getBoundingClientRect().toJSON()", i); m = 6
+                page.screenshot(path=path, clip={"x": max(0, r["x"] - m), "y": max(0, r["y"] - m), "width": r["width"] + 2 * m, "height": r["height"] + 2 * m})
+            col = page.evaluate("document.getElementById('tools').getBoundingClientRect().toJSON()")
+            page.screenshot(path=os.path.join(FIX_SHOTS, f"toolbar_all_rest_{VW}.png"), clip={"x": 0, "y": 0, "width": col["right"] + 8, "height": VH})
+            shotname = {"food": "food", "sponge": "clean", "brush": "decorate"}
+            for i, (n, _l, _t) in enumerate(names):
+                if n in shotname: btn_shot(i, os.path.join(FIX_SHOTS, f"toolbar_{shotname[n]}_rest_{VW}.png"))
+            # pressed states: blue border only, static art, nothing animates; unpressing restores the idle look
+            state_js = """(i) => { const btns = [...document.querySelectorAll('#tools .tool')], cs = (e) => getComputedStyle(e);
+                const all = [...document.querySelectorAll('#tools, #tools *')];
+                const anims = document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('#tools')).length;
+                const named = all.filter((e) => cs(e).animationName !== 'none').length;
+                const svg = btns[i].querySelector('.ico > svg'), grp = [...svg.querySelectorAll('g')].map((g) => { const r = g.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map((v) => +v.toFixed(2)); });
+                const tr = [...svg.querySelectorAll('*')].map((e) => cs(e).transform).join('|');   // SVG transform attributes show here too: must equal the rest pose
+                return { pressed: btns.map((b) => b.getAttribute('aria-pressed')), border: cs(btns[i]).borderTopColor, bw: cs(btns[i]).borderTopWidth,
+                         others: btns.filter((b, j) => j !== i).map((b) => cs(b).borderTopColor), anims, named, grp, cssTransforms: tr }; }"""
+            rest = {i: page.evaluate(state_js, i) for i in range(6)}
+            pressed_ok = {}
+            for i, (n, lbl, t) in enumerate(names):
+                if t: page.evaluate(f"AQ.setTool('{t}')")
+                else: page.evaluate("AQ.openShop()")
+                page.wait_for_timeout(150)
+                (w0, h0, px0), _ = icon_png(i)
+                a = page.evaluate(state_js, i)
+                page.wait_for_timeout(450)   # a looping 0.5-1.6 s animation would have moved by now
+                (w1, h1, px1), _ = icon_png(i); b = page.evaluate(state_js, i)
+                diff = [(x, y, px0(x, y), px1(x, y)) for y in range(h0) for x in range(w0) if px0(x, y) != px1(x, y)]
+                still = len(diff) <= 0.005 * w0 * h0   # a moving pose changes hundreds of pixels; allow a few for rare compositor noise
+                if n in shotname: btn_shot(i, os.path.join(FIX_SHOTS, f"toolbar_{shotname[n]}_pressed_{VW}.png"))
+                pressed_ok[lbl] = dict(pressed=a["pressed"][i] == "true" and (sum(v == "true" for v in a["pressed"]) == 1 if t else True),
+                                       border=a["border"] == "rgb(55, 195, 255)" and a["bw"] == "2px", anims=a["anims"] == 0 and a["named"] == 0 and b["anims"] == 0,
+                                       static=still and a["grp"] == rest[i]["grp"] == b["grp"] and a["cssTransforms"] == rest[i]["cssTransforms"] == b["cssTransforms"])
+                if not all(pressed_ok[lbl].values()): pressed_ok[lbl]["dbg"] = {"still": still, "grp": [rest[i]["grp"][:2], a["grp"][:2], b["grp"][:2]], "diff": [len(diff), diff[:6]]}
+                if not t: page.evaluate("document.getElementById('btn-shop').click()"); page.wait_for_timeout(120)
+            check("toolbar V1: pressing each button (Look, Food, Clean, Net, Decorate tools; Shop open) gives it the blue 2px --accent border and aria-pressed, and NOTHING else: "
+                  "no running CSS animation / animation-name on the toolbar, icon groups at the same place as at rest, the same icon pixels 450 ms apart (static art, <= 0.5% noise)",
+                  all(all(v.values()) for v in pressed_ok.values()), json.dumps(pressed_ok))
+            page.evaluate("AQ.setTool('hand')"); page.wait_for_timeout(150)
+            after = page.evaluate(state_js, 1)
+            check("toolbar V1: the pressed state is removed when another tool is picked / the shop closes (Food, Clean, Net, Decorate, Shop back to the idle border, Look pressed), nothing animating",
+                  after["pressed"] == ["true", "false", "false", "false", "false", "false"] and after["border"] != "rgb(55, 195, 255)" and all(o != "rgb(55, 195, 255)" for o in after["others"][1:])
+                  and after["anims"] == 0 and after["named"] == 0, json.dumps(after))
+            # Food pot level in the new icon (live page pixels): orange food in a strip right of the label, top at pot y = -84 x level
+            def food_top(n, tool="hand"):
+                page.evaluate(f"() => {{ AQ.game.state.food = {n}; AQ.setTool('{tool}'); }}"); page.wait_for_timeout(150)
+                (w, h, px), _r = icon_png(1); k = w / 120; rows = []
+                for vy in range(-83, -1):
+                    y = int(round((113 + 0.98 * vy) * k)); cnt = 0
+                    for vx in (28.5, 29.5, 30.5, 31.5, 32.5):
+                        c = px(int(round((60 + 0.98 * vx) * k)), y)
+                        if c[0] > 150 and c[2] < 110 and c[0] - c[2] > 90: cnt += 1
+                    rows.append((vy, cnt))
+                food_rows = [vy for vy, c in rows if c]
+                return {"top": min(food_rows) if food_rows else None, "n": sum(c for _vy, c in rows), "fb": page.evaluate("AQ.foodButton()")}
+            lv = {"full": food_top(20), "low": food_top(1), "empty": food_top(0), "full_pressed": food_top(20, "food"), "low_pressed": food_top(1, "food"), "empty_pressed": food_top(0, "food")}
+            tol = 4
+            ok_lv = {k: (v["fb"]["fill"] == e and ((v["top"] is None and not v["fb"]["fillShown"]) if e == 0 else (v["top"] is not None and abs(v["top"] - max(-84 * e, -80)) <= tol and v["fb"]["fillShown"])))
+                     for k, v, e in [(k, lv[k], {"full": 1, "low": 0.25, "empty": 0}[k.split("_")[0]]) for k in lv]}
+            check("toolbar V1 Food pot: level still revealed by the food count in the new icon, at rest and pressed: full (20) food up to the lid, low (1) top at pot y -21, empty (0) no food = empty glass pot",
+                  all(ok_lv.values()) and lv["full"]["n"] > lv["low"]["n"] > lv["empty"]["n"] == 0, json.dumps({k: {"top": v["top"], "n": v["n"], "fill": v["fb"]["fill"]} for k, v in lv.items()}))
+            check("toolbar V1: no page errors", not errs, "; ".join(errs[:3]))
+            page.evaluate("() => { AQ.setTool('hand'); AQ.game.reset(); AQ.game.save(); }")
+            ctx.close()
+        # prefers-reduced-motion (TOOLBAR_V1.md note 5 'still pose'): with no animations at all the pressed icons are the same static art
+        VIEW[0] = "toolbar-v1 reduced-motion 844x390"
+        ctx = browser.new_context(viewport={"width": 844, "height": 390}, reduced_motion="reduce")
+        page = ctx.new_page(); page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+        rm = []
+        for t in ("food", "sponge", "brush"):
+            page.evaluate(f"AQ.setTool('{t}')"); page.wait_for_timeout(120)
+            rm.append(page.evaluate("""(t) => ({ t, rm: matchMedia('(prefers-reduced-motion: reduce)').matches, pressed: document.querySelector(`.tool[data-tool="${t}"]`).getAttribute('aria-pressed'),
+                anims: document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('#tools')).length,
+                named: [...document.querySelectorAll('#tools *')].filter((e) => getComputedStyle(e).animationName !== 'none').length })""", t))
+        check("toolbar V1: prefers-reduced-motion users get the same still pressed art (nothing animates on the toolbar either way)",
+              all(r["rm"] and r["pressed"] == "true" and r["anims"] == 0 and r["named"] == 0 for r in rm), json.dumps(rm))
+        page.evaluate("() => { AQ.setTool('hand'); AQ.game.reset(); AQ.game.save(); }")
+        ctx.close()
+        browser.close()
+
 if __name__ == "__main__":
     # AQ_ONLY=edit_spacing,rarity_tags ... runs just those sections (names below); default = everything
     only = {x.strip() for x in os.environ.get("AQ_ONLY", "").split(",") if x.strip()}
@@ -2799,7 +2951,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout), ("food_icons", food_icons), ("food_button", food_button)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout), ("food_icons", food_icons), ("food_button", food_button), ("toolbar_v1", toolbar_v1)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()
