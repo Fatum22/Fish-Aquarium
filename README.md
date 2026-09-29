@@ -77,6 +77,7 @@ Game time runs on the real wall clock (`Date.now()`), never on `performance.now(
 
 - `index.html`, `style.css`: landscape frame (tool column / top bar / tank / debug row), rotate screen, panels, shop, edit menu
 - `config.js`: `TUNING` (v4 tuning.json verbatim), presentation values in `VISUAL`, `OFFLINE_CAP_SEC`
+- `food/`: Art Director food pack icons V1 (`food_<n>.svg`, 480x240, drawn whole / contained on the Food shop cards; `food_<n>-512.png` fallback)
 - `js/game.js`: game state, simulation, meals, rubbing, selling, decorations, tank XP, offline catch-up, save/load, balance self-checks
 - `js/fishart.js`: procedural canvas fish art for 4 species (L1-L4 growth look, dead-fish look)
 - `js/main.js`: rendering, swimming AI, input, tools, panels, shop, edit mode, rotate screen, fluid layout

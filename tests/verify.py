@@ -2645,11 +2645,72 @@ def shop_layout():
                               all(abs(c["cvW"] - c["innerW"]) < 0.5 and abs(c["cvW"] / c["cvH"] - 2.5) < 0.02 and c["cvW"] >= 140 and c["bmpW"] == 480 for c in cs),
                               json.dumps([{k: c[k] for k in ("id", "cardW", "innerW", "cvW", "cvH", "bmpW")} for c in cs[:1] + [c for c in cs if abs(c["cvW"] - c["innerW"]) >= 0.5][:3]]))
                     if state == "unlocked":
+                        if tab == "food": page.wait_for_function("[...document.querySelectorAll('#shop-food .card canvas')].every((c) => c.dataset.icon)", timeout=10000)  # food icons V1 drawn
                         page.evaluate("document.getElementById('shop-scroll').scrollTop = 0"); page.wait_for_timeout(100)
                         page.screenshot(path=os.path.join(FIX_SHOTS, f"shop_{name}_{VW}.png"))
                 page.evaluate("document.querySelector('#shop-close').click()"); page.wait_for_timeout(100)
             check("shop layout: no page errors", not errs, "; ".join(errs[:3]))
             ev("G.reset(); G.save();")
+            ctx.close()
+        browser.close()
+
+def food_icons():
+    """Art Director food pack icons V1 (art/food-v1/FOOD_V1.md, Maksims job 4): every Food shop card shows its own pack icon
+    (food/food_<n>.svg: 1 / 2 / 3 / 4 / 5 pots for 5 / 10 / 50 / 250 / 500 food), the WHOLE 480x240 image contained in the card
+    (2:1 kept, fit by height, centred, on the bottom; never cropped to the pots, so the pack sizes stay readable); the assets
+    load with HTTP 200 from relative food/ URLs (GitHub Pages subpath); locked packs use the card grey-out."""
+    tj = merged_tuning(); sizes = [pk["food"] for pk in tj["foodPacks"]]
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        for (VW, VH) in ((844, 390), (1180, 820)):
+            VIEW[0] = f"food-icons {VW}x{VH}"
+            ctx = browser.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=2)
+            page = ctx.new_page(); errs = []; resp = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.on("response", lambda r: resp.append((r.status, r.url)))
+            page.goto(BASE + "?speed=1"); page.wait_for_function("window.AQ && window.AQ.game"); page.wait_for_timeout(300)
+            page.evaluate("() => { AQ.game.reset(); AQ.game.state.tank.xp = 99999; AQ.game.state.gold = 99999; AQ.openShop(); AQ.setShopTab('food'); }")
+            page.wait_for_function("document.querySelectorAll('#shop-food .card canvas[data-icon]').length === %d" % len(sizes), timeout=10000)
+            page.wait_for_timeout(200)
+            r = page.evaluate("""() => {
+                const bbox = (c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0;
+                  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 24) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+                  return { x0, y0, x1, y1, n }; };
+                return [...document.querySelectorAll('#shop-food .card')].map((card) => { const c = card.querySelector('canvas'), rect = (c.dataset.rect || '').split(',').map(Number);
+                  const food = AQ.game.T.foodPacks[+card.dataset.pack].food, ref = document.createElement('canvas'); ref.width = 480; ref.height = 240;
+                  const img = new Image(); img.src = c.dataset.icon; ref.getContext('2d').drawImage(img, 0, 0, 480, 240);   // the whole art, unscaled
+                  const cr = c.getBoundingClientRect();
+                  return { food, icon: c.dataset.icon, rect, cw: c.width, ch: c.height, cssW: cr.width, cssH: cr.height, got: bbox(c), art: bbox(ref), text: card.querySelector('.n').textContent }; }); }""")
+            bad = []
+            for c in r:
+                x, y, w, h = c["rect"] if len(c["rect"]) == 4 else (0, 0, 0, 0)
+                sc = h / 240 if h else 0
+                exp = {k: c["art"][k] * sc + (x if k[0] == "x" else y) for k in ("x0", "x1", "y0", "y1")}
+                ok = (c["icon"] == f"food/food_{c['food']}.svg" and abs(w / h - 2) < 1e-6 and x >= 0 and y >= 0 and x + w <= c["cw"] + 1e-6 and y + h <= c["ch"] + 1e-6
+                      and abs(h - c["ch"]) < 1e-6 and abs(x - (c["cw"] - w) / 2) < 1e-6 and abs(c["cssW"] / c["cssH"] - c["cw"] / c["ch"]) < 0.02
+                      and all(abs(c["got"][k] - exp[k]) <= 2.5 for k in exp) and c["got"]["n"] > 0 and c["art"]["n"] > 0)
+                if not ok: bad.append({k: c[k] for k in ("food", "icon", "rect", "cw", "ch", "got", "art")})
+            check("food shop: every pack card shows its own icon (food/food_<n>.svg for 5 / 10 / 50 / 250 / 500), the whole 480x240 art contained: 2:1 kept, fit by height, centred, inside the canvas, "
+                  "and the drawn pixels = the full art's opaque bounds scaled (nothing cropped at the top or edges)",
+                  [c["food"] for c in r] == sizes and not bad, json.dumps({"bad": bad[:3], "sizes": [c["food"] for c in r]}))
+            areas = [c["got"]["n"] for c in r]
+            check("food shop: more food = more pots (opaque art area grows with every pack size), so the pack sizes stay distinguishable",
+                  all(areas[i] > areas[i - 1] * 1.2 for i in range(1, len(areas))), json.dumps(areas))
+            fa = page.evaluate("AQ.foodArt()")
+            food_resp = [q for q in resp if "/food/" in q[1]]
+            check("food icons: food/food_<n>.svg load with HTTP 200 from relative food/ URLs (works under a subpath), 480x240 each; no 4xx/5xx",
+                  food_resp and all(q[0] == 200 for q in food_resp) and {q[1].split("/food/")[1].split("?")[0] for q in food_resp} == {f"food_{n}.svg" for n in sizes}
+                  and all(v["ok"] and not v["failed"] and v["w"] == 480 and v["h"] == 240 for v in fa.values()) and len(fa) == len(sizes) and not any(q[0] >= 400 for q in resp),
+                  json.dumps({"resp": food_resp, "art": fa}))
+            # locked packs (tank Lv1): the same icon under the card grey-out
+            page.evaluate("() => { document.querySelector('#shop-close').click(); AQ.game.reset(); AQ.openShop(); AQ.setShopTab('food'); }"); page.wait_for_timeout(300)
+            lk = page.evaluate("""() => [...document.querySelectorAll('#shop-food .card')].map((c) => ({ food: AQ.game.T.foodPacks[+c.dataset.pack].food, locked: c.classList.contains('locked'),
+                filter: getComputedStyle(c).filter, opacity: getComputedStyle(c).opacity, icon: c.querySelector('canvas').dataset.icon }))""")
+            check("food icons: locked packs keep their icon with the card grey-out (grayscale + faded), unlocked ones are not greyed",
+                  any(c["locked"] for c in lk) and all(c["icon"] == f"food/food_{c['food']}.svg" for c in lk)
+                  and all(("grayscale" in c["filter"] and float(c["opacity"]) < 1) if c["locked"] else (c["filter"] == "none" and float(c["opacity"]) == 1) for c in lk), json.dumps(lk))
+            check("food icons: no page errors", not errs, "; ".join(errs[:3]))
+            page.evaluate("() => { AQ.game.reset(); AQ.game.save(); }")
             ctx.close()
         browser.close()
 
@@ -2668,7 +2729,7 @@ if __name__ == "__main__":
     if run("fluid") and os.environ.get("AQ_FLUID", "1") == "1":
         print("\n======== fluid layout", flush=True)
         fluid_layout()
-    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout)):
+    for name, fn in (("debug_bottom", debug_bottom), ("cache_bust", cache_bust), ("home_screen_icons", home_screen_icons), ("edit_spacing", edit_spacing), ("rarity_tags", rarity_tags), ("tuning_68", tuning_68), ("decor_v1", decor_v1), ("standalone_ios", standalone_ios), ("tank_corners", tank_corners), ("real_clock", real_clock), ("fish_info_text", fish_info_text), ("shop_layout", shop_layout), ("food_icons", food_icons)):
         if run(name):
             print(f"\n======== {name}", flush=True)
             fn()

@@ -1013,7 +1013,35 @@
     renderShop();
   }
   document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => setShopTab(b.dataset.tab)));
-  function drawBottleCard(c, n) {
+  // ---- food pack icons V1 (Art Director art/food-v1/FOOD_V1.md): food/food_<n>.svg, 480x240 (2:1), transparent, the same
+  // pot size in every file (1 / 2 / 3 / 4 / 5 pots for 5 / 10 / 50 / 250 / 500 food). The WHOLE viewBox is drawn contained
+  // in the card (fit by height, centred, on the card bottom) and never cropped to the pots, so the pack sizes stay readable.
+  // PNG fallback food/food_<n>-512.png if the SVG fails; the old flat bottles only for a pack size without art.
+  const FOOD_ICON_SIZES = [5, 10, 50, 250, 500], foodImg = new Map(); // food -> { img, src, ok, waiting: [canvas ctx] }
+  function foodIcon(n) {
+    if (!FOOD_ICON_SIZES.includes(n)) return null;
+    let e = foodImg.get(n);
+    if (!e) {
+      e = { img: new Image(), src: `food/food_${n}.svg`, ok: false, failed: false, waiting: [] };
+      e.img.onload = () => { e.ok = true; e.waiting.splice(0).forEach((c) => drawFoodCard(c, n)); };
+      e.img.onerror = () => {
+        if (e.src.endsWith('.svg')) { e.src = `food/food_${n}-512.png`; e.img.src = e.src; return; }
+        e.failed = true; e.waiting.splice(0).forEach((c) => drawFoodCard(c, n));
+      };
+      e.img.src = e.src; foodImg.set(n, e);
+    }
+    return e;
+  }
+  /** a food pack picture (shop card: 480 x 192 canvas = 2x the 240 x 96 card box) */
+  function drawFoodCard(c, n) {
+    const cw = c.canvas.width, ch = c.canvas.height, e = foodIcon(n);
+    if (!e || e.failed) { c.save(); c.setTransform(cw / 240, 0, 0, ch / 96, 0, 0); drawBottleCard(c, n); c.restore(); c.canvas.dataset.icon = 'bottles'; return; }
+    if (!e.ok) { if (!e.waiting.includes(c)) e.waiting.push(c); return; }
+    const s = Math.min(cw / 480, ch / 240), w = 480 * s, h = 240 * s, x = (cw - w) / 2, y = ch - h; // contain, bottom-centred
+    c.clearRect(0, 0, cw, ch); c.drawImage(e.img, x, y, w, h);
+    c.canvas.dataset.icon = e.src; c.canvas.dataset.rect = [x, y, w, h].map((v) => +v.toFixed(2)).join(',');
+  }
+  function drawBottleCard(c, n) { // pre-V1 flat bottles (fallback only)
     c.clearRect(0, 0, 240, 96);
     const k = n >= 500 ? 5 : n >= 50 ? 3 : 1; // v6.7: the 500-food pack shows five bottles
     for (let i = 0; i < k; i++) {
@@ -1053,10 +1081,10 @@
       });
       T.foodPacks.forEach((p, i) => {
         const card = document.createElement('div'); card.className = 'card'; card.dataset.pack = i;
-        card.innerHTML = `<canvas width="240" height="96"></canvas><div class="n">${p.food} food · ${p.gold} gold</div><div class="s">${+(p.gold / p.food).toFixed(2)} gold per food</div>
+        card.innerHTML = `<canvas width="480" height="192"></canvas><div class="n">${p.food} food · ${p.gold} gold</div><div class="s">${+(p.gold / p.food).toFixed(2)} gold per food</div>
           <button class="btn buy" data-food="${i}"><svg><use href="#i-coin"/></svg><span class="price">${p.gold}</span><span class="lbl"></span></button>`;
         $('shop-food').appendChild(card);
-        drawBottleCard(card.querySelector('canvas').getContext('2d'), p.food);
+        drawFoodCard(card.querySelector('canvas').getContext('2d'), p.food);
         card.querySelector('button').addEventListener('click', () => { G.buyFood(i); renderShop(); });
       });
       Object.keys(T.decorations.types).concat(G.shopItemIds()).filter((type) => DECOR_TYPES[type]).forEach((type) => { // leaf, stone, then the ladder
@@ -1688,6 +1716,7 @@
     flakes() { return { ...flakeStats, live: pellets.map((p) => ({ x: p.x, y: p.y, x0: p.x0, y0: p.y0, t: p.t, fishId: p.fishId })) }; },
     fishLen(sp, level) { return fishLen({ sp, level }); },
     floats(clear) { const out = floatLog.slice(); if (clear) floatLog.length = 0; return out; },
+    foodArt() { return Object.fromEntries([...foodImg].map(([n, e]) => [n, { src: e.src, ok: e.ok, failed: e.failed, w: e.img.naturalWidth, h: e.img.naturalHeight }])); },
     setTool, openShop, setShopTab, rarityTag,
   };
 })();
