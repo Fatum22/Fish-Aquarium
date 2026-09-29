@@ -1,0 +1,332 @@
+/*
+ * ============================================================================
+ *  AQUARIUM - BALANCE CONFIG (single source of truth for every balance number)
+ *
+ *  TUNING below is a VERBATIM copy of Designer's
+ *    /workspace/studio/briefs/aquarium/design/tuning.json   (version 3: v3 economy on the v2 slow game)
+ *  with the rules/proofs in NUMBERS.md (v3) in the same folder. To retune: run
+ *  `python3 tools/sync_tuning.py` (copies tuning.json over TUNING) and reload. The
+ *  headless test (tests/verify.py) asserts TUNING == tuning.json.
+ *
+ *  Units: seconds of game time at debug speed x1 (the debug speed multiplies
+ *  every timer equally, including time while the game is closed).
+ *  Gold, food and XP are integers.
+ *
+ *  How the game reads TUNING (NUMBERS.md v3):
+ *   - growSec[i]       : growth time from level i+1 to i+2 (L1->L2, L2->L3, L3->L4)
+ *   - hungerPoint      : fraction of the current level's growth at which the fish gets hungry (once per level)
+ *   - deathSec         : death timer from the moment a fish gets hungry (same for every species/level)
+ *   - adultHungerSec   : an adult (L4) gets hungry this long after reaching L4, then after each full feed
+ *   - portion          : foodBase * level * rarityFoodMult[rarity] food; one Food tap gives foodPerTap food
+ *                        to the nearest fish that still needs food, so it takes ceil(portion / foodPerTap) taps
+ *   - feedGoldPerFish  : gold paid when a fish becomes fully fed (v3: 0 -> no gold float at all)
+ *   - levelUpGold[i]   : gold on reaching L(i+2)
+ *   - levelUpXp[i]     : tank XP on reaching L(i+2) (tank.xp.fishLevelUp = "species.levelUpXp")
+ *   - sell[i]          : sell price at L(i+1); sell[0] = 0 -> "Release (0 gold)"
+ *   - unlockTankLevel  : species can only be bought at this tank level or higher
+ *   - dirt (model timeSinceClean): stage n at stageAtSec[n-1] seconds since the last full clean
+ *                        (runs regardless of living, dead or no fish: the empty tank gets dirty too)
+ *   - dirt.spots       : spots on the glass at stage n = spots[n-1]
+ *   - dirt.cleanGold   : payout for a full clean by stage [st1..st5] (+ tank.xp.clean XP), indexed by the stage
+ *                        when rubbing started (cleanGoldIndex = byStageAtCleanStart), paid when the last spot clears
+ *   - dirt.rubPxPerSpot: grime of a spot that appears at stage n = px of sponge travel over it
+ *   - tank.levelAtXp   : total XP needed for tank level 1..5
+ *   - offlineProgress  : timers keep running while the game is closed (catch-up on load, capped at 7 days)
+ *   - deadFish         : dead fish float belly-up until removed (0 gold) and take a tank slot (the dirt clock ignores fish entirely)
+ *   - debugSpeeds / debugDefaultSpeed : on-screen speed control (x1..x20), page opens at x1; ?speed=N (hidden) allows any N
+ * ============================================================================
+ */
+window.AQUARIUM_CONFIG = {
+  source: 'tuning.json (Designer v3 economy on the v2 slow game, 2026-09-27)',
+
+  // ---- VERBATIM tuning.json ------------------------------------------------
+  TUNING: {
+    "version": 3,
+    "startGold": 20,
+    "startFood": 10,
+    "tankCapacity": 6,
+    "maxLevel": 4,
+    "foodPack": {
+      "food": 10,
+      "gold": 10
+    },
+    "foodPerTap": 1,
+    "feedGoldPerFish": 0,
+    "hungerPoint": 0.5,
+    "deathSec": 57600,
+    "rarityFoodMult": {
+      "common": 1
+    },
+    "offlineProgress": true,
+    "debugSpeeds": [
+      1,
+      5,
+      10,
+      15,
+      20
+    ],
+    "species": [
+      {
+        "id": "guppy",
+        "name": "Guppy",
+        "latin": "Poecilia reticulata",
+        "rarity": "common",
+        "unlockTankLevel": 1,
+        "price": 20,
+        "foodBase": 1,
+        "growSec": [
+          3600,
+          7200,
+          14400
+        ],
+        "levelUpGold": [
+          1,
+          2,
+          4
+        ],
+        "sell": [
+          0,
+          8,
+          18,
+          40
+        ],
+        "adultHungerSec": 14400,
+        "levelUpXp": [
+          10,
+          20,
+          40
+        ]
+      },
+      {
+        "id": "danio",
+        "name": "Zebra Danio",
+        "latin": "Danio rerio",
+        "rarity": "common",
+        "unlockTankLevel": 2,
+        "price": 50,
+        "foodBase": 1,
+        "growSec": [
+          4500,
+          9000,
+          18000
+        ],
+        "levelUpGold": [
+          3,
+          5,
+          10
+        ],
+        "sell": [
+          0,
+          20,
+          45,
+          100
+        ],
+        "adultHungerSec": 18000,
+        "levelUpXp": [
+          20,
+          40,
+          80
+        ]
+      },
+      {
+        "id": "neon",
+        "name": "Neon Tetra",
+        "latin": "Paracheirodon innesi",
+        "rarity": "common",
+        "unlockTankLevel": 3,
+        "price": 90,
+        "foodBase": 2,
+        "growSec": [
+          6300,
+          12600,
+          25200
+        ],
+        "levelUpGold": [
+          5,
+          9,
+          18
+        ],
+        "sell": [
+          0,
+          36,
+          81,
+          180
+        ],
+        "adultHungerSec": 25200,
+        "levelUpXp": [
+          30,
+          60,
+          120
+        ]
+      },
+      {
+        "id": "platy",
+        "name": "Platy",
+        "latin": "Xiphophorus maculatus",
+        "rarity": "common",
+        "unlockTankLevel": 4,
+        "price": 150,
+        "foodBase": 2,
+        "growSec": [
+          9000,
+          18000,
+          36000
+        ],
+        "levelUpGold": [
+          8,
+          15,
+          30
+        ],
+        "sell": [
+          0,
+          60,
+          135,
+          300
+        ],
+        "adultHungerSec": 36000,
+        "levelUpXp": [
+          50,
+          100,
+          200
+        ]
+      }
+    ],
+    "adultHungerFrom": "reachL4ThenLastFeed",
+    "dirt": {
+      "model": "timeSinceClean",
+      "stageAtSec": [
+        10800,
+        21600,
+        43200,
+        86400,
+        172800
+      ],
+      "spots": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "cleanGold": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "rubPxPerSpot": [
+        150,
+        150,
+        220,
+        220,
+        220
+      ],
+      "stage5Film": true,
+      "runsWithEmptyTank": true,
+      "cleanGoldIndex": "byStageAtCleanStart"
+    },
+    "tank": {
+      "levelAtXp": [
+        0,
+        60,
+        400,
+        1200,
+        3000
+      ],
+      "maxLevel": 5,
+      "xp": {
+        "fishLevelUp": "species.levelUpXp",
+        "clean": 5,
+        "sell": 0,
+        "feed": 0
+      },
+      "level5Reward": "decorationsLater"
+    },
+    "starterGrant": {
+      "oneTime": true,
+      "when": "noLivingFish && gold < 20",
+      "topUpGoldTo": 20
+    },
+    "debugDefaultSpeed": 1,
+    "deadFish": {
+      "staysUntilRemoved": true,
+      "removeGold": 0,
+      "takesTankSlot": true
+    }
+  },
+  // ---- END VERBATIM tuning.json (tools/sync_tuning.py replaces everything above up to TUNING) ----
+
+  // Tank XP sources are settled (NUMBERS.md 11): the game reads TUNING.tank.xp directly. The v2
+  // XP_SOURCE / XP_PRESETS switch is retired.
+
+  // ---- Offline catch-up (NUMBERS.md 9.3) -------------------------------------
+  OFFLINE_CAP_SEC: 7 * 24 * 3600, // one catch-up replays at most 7 days of game time
+
+  // ---- Rarity scaling for LATER (not in tuning.json; NUMBERS.md section 8).
+  // Only "common" is used now. Food multiplier comes from TUNING.rarityFoodMult
+  // (falls back to foodMult here for non-common).
+  RARITY_LATER: {
+    common: { growthMult: 1, foodMult: 1, goldMult: 1,  diamondStub: false },
+    rare:   { growthMult: 2, foodMult: 3, goldMult: 4,  diamondStub: true },
+    epic:   { growthMult: 4, foodMult: 6, goldMult: 10, diamondStub: true },
+  },
+
+  // ---- Presentation only (NOT balance; engineer-chosen, safe to change) -----
+  VISUAL: {
+    levelSizeScale: [0.55, 0.7, 0.85, 1.0], // fish drawing size by level L1..L4
+    flakesPerTap: 16,                       // food flakes in one tap's shower (visual only; still 1 food per tap)
+    speciesSize: { guppy: 0.82, danio: 0.95, neon: 0.85, platy: 1.0 },
+    spongeRadiusFrac: 0.14,  // doubled per Maksims 2026-09-27 (finger hid the sponge)
+    spongeTouchLiftFrac: 1.25, // on touch, sponge drawn + cleans this many sponge radii above the fingertip
+    // Dirt look per stage (Art Director DIRT_AND_FISH_GROWTH.md "v2 dirt look", replaces the s.1 table; shapes as s.1).
+    // r = radius range as a fraction of tank width (stage 3: the long radius of its 2.2:1 drip).
+    // A spot keeps the look of the stage it spawned at.
+    dirtStages: [
+      { look: 'smudge', r: [0.075, 0.11], color: '#7A8A4A', alpha: 0.14 }, // soft round film, no speckles
+      { look: 'dots',   r: [0.11, 0.14],  color: '#6B8F3A', alpha: 0.22 }, // 5-8 small algae dots
+      { look: 'drip',   r: [0.16, 0.20],  color: '#5E7A2E', alpha: 0.32 }, // 2.2:1 streak, darker bottom (+0.08); reads like old stage 5
+      { look: 'hair',   r: [0.20, 0.25],  color: '#4A6B24', alpha: 0.40, strandAlpha: 0.5, // patch + wavy strands at ~50% (AD ruling 3)
+        tintHalf: '#5A5228', tintMix: 0.6 },                                             // brown crust tint on half the spots
+      { look: 'crust',  r: [0.24, 0.30],  color: '#5A5228', alpha: 0.46 }, // rough brown crust + speckles
+    ],
+    // Tank-wide layer per stage, drawn in front of the fish and behind the spots. null = none,
+    // { wash: css colour } = flat tint, { film: true } = the stage 5 film below.
+    dirtLayer: [
+      null,
+      { wash: 'rgba(95,110,40,0.04)' },
+      { wash: 'rgba(95,110,40,0.08)' },
+      { wash: 'rgba(108,116,38,0.12)' }, // slight yellow-green
+      { film: true },
+    ],
+    dirtFilm: {
+      rgb: [70, 110, 40], centre: 0.28, edge: 0.42, // radial vignette: flat in the middle 60%, rising to the edges/corners
+      cloud: 0.06, cloudDriftSec: 120,               // low-frequency blotches +-0.06, drifting one tank width per 2 minutes
+      scumRgb: [96, 108, 46], scumFrac: 0.08, scumAlpha: 0.45, // waterline scum band (top 8%, soft bottom edge)
+      guardZone: 0.6, guardMax: 0.6,                 // middle 60% of the tank: film + one spot <= 0.6 combined opacity
+      cellPx: 6,                                     // film is computed on a coarse grid and smoothed
+    },
+    dirtOverlapChance: 0.5,   // stage 2+ spot spawns overlapping an older spot this often
+    dirtOverlapEdgeFrac: 0.6, // ...with its centre within 0.6 x older radius of the older spot's edge
+    // Fish growth look by level L1..L4 (s.2). Size still comes from levelSizeScale.
+    fishGrowth: {
+      sat:        [0.30, 0.55, 0.80, 1.00], // body colour saturation vs adult palette
+      tailLen:    [0.45, 0.65, 0.85, 1.00],
+      tailSpread: [0.50, 0.70, 0.85, 1.00],
+      finAlpha:   [0,    0.40, 0.70, 1.00], // 0 = clear fins rgba(235,240,245,0.22) + white edge
+      markAlpha:  [0,    0.40, 1.00, 1.00], // main markings; L4 adds adult detail
+      // AD ruling 2026-09-27: platy (only warm fish) fins+tail total opacity 65% at L2, 85% at L3 so orange doesn't turn grey over blue water.
+      // Multipliers on the platy's own fin alpha 0.85: 0.65/0.85 and 0.85/0.85.
+      finAlphaBySpecies: { platy: [0, 0.65 / 0.85, 1.00, 1.00] },
+    },
+    saveKey: 'aquarium.save.v2', // v2 rules: v1 saves are not loaded
+    saveEveryMs: 2000,
+  },
+};
+
+/*
+ * Designer's proofs (NUMBERS.md v2 sections 4 and 5) are recomputed from TUNING at startup in
+ * js/game.js -> Game.balanceChecks() and printed with console.info:
+ *   clean gold per day at stage 1..5: 80 > 40 > 20 > 10 > 5 (cleaning at stage 1 earns 16x stage 5)
+ *   gold per hour, sell@L3 vs sell@L4: Guppy 13.0 < 19.6, Danio 21.1 < 31.7, Neon 21.9 < 33.5, Platy 26.0 < 39.4
+ */
